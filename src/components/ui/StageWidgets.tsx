@@ -1,4 +1,5 @@
 import React, { useState, useRef, useId } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronsLeftRight } from 'lucide-react';
 
 /**
  * Parses **bold** and `inline code` into styled React elements.
@@ -57,7 +58,6 @@ export const StageSlider: React.FC<StageSliderProps> = ({
   onChange,
 }) => {
   const id = useId();
-  // 记住首次挂载时的值，作为“默认值”供双击恢复。
   const initialRef = useRef(value);
   const display = formatValue
     ? formatValue(value)
@@ -84,7 +84,11 @@ export const StageSlider: React.FC<StageSliderProps> = ({
           tabIndex={isDefault ? -1 : 0}
         >
           {display}
-          {!isDefault && <span className="slider-reset-icon" aria-hidden>↺</span>}
+          {!isDefault && (
+            <span className="slider-reset-icon" aria-hidden>
+              ↺
+            </span>
+          )}
         </button>
       </div>
       <input
@@ -181,10 +185,10 @@ export const PitfallCompareBar: React.FC<PitfallCompareBarProps> = ({
   <div className={`pitfall-bar ${isPitfall ? 'is-pitfall' : 'is-correct'}`}>
     <span className="pitfall-bar-text">
       <span className="pitfall-bar-icon" aria-hidden>
-        {isPitfall ? '⚠️' : '✅'}
+        {isPitfall ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
       </span>
       <span>
-        <span className="pitfall-bar-kicker">当前预览</span>
+        <span className="pitfall-bar-kicker">{isPitfall ? '故障状态' : '正确配置'}</span>
         {isPitfall ? pitfallLabel : correctLabel}
       </span>
     </span>
@@ -270,7 +274,9 @@ export const SplitCompareContainer: React.FC<{
         {leftContent}
       </div>
       <div className="split-compare-divider" style={{ left: `${split}%` }}>
-        <div className="split-compare-handle">⇆</div>
+        <div className="split-compare-handle">
+          <ChevronsLeftRight size={15} />
+        </div>
       </div>
       <span className="split-compare-tag left">{leftLabel}</span>
       <span className="split-compare-tag right">{rightLabel}</span>

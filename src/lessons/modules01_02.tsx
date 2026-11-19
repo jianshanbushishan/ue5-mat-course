@@ -517,17 +517,22 @@ const LightAndColorStage: React.FC<LessonStageProps> = ({
         >
           <div
             style={{
-              padding: '7px 11px',
+              padding: '8px 12px',
               borderBottom: '1px solid var(--border-soft)',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
+              gap: 8,
               fontSize: 12,
               fontWeight: 700,
             }}
           >
-            <span>🔦 实验一：暗室手电筒“挑食反射”舱</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>反射色 = 灯光 × 表皮</span>
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              实验一：暗室手电筒“挑食反射”舱
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              反射色 = 灯光 × 表皮
+            </span>
           </div>
           <canvas
             ref={darkroomCanvasRef}
@@ -550,17 +555,22 @@ const LightAndColorStage: React.FC<LessonStageProps> = ({
         >
           <div
             style={{
-              padding: '7px 11px',
+              padding: '8px 12px',
               borderBottom: '1px solid var(--border-soft)',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
+              gap: 8,
               fontSize: 12,
               fontWeight: 700,
             }}
           >
-            <span>💡 实验二：拖拽 RGB 聚光灯（光的加法）</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>直接按住圆灯拖动</span>
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              实验二：拖拽 RGB 聚光灯（光的加法）
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              按住圆灯拖动
+            </span>
           </div>
           <div style={{ position: 'relative' }}>
             <canvas

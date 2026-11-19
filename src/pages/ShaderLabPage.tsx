@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Sparkles, Layers, Cpu } from 'lucide-react';
+import { Upload, Sparkles, Layers, Cpu, FlaskConical } from 'lucide-react';
 import { StageSlider, StageSegmented, StageToggle, FormattedText } from '../components/ui/StageWidgets';
 import {
   clamp,
@@ -28,13 +28,13 @@ interface PbrPreset {
 }
 
 const PRESETS: PbrPreset[] = [
-  { name: '🏆 24K 纯金', hex: '#ffd666', metallic: 1.0, roughness: 0.16, specular: 0.5, aniso: 0, clearCoat: 0, sss: 0, toon: 0 },
-  { name: '🍳 拉丝紫铜', hex: '#f0946d', metallic: 1.0, roughness: 0.28, specular: 0.5, aniso: 0.78, clearCoat: 0, sss: 0, toon: 0 },
-  { name: '🧱 红色乐高塑料', hex: '#d62828', metallic: 0.0, roughness: 0.2, specular: 0.5, aniso: 0, clearCoat: 0, sss: 0, toon: 0 },
-  { name: '🚗 豪车双层清漆', hex: '#1d3557', metallic: 0.85, roughness: 0.42, specular: 0.5, aniso: 0, clearCoat: 1.0, sss: 0, toon: 0 },
-  { name: '🧊 冰种温润翡翠', hex: '#2a9d6f', metallic: 0.0, roughness: 0.18, specular: 0.55, aniso: 0, clearCoat: 0.35, sss: 0.88, toon: 0 },
-  { name: '🪨 干燥粗糙岩石', hex: '#7f7b74', metallic: 0.0, roughness: 0.84, specular: 0.45, aniso: 0, clearCoat: 0, sss: 0, toon: 0 },
-  { name: '🎨 UE 5.8 卡通赛璐璐', hex: '#ff758f', metallic: 0.0, roughness: 0.32, specular: 0.5, aniso: 0, clearCoat: 0, sss: 0, toon: 3 },
+  { name: '24K 纯金', hex: '#ffd666', metallic: 1.0, roughness: 0.16, specular: 0.5, aniso: 0, clearCoat: 0, sss: 0, toon: 0 },
+  { name: '拉丝紫铜', hex: '#f0946d', metallic: 1.0, roughness: 0.28, specular: 0.5, aniso: 0.78, clearCoat: 0, sss: 0, toon: 0 },
+  { name: '红色乐高塑料', hex: '#d62828', metallic: 0.0, roughness: 0.2, specular: 0.5, aniso: 0, clearCoat: 0, sss: 0, toon: 0 },
+  { name: '豪车双层清漆', hex: '#1d3557', metallic: 0.85, roughness: 0.42, specular: 0.5, aniso: 0, clearCoat: 1.0, sss: 0, toon: 0 },
+  { name: '冰种温润翡翠', hex: '#2a9d6f', metallic: 0.0, roughness: 0.18, specular: 0.55, aniso: 0, clearCoat: 0.35, sss: 0.88, toon: 0 },
+  { name: '干燥粗糙岩石', hex: '#7f7b74', metallic: 0.0, roughness: 0.84, specular: 0.45, aniso: 0, clearCoat: 0, sss: 0, toon: 0 },
+  { name: 'UE 5.8 卡通赛璐璐', hex: '#ff758f', metallic: 0.0, roughness: 0.32, specular: 0.5, aniso: 0, clearCoat: 0, sss: 0, toon: 3 },
 ];
 
 function hexToSrgb01(hex: string): Vec3 {
@@ -47,6 +47,7 @@ function hexToSrgb01(hex: string): Vec3 {
 // LAB 1: Full PBR & UE 5.8 Substrate Calibration Chamber
 // ============================================================================
 const PbrSubstrateLab: React.FC = () => {
+  const [activePreset, setActivePreset] = useState<string | null>('24K 纯金');
   const [hex, setHex] = useState('#ffd666');
   const [metallic, setMetallic] = useState(1.0);
   const [roughness, setRoughness] = useState(0.16);
@@ -57,12 +58,13 @@ const PbrSubstrateLab: React.FC = () => {
   const [toon, setToon] = useState(0);
   const [envMode, setEnvMode] = useState<'sunny' | 'studio' | 'cave' | 'black'>('sunny');
   const [lightAzimuth, setLightAzimuth] = useState(42);
-  const [lightElev, setLightElev] = useState(38);
+  const [lightElev] = useState(38);
   const [bumpDetail, setBumpDetail] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const applyPreset = (p: PbrPreset) => {
+    setActivePreset(p.name);
     setHex(p.hex);
     setMetallic(p.metallic);
     setRoughness(p.roughness);
@@ -130,8 +132,16 @@ const PbrSubstrateLab: React.FC = () => {
           b = 0.035;
         }
 
-        if (r2 <= 0.74) {
-          const sz = Math.sqrt(0.74 - r2);
+        const sphereR = Math.sqrt(0.74);
+        const dist = Math.sqrt(r2);
+        const edgeAA = clamp((sphereR - dist) / (2.2 / h), 0, 1);
+
+        if (edgeAA > 0) {
+          const bgR = r;
+          const bgG = g;
+          const bgB = b;
+          const clampedR2 = Math.min(r2, 0.7399);
+          const sz = Math.sqrt(0.74 - clampedR2);
           let nx = sx;
           let ny = sy;
           let nz = sz;
@@ -145,13 +155,16 @@ const PbrSubstrateLab: React.FC = () => {
           const N = norm3([nx, ny, nz]);
           const T = norm3([nz, 0, -nx]);
 
+          let sr = 0;
+          let sg = 0;
+          let sb = 0;
           // Cel-shading black outline
           if (toon >= 2 && r2 > 0.68) {
-            r = 0.08;
-            g = 0.06;
-            b = 0.08;
+            sr = 0.08;
+            sg = 0.06;
+            sb = 0.08;
           } else {
-            [r, g, b] = shadePbrPixel({
+            [sr, sg, sb] = shadePbrPixel({
               N,
               V,
               L,
@@ -169,6 +182,9 @@ const PbrSubstrateLab: React.FC = () => {
               toonSteps: toon,
             });
           }
+          r = bgR + (sr - bgR) * edgeAA;
+          g = bgG + (sg - bgG) * edgeAA;
+          b = bgB + (sb - bgB) * edgeAA;
         }
 
         const idx = (py * w + px) * 4;
@@ -182,17 +198,17 @@ const PbrSubstrateLab: React.FC = () => {
   }, [hex, metallic, roughness, specular, aniso, clearCoat, sss, toon, envMode, lightAzimuth, lightElev, bumpDetail]);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.15fr) minmax(320px, 1fr)', gap: 18 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+    <div className="lab-grid">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="preset-strip" role="group" aria-label="材质预设">
           {PRESETS.map((p) => (
             <button
               key={p.name}
               type="button"
-              className="brutal-btn"
-              style={{ padding: '5px 10px', fontSize: 12 }}
+              className={`preset-chip ${activePreset === p.name ? 'active' : ''}`}
               onClick={() => applyPreset(p)}
             >
+              <span className="preset-swatch" style={{ background: p.hex }} aria-hidden />
               {p.name}
             </button>
           ))}
@@ -200,61 +216,52 @@ const PbrSubstrateLab: React.FC = () => {
 
         <canvas
           ref={canvasRef}
-          width={360}
-          height={270}
-          style={{
-            width: '100%',
-            borderRadius: 12,
-            border: '2px solid var(--border-strong)',
-            boxShadow: 'var(--shadow-brutal)',
-          }}
+          width={600}
+          height={420}
+          className="lab-canvas"
+          style={{ width: '100%' }}
         />
 
         {/* UE 5.8 Substrate Slab Live Readout */}
-        <div
-          style={{
-            background: 'var(--bg-panel)',
-            border: '1.5px solid var(--border-soft)',
-            borderRadius: 11,
-            padding: 12,
-            fontSize: 12,
-          }}
-        >
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>
-            <FormattedText text="🔮 UE 5.8 `Substrate Slab BSDF` 底层物理换算实时透视：" />
+        <div className="lab-telemetry-card">
+          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+            <FormattedText text="UE 5.8 `Substrate Slab BSDF` 底层物理换算实时透视" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div style={{ background: 'var(--bg-card)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-soft)' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>漫反射反照率 (Diffuse Albedo)</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, marginTop: 3 }}>
+          <div className="lab-telemetry-grid">
+            <div className="lab-telemetry-cell">
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }}>漫反射反照率 (Diffuse Albedo)</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
                 ({diffuseAlbedo[0].toFixed(2)}, {diffuseAlbedo[1].toFixed(2)}, {diffuseAlbedo[2].toFixed(2)})
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                {metallic === 1 ? '纯金属自由电子吞光，漫反射已归零！' : '非金属内部色素散射主导底色'}
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>
+                {metallic === 1 ? '纯金属自由电子吞光，漫反射归零' : '非金属内部色素散射主导底色'}
               </div>
             </div>
-            <div style={{ background: 'var(--bg-card)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-soft)' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>0° 法向镜面反射率 (F0)</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, marginTop: 3 }}>
+            <div className="lab-telemetry-cell">
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }}>0° 法向镜面反射率 (F0)</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
                 ({f0Vec[0].toFixed(2)}, {f0Vec[1].toFixed(2)}, {f0Vec[2].toFixed(2)})
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                {metallic === 1 ? '金属给镜面高光染上自身颜色！' : '正入射反射率取决于 Specular 与 Metallic'}
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>
+                {metallic === 1 ? '金属为镜面高光染上自身颜色' : '正入射反射率取决于 Specular 与 Metallic'}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="stage-controls-panel" style={{ gap: 12 }}>
+      <div className="stage-controls-panel" style={{ gap: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 700 }}>
             固有色 (Base Color)：
             <input
               type="color"
               value={hex}
-              onChange={(e) => setHex(e.target.value)}
-              style={{ width: 38, height: 28, border: '1.5px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer' }}
+              onChange={(e) => {
+                setActivePreset(null);
+                setHex(e.target.value);
+              }}
+              style={{ width: 34, height: 26, border: '1px solid var(--border-strong)', borderRadius: 6, cursor: 'pointer', padding: 1, background: 'var(--bg-card)' }}
             />
             <code className="inline-code-pill">{hex.toUpperCase()}</code>
           </label>
@@ -266,22 +273,22 @@ const PbrSubstrateLab: React.FC = () => {
           value={envMode}
           onChange={setEnvMode}
           options={[
-            { value: 'sunny', label: '☀️ 正午晴空' },
-            { value: 'studio', label: '💡 摄影棚柔光' },
-            { value: 'cave', label: '🕯️ 幽暗山洞' },
-            { value: 'black', label: '🌑 纯黑无环境光' },
+            { value: 'sunny', label: '正午晴空' },
+            { value: 'studio', label: '摄影棚柔光' },
+            { value: 'cave', label: '幽暗山洞' },
+            { value: 'black', label: '纯黑无环境光' },
           ]}
         />
 
         <div className="control-grid">
-          <StageSlider label="金属度 (Metallic)" value={metallic} min={0} max={1} onChange={setMetallic} />
-          <StageSlider label="粗糙度 (Roughness)" value={roughness} min={0.04} max={1} onChange={setRoughness} />
-          <StageSlider label="旧版高光微调 (Specular)" value={specular} min={0} max={1} onChange={setSpecular} />
-          <StageSlider label="拉丝各向异性 (Anisotropy)" value={aniso} min={0} max={0.95} onChange={setAniso} />
-          <StageSlider label="顶层清漆叠层 (Clear Coat)" value={clearCoat} min={0} max={1} onChange={setClearCoat} />
-          <StageSlider label="次表面散射示意强度" value={sss} min={0} max={1} onChange={setSss} />
+          <StageSlider label="金属度 (Metallic)" value={metallic} min={0} max={1} onChange={(v) => { setActivePreset(null); setMetallic(v); }} />
+          <StageSlider label="粗糙度 (Roughness)" value={roughness} min={0.04} max={1} onChange={(v) => { setActivePreset(null); setRoughness(v); }} />
+          <StageSlider label="旧版高光微调 (Specular)" value={specular} min={0} max={1} onChange={(v) => { setActivePreset(null); setSpecular(v); }} />
+          <StageSlider label="拉丝各向异性 (Anisotropy)" value={aniso} min={0} max={0.95} onChange={(v) => { setActivePreset(null); setAniso(v); }} />
+          <StageSlider label="顶层清漆叠层 (Clear Coat)" value={clearCoat} min={0} max={1} onChange={(v) => { setActivePreset(null); setClearCoat(v); }} />
+          <StageSlider label="次表面散射示意强度" value={sss} min={0} max={1} onChange={(v) => { setActivePreset(null); setSss(v); }} />
           <StageSlider label="灯光水平旋转角" value={lightAzimuth} min={-160} max={160} step={1} unit="°" onChange={setLightAzimuth} />
-          <StageSlider label="卡通色阶刀 (0=写实, ≥2=Toon)" value={toon} min={0} max={5} step={1} onChange={setToon} />
+          <StageSlider label="卡通色阶刀 (0=写实, ≥2=Toon)" value={toon} min={0} max={5} step={1} onChange={(v) => { setActivePreset(null); setToon(v); }} />
         </div>
       </div>
     </div>
@@ -449,11 +456,13 @@ const TextureInspectorLab: React.FC = () => {
   const bytes = textureBytes(width, height, bcMode, mipsOn);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(290px, 1fr) minmax(320px, 1.15fr)', gap: 18 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="lab-grid">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 5 }}>{uploaded ? '上传图左上区域的解码预览（最多 128×128）' : '128×128 程序样本'} · 点击选块</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+              {uploaded ? '上传图左上区域（最多 128×128）' : '128×128 程序样本'} · 点击选块
+            </div>
             <canvas
               ref={mainCanvasRef}
               width={previewWidth}
@@ -464,28 +473,28 @@ const TextureInspectorLab: React.FC = () => {
                 const uy = ((e.clientY - rect.top) / rect.height) * previewHeight / 4;
                 setZoomBlock([Math.floor(ux), Math.floor(uy)]);
               }}
+              className="lab-canvas"
               style={{
                 width: '100%',
                 aspectRatio: 'auto',
                 imageRendering: 'pixelated',
-                borderRadius: 10,
-                border: '2px solid var(--border-strong)',
                 cursor: 'crosshair',
               }}
             />
           </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 5 }}>选中块的解码预览</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+              选中 4×4 块的解码预览
+            </div>
             <canvas
               ref={zoomCanvasRef}
               width={192}
               height={192}
+              className="lab-canvas"
               style={{
                 width: '100%',
                 aspectRatio: '1 / 1',
                 imageRendering: 'pixelated',
-                borderRadius: 10,
-                border: '2px solid var(--border-strong)',
               }}
             />
           </div>
@@ -497,22 +506,10 @@ const TextureInspectorLab: React.FC = () => {
             e.preventDefault();
             handleFileUpload(e.dataTransfer.files?.[0]);
           }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            padding: '11px 14px',
-            borderRadius: 10,
-            border: '2px dashed var(--border-strong)',
-            background: 'var(--bg-panel)',
-            fontSize: 12.5,
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
+          className="lab-dropzone"
         >
           <Upload size={16} />
-          上传 PNG / JPG，检查纹素并按原图尺寸估算纹理数据量
+          拖拽或点击上传 PNG / JPG，检查纹素并按原图尺寸估算显存
           <input
             type="file"
             accept="image/*"
@@ -520,20 +517,26 @@ const TextureInspectorLab: React.FC = () => {
             onChange={(e) => handleFileUpload(e.target.files?.[0])}
           />
         </label>
-        {uploadError && <p role="alert">{uploadError}</p>}
-        <p>每个 4×4 块独立选择端点和索引。BC1 演示不透明模式，BC4 与 BC5 分通道拟合，BC7 仅演示 mode 6。具体编码器可选用不同端点或模式。</p>
+        {uploadError && (
+          <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--accent-coral-deep)', fontWeight: 600 }}>
+            {uploadError}
+          </p>
+        )}
+        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6, color: 'var(--text-muted)' }}>
+          每个 4×4 块独立选择端点和索引。BC1 演示不透明模式，BC4 与 BC5 分通道拟合，BC7 仅演示 mode 6。具体编码器可选用不同端点或模式。
+        </p>
       </div>
 
-      <div className="stage-controls-panel" style={{ gap: 12 }}>
+      <div className="stage-controls-panel" style={{ gap: 14 }}>
         <StageSegmented
           label="测试贴图源"
           value={sourcePreset}
           onChange={preset => { setSourcePreset(preset); setSrgbOn(preset === 'flower' || preset === 'custom'); setRebuildZ(preset === 'normal'); }}
           options={[
-            { value: 'flower', label: '🌺 红花配绿叶 (测BC1串色)' },
-            { value: 'normal', label: '🟣 波纹法线图 (测BC5)' },
-            { value: 'orm', label: '📦 ORM 三合一打包图' },
-            ...(customImg ? [{ value: 'custom' as const, label: '🖼️ 本地上传图' }] : []),
+            { value: 'flower', label: '红花绿叶 (测BC1)' },
+            { value: 'normal', label: '波纹法线图 (测BC5)' },
+            { value: 'orm', label: 'ORM 三合一打包图' },
+            ...(customImg ? [{ value: 'custom' as const, label: '本地上传图' }] : []),
           ]}
         />
 
@@ -563,44 +566,37 @@ const TextureInspectorLab: React.FC = () => {
           ]}
         />
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-          {!uploaded && <StageSegmented
-            label="假设的 2D 纹理分辨率"
-            value={resSize}
-            onChange={setResSize}
-            options={[
-              { value: '512', label: '512²' },
-              { value: '1024', label: '1024²' },
-              { value: '2048', label: '2048²' },
-              { value: '4096', label: '4096²' },
-            ]}
-          />}
-          <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+          {!uploaded && (
+            <StageSegmented
+              label="假设的 2D 纹理分辨率"
+              value={resSize}
+              onChange={setResSize}
+              options={[
+                { value: '512', label: '512²' },
+                { value: '1024', label: '1024²' },
+                { value: '2048', label: '2048²' },
+                { value: '4096', label: '4096²' },
+              ]}
+            />
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {bcMode === 'BC5' && <StageToggle label="法线显示：从 XY 重建 Z" checked={rebuildZ} onChange={setRebuildZ} />}
             <StageToggle label="按 sRGB 颜色读取" checked={srgbOn} onChange={setSrgbOn} />
             <StageToggle label="计入完整 Mip 链" checked={mipsOn} onChange={setMipsOn} />
           </div>
         </div>
 
-        <div
-          style={{
-            background: 'var(--accent-amber)',
-            color: 'var(--accent-amber-deep)',
-            border: '1.5px solid var(--border-strong)',
-            borderRadius: 10,
-            padding: '10px 13px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
+        <div className="lab-vram-banner">
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700 }}>纹理数据估算（按块与 mip 取整，未计驱动对齐或流送驻留）</div>
-            <div style={{ fontSize: 12 }}>
-              {width}×{height} · {bcMode} ({bpp} bit/像素) {mipsOn ? '· 含套娃 Mipmap' : '· 无 Mipmap'}
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+              纹理数据估算（按块与 mip 取整，未计驱动对齐或流送驻留）
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {width}×{height} · {bcMode} ({bpp} bit/像素) {mipsOn ? '· 含完整 Mipmap 链' : '· 无 Mipmap'}
             </div>
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 800 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 21, fontWeight: 800, color: 'var(--brand-primary)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
             {bytes < 1048576 ? bytes.toLocaleString() + ' B' : (bytes / 1048576).toFixed(2) + ' MiB'}
           </div>
         </div>
@@ -695,38 +691,37 @@ const MiniNodeGraphLab: React.FC = () => {
 
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(270px, 0.95fr) minmax(340px, 1.25fr)', gap: 18 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="lab-grid">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <canvas
           ref={canvasRef}
-          width={240}
-          height={200}
-          style={{
-            width: '100%',
-            borderRadius: 12,
-            border: '2px solid var(--border-strong)',
-            boxShadow: 'var(--shadow-brutal)',
-          }}
+          width={320}
+          height={256}
+          className="lab-canvas"
+          style={{ width: '100%' }}
         />
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            padding: '8px 12px',
-            borderRadius: 9,
+            alignItems: 'center',
+            gap: 8,
+            padding: '9px 12px',
+            borderRadius: 10,
             background: 'var(--bg-panel)',
-            border: '1.5px solid var(--border-soft)',
+            border: '1px solid var(--border-soft)',
             fontFamily: 'var(--font-mono)',
-            fontSize: 12,
+            fontSize: 11.5,
+            color: 'var(--text-secondary)',
           }}
         >
           <span>程序噪声 · 3 个频率层</span>
-          <span style={{ color: '#3b8d24', fontWeight: 700 }}>UE 编译开销请查看 Platform Stats</span>
+          <span style={{ color: 'var(--brand-primary)', fontWeight: 700 }}>UE 编译开销请查 Platform Stats</span>
         </div>
       </div>
 
-      <div className="stage-controls-panel" style={{ gap: 12 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+      <div className="stage-controls-panel" style={{ gap: 14 }}>
+        <div style={{ fontSize: 12.5, lineHeight: 1.75, color: 'var(--text-secondary)' }}>
           当前连线链路：<code className="inline-code-pill">TexCoord × {uvTiling.toFixed(1)}</code> →{' '}
           <code className="inline-code-pill">Panner ({panSpeed.toFixed(1)})</code> →{' '}
           <code className="inline-code-pill">噪波遮罩 {invertMask ? '→ OneMinus' : ''}</code> →{' '}
@@ -754,15 +749,16 @@ export const ShaderLabPage: React.FC = () => {
 
   return (
     <main className="fullpage-scroll">
-      <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+      <div className="page-container">
+        <div className="page-hero">
           <div>
-            <div className="breadcrumb-line">INTERACTIVE SHADER LAB · 跨章节综合自由沙盒</div>
-            <h1 style={{ margin: '4px 0 6px', fontSize: 24, fontWeight: 800 }}>
-              🧪 UE 5.8 材质综合实验室
+            <div className="page-hero-kicker">INTERACTIVE SHADER LAB · 跨章节综合自由沙盒</div>
+            <h1 className="page-hero-title">
+              <FlaskConical size={22} style={{ color: 'var(--brand-primary)' }} />
+              UE 5.8 材质综合实验室
             </h1>
-            <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-secondary)' }}>
-              把全书学到的光学参数、纹理压缩账本与材质节点放在一起自由混搭实验。
+            <p className="page-hero-desc">
+              将全书学到的光学参数、纹理块压缩账本与材质节点连线汇聚于同一校准工作台，自由混搭验证。
             </p>
           </div>
 
@@ -772,36 +768,29 @@ export const ShaderLabPage: React.FC = () => {
               className={`segmented-opt ${tab === 'pbr' ? 'active' : ''}`}
               onClick={() => setTab('pbr')}
             >
-              <Sparkles size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              ① PBR / Substrate 校准舱
+              <Sparkles size={13} />
+              PBR / Substrate 校准舱
             </button>
             <button
               type="button"
               className={`segmented-opt ${tab === 'texture' ? 'active' : ''}`}
               onClick={() => setTab('texture')}
             >
-              <Layers size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              ② 纹理压缩与显存透视仪
+              <Layers size={13} />
+              纹理压缩与显存透视仪
             </button>
             <button
               type="button"
               className={`segmented-opt ${tab === 'graph' ? 'active' : ''}`}
               onClick={() => setTab('graph')}
             >
-              <Cpu size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              ③ 迷你节点连线游乐场
+              <Cpu size={13} />
+              迷你节点连线游乐场
             </button>
           </div>
         </div>
 
-        <div
-          style={{
-            background: 'var(--bg-card)',
-            border: '1.5px solid var(--border-soft)',
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
+        <div className="lab-shell-card">
           {tab === 'pbr' && <PbrSubstrateLab />}
           {tab === 'texture' && <TextureInspectorLab />}
           {tab === 'graph' && <MiniNodeGraphLab />}

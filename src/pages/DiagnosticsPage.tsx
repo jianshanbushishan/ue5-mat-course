@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wrench, ArrowUpRight, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Wrench, ArrowUpRight, CheckCircle2, AlertTriangle, Search, Zap, Lightbulb, Stethoscope } from 'lucide-react';
 import { DifficultyLevel } from '../types/course';
 import { FormattedText } from '../components/ui/StageWidgets';
 import { clamp, linearToSrgb, srgbToLinear, shadePbrPixel, norm3, fbm } from '../lib/graphics';
@@ -486,20 +486,21 @@ const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: b
   }, [mode, fixed]);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="diag-canvas-wrap">
       <canvas
         ref={canvasRef}
         width={220}
         height={132}
         style={{
           width: '100%',
-          height: 136,
+          height: 142,
           objectFit: 'cover',
-          borderRadius: 9,
-          border: '1.5px solid var(--border-strong)',
           display: 'block',
         }}
       />
+      <span className={`diag-status-badge ${fixed ? 'fixed' : 'fault'}`}>
+        {fixed ? 'FIXED · 正确配置' : 'FAULT · 翻车现象'}
+      </span>
       {mode === 'exceed_16_samplers' && !fixed && (
         <div
           style={{
@@ -558,23 +559,18 @@ export const DiagnosticsPage: React.FC<{
   return (
     <main className="fullpage-scroll">
       <div className="page-container">
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            gap: 14,
-            marginBottom: 20,
-          }}
-        >
+        <div className="page-hero">
           <div>
-            <div className="breadcrumb-line">DIAGNOSTICS CLINIC · 零门槛视觉故障图鉴</div>
-            <h1 style={{ margin: '4px 0 6px', fontSize: 24, fontWeight: 800 }}>
-              🩺 UE 5.8 材质翻车现场排错诊所（12 大高频案例）
+            <div className="page-hero-kicker">DIAGNOSTICS CLINIC · 零门槛视觉故障图鉴</div>
+            <h1 className="page-hero-title">
+              <Stethoscope size={22} style={{ color: 'var(--brand-primary)' }} />
+              UE 5.8 材质翻车现场排错诊所
+              <span className="meta-pill neutral" style={{ fontSize: 12 }}>
+                {CASES.length} 大高频案例
+              </span>
             </h1>
-            <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-secondary)' }}>
-              不设考试锁卡！直接拨动每张卡片上的「故障画面 ↔ 一键修复」开关，一眼记住每个踩坑现象背后的光学与管线真凶。
+            <p className="page-hero-desc">
+              不设考试锁卡，直接切换每张卡片上的「故障现象 ↔ 一键修复」，一眼记住常见踩坑现象背后的光学与渲染管线真凶。
             </p>
           </div>
 
@@ -592,32 +588,13 @@ export const DiagnosticsPage: React.FC<{
           </div>
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(370px, 1fr))',
-            gap: 16,
-          }}
-        >
+        <div className="diag-grid">
           {filtered.map((item) => {
             const isFixed = !!fixedMap[item.id];
             return (
-              <div
-                key={item.id}
-                style={{
-                  background: 'var(--bg-panel)',
-                  border: '1.5px solid var(--border-soft)',
-                  borderRadius: 14,
-                  padding: 15,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 11,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)' }}>
-                    {item.number}
-                  </span>
+              <article key={item.id} className="diag-card">
+                <div className="diag-card-top">
+                  <span className="diag-case-num">{item.number}</span>
                   <span
                     className={`meta-pill ${
                       item.difficulty === '零基础'
@@ -631,104 +608,72 @@ export const DiagnosticsPage: React.FC<{
                   </span>
                 </div>
 
-                <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, lineHeight: 1.35 }}>
+                <h3 className="diag-title">
                   <FormattedText text={item.title} />
                 </h3>
 
                 <CasePreviewCanvas mode={item.renderMode} fixed={isFixed} />
 
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div className="diag-switch" role="radiogroup" aria-label="故障与修复对照">
                   <button
                     type="button"
-                    className="brutal-btn"
-                    style={{
-                      flex: 1,
-                      padding: '6px 10px',
-                      fontSize: 12,
-                      background: !isFixed ? 'var(--accent-coral)' : 'var(--bg-card)',
-                      color: !isFixed ? 'var(--accent-coral-deep)' : 'var(--text-secondary)',
-                    }}
+                    role="radio"
+                    aria-checked={!isFixed}
+                    className={`diag-switch-btn fault ${!isFixed ? 'active' : ''}`}
                     onClick={() => setFixedMap((m) => ({ ...m, [item.id]: false }))}
                   >
-                    <AlertTriangle size={14} /> 看翻车现象
+                    <AlertTriangle size={13.5} /> 看翻车现象
                   </button>
                   <button
                     type="button"
-                    className="brutal-btn"
-                    style={{
-                      flex: 1,
-                      padding: '6px 10px',
-                      fontSize: 12,
-                      background: isFixed ? 'var(--accent-sage)' : 'var(--bg-card)',
-                      color: isFixed ? 'var(--accent-sage-deep)' : 'var(--text-secondary)',
-                    }}
+                    role="radio"
+                    aria-checked={isFixed}
+                    className={`diag-switch-btn fixed ${isFixed ? 'active' : ''}`}
                     onClick={() => setFixedMap((m) => ({ ...m, [item.id]: true }))}
                   >
-                    <CheckCircle2 size={14} /> 一键修复预览
+                    <CheckCircle2 size={13.5} /> 一键修复预览
                   </button>
                 </div>
 
-                <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="diag-details">
                   <div>
-                    <strong style={{ color: 'var(--text-primary)' }}>🔍 症状描述：</strong>
+                    <span className="diag-field-label">
+                      <Search size={12.5} style={{ color: 'var(--text-muted)' }} /> 症状描述：
+                    </span>
                     <FormattedText text={item.symptom} />
                   </div>
                   <div>
-                    <strong style={{ color: 'var(--text-primary)' }}>💥 根本原因：</strong>
+                    <span className="diag-field-label">
+                      <Zap size={12.5} style={{ color: '#d97706' }} /> 根本原因：
+                    </span>
                     <FormattedText text={item.rootCause} />
                   </div>
-                  <div
-                    style={{
-                      background: 'var(--bg-card)',
-                      border: '1px solid var(--border-soft)',
-                      borderRadius: 8,
-                      padding: '7px 9px',
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    <strong>
-                      <Wrench size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                  <div className="diag-prescription">
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, marginRight: 4 }}>
+                      <Wrench size={12} style={{ color: 'var(--brand-primary)' }} />
                       UE 5.8 修复处方：
-                    </strong>
+                    </div>
                     <FormattedText text={item.fixPrescription} />
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    marginTop: 'auto',
-                    paddingTop: 8,
-                    borderTop: '1px dashed var(--border-soft)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                  }}
-                >
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--accent-sage-deep)', background: 'var(--accent-sage)', padding: '2px 8px', borderRadius: 6 }}>
-                    💡 {item.mnemonic}
+                <div className="diag-footer">
+                  <span className="diag-mnemonic">
+                    <Lightbulb size={12.5} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.mnemonic}
+                    </span>
                   </span>
                   <button
                     type="button"
+                    className="diag-jump-btn"
                     onClick={() => onJumpToLesson(item.lessonId)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--text-primary)',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 3,
-                      whiteSpace: 'nowrap',
-                    }}
                     title={item.lessonLabel}
                   >
                     精读章节 <ArrowUpRight size={14} />
                   </button>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
