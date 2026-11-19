@@ -5232,7 +5232,7 @@ const schematic8_4: SchematicDiagram = {
 const module08: ModuleDefinition = {
   id: '08',
   number: '08',
-  title: '现代 PBR 与 UE 5.8 Substrate',
+  title: '现代 PBR 与 Substrate',
   subtitle: '微表面、菲涅尔、金属度铁律与层板新范式',
   lessons: [
     {
