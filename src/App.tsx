@@ -582,7 +582,9 @@ export const App: React.FC = () => {
                     isDark={isDark}
                   />
                 </div>
-                {stageView === 'schematic' && <UE5SchematicView diagram={currentLesson.schematic} />}
+                {stageView === 'schematic' && (
+                  <UE5SchematicView diagram={currentLesson.schematic} isDark={isDark} />
+                )}
               </div>
             </div>
 

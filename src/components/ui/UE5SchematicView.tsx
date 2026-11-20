@@ -12,7 +12,10 @@ const HEADER_COLORS: Record<SchematicNode['category'], [string, string]> = {
   pipeline: ['#475569', '#334155'],  // Pipeline Stage
 };
 
-export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diagram }) => {
+export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram; isDark?: boolean }> = ({
+  diagram,
+  isDark = false,
+}) => {
   const [zoom, setZoom] = useState(1);
 
   const nodeMap = new Map<string, SchematicNode>();
@@ -113,7 +116,13 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
         >
           <defs>
             <filter id="ue-node-shadow" x="-12%" y="-12%" width="128%" height="132%">
-              <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="#000000" floodOpacity="0.45" />
+              <feDropShadow
+                dx="0"
+                dy={isDark ? 6 : 4}
+                stdDeviation={isDark ? 6 : 5}
+                floodColor={isDark ? '#000000' : '#14120f'}
+                floodOpacity={isDark ? 0.45 : 0.12}
+              />
             </filter>
             {(Object.keys(HEADER_COLORS) as SchematicNode['category'][]).map((cat) => (
               <linearGradient key={cat} id={`ue-head-${cat}`} x1="0" y1="0" x2="0" y2="1">
@@ -131,13 +140,13 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
             const path = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
             const mx = (x1 + x2) / 2;
             const my = (y1 + y2) / 2 - 8;
-            const strokeColor = edge.color ?? '#94a3b8';
+            const strokeColor = edge.color ?? (isDark ? '#94a3b8' : '#64748b');
             return (
               <g key={idx}>
                 <path
                   d={path}
                   fill="none"
-                  stroke="rgba(0,0,0,0.45)"
+                  stroke={isDark ? 'rgba(0,0,0,0.45)' : 'rgba(15,23,42,0.22)'}
                   strokeWidth={4.5}
                   strokeLinecap="round"
                 />
@@ -157,14 +166,14 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
                       width={edge.label.length * 7.2 + 16}
                       height={16}
                       rx={4}
-                      fill="#161922"
-                      stroke="rgba(255,255,255,0.12)"
+                      fill={isDark ? '#161922' : '#ffffff'}
+                      stroke={isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.16)'}
                       strokeWidth={0.8}
                     />
                     <text
                       x={mx}
                       y={my + 1.5}
-                      fill="#e2e8f0"
+                      fill={isDark ? '#e2e8f0' : '#1e293b'}
                       fontSize={9.5}
                       fontWeight={600}
                       textAnchor="middle"
@@ -195,8 +204,8 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
                   width={w}
                   height={h}
                   rx={9}
-                  fill="#1d2028"
-                  stroke="rgba(255,255,255,0.16)"
+                  fill={isDark ? '#1d2028' : '#ffffff'}
+                  stroke={isDark ? 'rgba(255,255,255,0.16)' : 'rgba(23,22,20,0.16)'}
                   strokeWidth={1.1}
                 />
                 {/* Header */}
@@ -238,14 +247,14 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
                 {/* Inputs */}
                 {(node.inputs ?? []).map((pin, idx) => {
                   const py = headH + 16 + idx * 23;
-                  const pinColor = pin.color ?? '#cbd5e1';
+                  const pinColor = pin.color ?? (isDark ? '#cbd5e1' : '#64748b');
                   return (
                     <g key={pin.id}>
                       <circle
                         cx={0}
                         cy={py}
                         r={5}
-                        fill="#111318"
+                        fill={isDark ? '#111318' : '#ffffff'}
                         stroke={pinColor}
                         strokeWidth={2}
                       />
@@ -253,7 +262,7 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
                       <text
                         x={11}
                         y={py + 3.5}
-                        fill="#cbd5e1"
+                        fill={isDark ? '#cbd5e1' : '#334155'}
                         fontSize={10.5}
                         fontFamily="Inter, Noto Sans SC, sans-serif"
                       >
@@ -266,14 +275,14 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
                 {/* Outputs */}
                 {(node.outputs ?? []).map((pin, idx) => {
                   const py = headH + 16 + idx * 23;
-                  const pinColor = pin.color ?? '#cbd5e1';
+                  const pinColor = pin.color ?? (isDark ? '#cbd5e1' : '#64748b');
                   return (
                     <g key={pin.id}>
                       <circle
                         cx={w}
                         cy={py}
                         r={5}
-                        fill="#111318"
+                        fill={isDark ? '#111318' : '#ffffff'}
                         stroke={pinColor}
                         strokeWidth={2}
                       />
@@ -281,7 +290,7 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
                       <text
                         x={w - 11}
                         y={py + 3.5}
-                        fill="#e2e8f0"
+                        fill={isDark ? '#e2e8f0' : '#1e293b'}
                         fontSize={10.5}
                         textAnchor="end"
                         fontFamily="Inter, Noto Sans SC, sans-serif"
@@ -299,13 +308,13 @@ export const UE5SchematicView: React.FC<{ diagram: SchematicDiagram }> = ({ diag
                       y1={h - noteBlockH + 2}
                       x2={w - 10}
                       y2={h - noteBlockH + 2}
-                      stroke="rgba(255,255,255,0.08)"
+                      stroke={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(23,22,20,0.1)'}
                       strokeWidth={1}
                     />
                     <text
                       x={w / 2}
                       y={h - noteBlockH + 16}
-                      fill="#fcd34d"
+                      fill={isDark ? '#fcd34d' : '#92400e'}
                       fontSize={9.6}
                       textAnchor="middle"
                       fontFamily="Inter, Noto Sans SC, sans-serif"

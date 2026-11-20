@@ -83,7 +83,7 @@ const stageCanvasWrapStyle: React.CSSProperties = {
   borderRadius: 12,
   border: '1.5px solid var(--border-strong)',
   overflow: 'hidden',
-  background: '#11161d',
+  background: 'var(--bg-canvas)',
   boxShadow: 'var(--shadow-brutal)',
 };
 

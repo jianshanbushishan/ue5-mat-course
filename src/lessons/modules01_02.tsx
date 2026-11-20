@@ -958,6 +958,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
+  isDark,
 }) => {
   const [cpuCount, setCpuCount] = useState<number>(42);
   const [raceRunId, setRaceRunId] = useState<number>(1);
@@ -1041,7 +1042,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
       const cellW = W / GRID_N;
       const cellH = H / GRID_N;
 
-      ctx.fillStyle = '#14161d';
+      ctx.fillStyle = isDark ? '#14161d' : '#e6e1d6';
       ctx.fillRect(0, 0, W, H);
 
       for (let gy = 0; gy < GRID_N; gy++) {
@@ -1058,7 +1059,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
             ctx.fillStyle = `rgb(${r},${g},${b})`;
             ctx.fillRect(x0 + 0.6, y0 + 0.6, cellW - 1.2, cellH - 1.2);
           } else {
-            ctx.fillStyle = '#1e222d';
+            ctx.fillStyle = isDark ? '#1e222d' : '#f4f1ea';
             ctx.fillRect(x0 + 1, y0 + 1, cellW - 2, cellH - 2);
           }
 
@@ -1080,10 +1081,10 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
       }
 
       if (showPaths) {
-        ctx.fillStyle = 'rgba(15,23,42,0.85)';
+        ctx.fillStyle = isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.9)';
         ctx.fillRect(0, H - 21, W, 21);
         ctx.font = '11px sans-serif';
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = isDark ? '#fff' : '#1e293b';
         ctx.fillText(recipeMode === 'branch' ? '假设分组：左半 A，右半 B' : '假设分组：全组 A', 5, H - 6);
       }
     };
@@ -1095,7 +1096,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
       true,
       true
     );
-  }, [cpuCount, sunDeg, selectedCell, recipeMode]);
+  }, [cpuCount, sunDeg, selectedCell, recipeMode, isDark]);
 
   const handleGpuCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1660,6 +1661,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
+  isDark,
 }) => {
   const [cornerHeight, setCornerHeight] = useState<number>(0.68);
   const [quadSplit, setQuadSplit] = useState<'tri' | 'quad'>('tri');
@@ -1730,7 +1732,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
     const W = canvas.width;
     const H = canvas.height;
 
-    ctx.fillStyle = '#13161f';
+    ctx.fillStyle = isDark ? '#13161f' : '#f4f2ec';
     ctx.fillRect(0, 0, W, H);
 
     // 投影辅助函数（Z 朝上）
@@ -1745,7 +1747,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
     const gB = proj([1, -1, 0]);
     const gC = proj([1, 1, 0]);
     const gD = proj([-1, 1, 0]);
-    ctx.strokeStyle = 'rgba(148,163,184,0.25)';
+    ctx.strokeStyle = isDark ? 'rgba(148,163,184,0.25)' : 'rgba(23,22,20,0.2)';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(gA[0], gA[1]);
@@ -1903,7 +1905,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
       ctx.arc(pt[0], pt[1], active ? 6.5 : 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = active ? '#fde047' : '#cbd5e1';
+      ctx.fillStyle = active ? (isDark ? '#fde047' : '#b45309') : isDark ? '#cbd5e1' : '#334155';
       ctx.font = 'bold 11px sans-serif';
       ctx.fillText(name, pt[0] - 14, pt[1] - 9);
     };
@@ -1912,7 +1914,13 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
     drawPin(sC, `C (高 ${cornerHeight.toFixed(2)})`, true);
     drawPin(sD, 'D');
 
-    ctx.fillStyle = isQuadBroken ? '#fca5a5' : '#bbf7d0';
+    ctx.fillStyle = isQuadBroken
+      ? isDark
+        ? '#fca5a5'
+        : '#b91c1c'
+      : isDark
+        ? '#bbf7d0'
+        : '#15803d';
     ctx.font = '600 11.5px sans-serif';
     ctx.fillText(
       isQuadBroken
@@ -1921,7 +1929,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
       12,
       H - 12
     );
-  }, [cornerHeight, quadSplit, isQuadBroken, quadFit]);
+  }, [cornerHeight, quadSplit, isQuadBroken, quadFit, isDark]);
 
   // 绘制右舱：可 360° 旋转的 3D 刺猬法线小牙签透视镜
   useEffect(() => {
@@ -1932,7 +1940,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
     const W = canvas.width;
     const H = canvas.height;
 
-    ctx.fillStyle = '#13161f';
+    ctx.fillStyle = isDark ? '#13161f' : '#f4f2ec';
     ctx.fillRect(0, 0, W, H);
 
     const scale = meshKind === 'sphere' ? 68 : 64;
@@ -2045,14 +2053,20 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
       }
     }
 
-    ctx.fillStyle = flippedPitfall ? '#fca5a5' : '#93c5fd';
+    ctx.fillStyle = flippedPitfall
+      ? isDark
+        ? '#fca5a5'
+        : '#b91c1c'
+      : isDark
+        ? '#93c5fd'
+        : '#0369a1';
     ctx.font = '600 11.5px sans-serif';
     ctx.fillText(
       `绕序${reverseWinding ? '反转' : '原始'} · 着色法线${flippedPitfall ? '反转' : '原始'} · 可见三角形 ${projected.filter(face => !face.backfacing).length}`,
       12,
       H - 12
     );
-  }, [activeTris, meshKind, rot, showNormals, showWire, flippedPitfall, reverseWinding, meshFit]);
+  }, [activeTris, meshKind, rot, showNormals, showWire, flippedPitfall, reverseWinding, meshFit, isDark]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2459,6 +2473,7 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
+  isDark,
 }) => {
   const [space, setSpace] = useState<CoordSpaceKey>('world');
   const [bodyTiltDeg, setBodyTiltDeg] = useState<number>(28);
@@ -2542,18 +2557,23 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    // 舞台夜空渐变背景
+    // 舞台背景
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#101624');
-    bg.addColorStop(1, '#1c2436');
+    if (isDark) {
+      bg.addColorStop(0, '#101624');
+      bg.addColorStop(1, '#1c2436');
+    } else {
+      bg.addColorStop(0, '#f4f2ec');
+      bg.addColorStop(1, '#e8e3d9');
+    }
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
     // 舞台木地板（世界地面）
     const floorY = H - 36;
-    ctx.fillStyle = '#292524';
+    ctx.fillStyle = isDark ? '#292524' : '#d6cfc2';
     ctx.fillRect(0, floorY, W, 36);
-    ctx.strokeStyle = '#78716c';
+    ctx.strokeStyle = isDark ? '#78716c' : '#a89f91';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(0, floorY);
@@ -2758,27 +2778,27 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
       drawTriad(patchWX, patchWY, armWorldAngle, 58, '皮肤外 ');
 
       // 右上角创可贴特写气泡框
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.strokeStyle = '#fde047';
+      ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.94)';
+      ctx.strokeStyle = isDark ? '#fde047' : '#d97706';
       ctx.lineWidth = 1.6;
       ctx.beginPath();
       ctx.roundRect(W - 196, 12, 184, 68, 10);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#fde047';
+      ctx.fillStyle = isDark ? '#fde047' : '#b45309';
       ctx.font = 'bold 11.5px sans-serif';
       ctx.fillText('🩹 切线空间 = 肩膀小创可贴', W - 186, 31);
-      ctx.fillStyle = '#e2e8f0';
+      ctx.fillStyle = isDark ? '#e2e8f0' : '#334155';
       ctx.font = '11px sans-serif';
       ctx.fillText('不管身体怎么翻、胳膊怎么挥，', W - 186, 49);
       ctx.fillText('蓝 +Z 永远垂直皮肤往外鼓！', W - 186, 66);
     } else if (space === 'screen') {
       // 摄像机扁平取景框 UV 网格覆层
-      ctx.strokeStyle = '#f472b6';
+      ctx.strokeStyle = isDark ? '#f472b6' : '#db2777';
       ctx.lineWidth = 2;
       ctx.strokeRect(18, 16, W - 36, H - 32);
 
-      ctx.strokeStyle = 'rgba(244, 114, 182, 0.28)';
+      ctx.strokeStyle = isDark ? 'rgba(244, 114, 182, 0.28)' : 'rgba(219, 39, 119, 0.22)';
       ctx.lineWidth = 1;
       for (let i = 1; i < 4; i++) {
         const gx = 18 + ((W - 36) * i) / 4;
@@ -2791,7 +2811,7 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
         ctx.stroke();
       }
 
-      ctx.fillStyle = '#fbcfe8';
+      ctx.fillStyle = isDark ? '#fbcfe8' : '#9d174d';
       ctx.font = 'bold 12px monospace';
       ctx.fillText('📷 左上 (0, 0)', 26, 34);
       ctx.fillText('U 向右 →', W * 0.46, 34);
@@ -2800,12 +2820,12 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
     }
 
     // 左下角当前空间一句话说明条
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.92)';
     ctx.fillRect(10, H - 31, W - 20, 24);
-    ctx.fillStyle = '#bae6fd';
+    ctx.fillStyle = isDark ? '#bae6fd' : '#0369a1';
     ctx.font = '600 11.5px sans-serif';
     ctx.fillText(`${meta.label}：${meta.blueZDesc}`, 18, H - 15);
-  }, [space, bodyTiltDeg, armSwingDeg, meta, snowTest, snowPitfallLocal, stepIndex, canvasFit]);
+  }, [space, bodyTiltDeg, armSwingDeg, meta, snowTest, snowPitfallLocal, stepIndex, canvasFit, isDark]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -3191,6 +3211,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
+  isDark,
 }) => {
   const [valR, setValR] = useState<number>(0.0);
   const [valG, setValG] = useState<number>(0.0);
@@ -3265,15 +3286,20 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
     const W = canvas.width;
     const H = canvas.height;
 
-    // 暗房摄影棚背景
+    // 摄影棚背景
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#11131a');
-    bg.addColorStop(1, '#1c202c');
+    if (isDark) {
+      bg.addColorStop(0, '#11131a');
+      bg.addColorStop(1, '#1c202c');
+    } else {
+      bg.addColorStop(0, '#f4f2ec');
+      bg.addColorStop(1, '#e8e3d9');
+    }
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
     // 固定背景，比较输入端口的显示效果。
-    ctx.fillStyle = '#2b3142';
+    ctx.fillStyle = isDark ? '#2b3142' : '#d6cfc2';
     ctx.fillRect(0, H - 52, W, 52);
 
     const cx = W * 0.5;
@@ -3348,15 +3374,15 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
     ctx.fillStyle = `rgb(${Math.round(clamp(valR) * 255)}, ${Math.round(
       clamp(valG) * 255
     )}, ${Math.round(clamp(valB) * 255)})`;
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = isDark ? '#ffffff' : '#1e293b';
     ctx.lineWidth = 1.5;
     ctx.fillRect(14, 14, 34, 34);
     ctx.strokeRect(14, 14, 34, 34);
 
-    ctx.fillStyle = '#e2e8f0';
+    ctx.fillStyle = isDark ? '#e2e8f0' : '#1e293b';
     ctx.font = 'bold 11px monospace';
     ctx.fillText(`RGB(${valR.toFixed(2)}, ${valG.toFixed(2)}, ${valB.toFixed(2)})`, 56, 28);
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = isDark ? '#94a3b8' : '#475569';
     ctx.font = '11px sans-serif';
     ctx.fillText(
       hasNegative
@@ -3369,7 +3395,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
       56,
       45
     );
-  }, [valR, valG, valB, isHdr, hasNegative, maxChannel, minChannel, albedoOverflowPitfall, viewMode, colorFit]);
+  }, [valR, valG, valB, isHdr, hasNegative, maxChannel, minChannel, albedoOverflowPitfall, viewMode, colorFit, isDark]);
 
   // 绘制右舱：同一个三维数组解释为 3D 空间箭头 (X, Y, Z)
   useEffect(() => {
@@ -3380,7 +3406,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
     const W = canvas.width;
     const H = canvas.height;
 
-    ctx.fillStyle = '#11131a';
+    ctx.fillStyle = isDark ? '#11131a' : '#f4f2ec';
     ctx.fillRect(0, 0, W, H);
 
     const ox = W * 0.5;
@@ -3397,7 +3423,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
     };
 
     // 地面参考网格 (-1..+1)
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.16)';
+    ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.16)' : 'rgba(23, 22, 20, 0.14)';
     ctx.lineWidth = 1;
     for (let g = -2; g <= 2; g++) {
       const p1 = proj3(g, -2, 0);
@@ -3432,7 +3458,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
     // 投影垂足虚线（帮助零基础看清三维立体落点）
     const floorPt = proj3(x, y, 0);
     const tipPt = proj3(x, y, z);
-    ctx.strokeStyle = 'rgba(250, 204, 21, 0.45)';
+    ctx.strokeStyle = isDark ? 'rgba(250, 204, 21, 0.45)' : 'rgba(217, 119, 6, 0.55)';
     ctx.lineWidth = 1.3;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
@@ -3443,8 +3469,8 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
     ctx.setLineDash([]);
 
     // 主角：当前三维向量大箭头！
-    ctx.strokeStyle = '#fde047';
-    ctx.fillStyle = '#fde047';
+    ctx.strokeStyle = isDark ? '#fde047' : '#d97706';
+    ctx.fillStyle = isDark ? '#fde047' : '#d97706';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.moveTo(ox, oy);
@@ -3461,18 +3487,18 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
       ctx.fill();
     }
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = isDark ? '#ffffff' : '#1e293b';
     ctx.beginPath();
     ctx.arc(ox, oy, 4, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = '#fef08a';
+    ctx.fillStyle = isDark ? '#fef08a' : '#b45309';
     ctx.font = 'bold 11px monospace';
     ctx.fillText(`XYZ(${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`, 14, 26);
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = isDark ? '#94a3b8' : '#475569';
     ctx.font = '11px sans-serif';
     ctx.fillText(`箭头总长度 |V| = ${vecLen.toFixed(2)}`, 14, 44);
-  }, [x, y, z, vecLen, viewMode, vectorFit]);
+  }, [x, y, z, vecLen, viewMode, vectorFit, isDark]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -4598,6 +4624,7 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
+  isDark,
 }) => {
   const [rotDeg, setRotDeg] = useState<number>(25);
   const [uvSquash, setUvSquash] = useState<number>(1.0);
@@ -4698,7 +4725,7 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
     // 1. Draw 2D [0,1] UV Canvas
     const uw = uvC.width;
     const uh = uvC.height;
-    uctx.fillStyle = '#181a20';
+    uctx.fillStyle = isDark ? '#181a20' : '#f4f2ec';
     uctx.fillRect(0, 0, uw, uh);
 
     const padL = 26;
@@ -4710,13 +4737,19 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
     for (let gy = 0; gy < 8; gy++) {
       for (let gx = 0; gx < 8; gx++) {
         const even = (gx + gy) % 2 === 0;
-        uctx.fillStyle = even ? '#323846' : '#232733';
+        uctx.fillStyle = isDark
+          ? even
+            ? '#323846'
+            : '#232733'
+          : even
+            ? '#e7e2d6'
+            : '#d5cfc0';
         uctx.fillRect(padL + (gx * boxW) / 8, padT + (gy * boxH) / 8, boxW / 8 + 0.5, boxH / 8 + 0.5);
       }
     }
 
     // Show squashed UV island grid lines
-    uctx.strokeStyle = 'rgba(196, 223, 178, 0.45)';
+    uctx.strokeStyle = isDark ? 'rgba(196, 223, 178, 0.45)' : 'rgba(21, 128, 61, 0.4)';
     uctx.lineWidth = 1;
     for (let i = 0; i <= 8; i++) {
       const t = i / 8;
@@ -4754,7 +4787,7 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
     if (hoverUv) {
       const hx = padL + hoverUv[0] * boxW;
       const hy = padT + hoverUv[1] * boxH;
-      uctx.strokeStyle = '#ffffff';
+      uctx.strokeStyle = isDark ? '#ffffff' : '#1e293b';
       uctx.lineWidth = 1.5;
       uctx.beginPath();
       uctx.arc(hx, hy, 8, 0, Math.PI * 2);
@@ -4762,7 +4795,7 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
     }
 
     // Rulers: U -> Right, V -> Down, Origin (0,0) Top-Left
-    uctx.fillStyle = '#fde68a';
+    uctx.fillStyle = isDark ? '#fde68a' : '#b45309';
     uctx.font = 'bold 11px JetBrains Mono, monospace';
     uctx.fillText('(0,0)', 3, 16);
     uctx.fillText('U → 1.0', padL + boxW - 52, 16);
@@ -4783,9 +4816,9 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
         const sy = (0.5 - py / mh) * 2;
         const r2 = sx * sx + sy * sy;
 
-        let r = 0.09;
-        let g = 0.1;
-        let b = 0.13;
+        let r = isDark ? 0.09 : 0.95;
+        let g = isDark ? 0.1 : 0.93;
+        let b = isDark ? 0.13 : 0.89;
 
         if (r2 <= 0.76) {
           const sz = Math.sqrt(0.76 - r2);
@@ -4855,7 +4888,7 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
       }
     }
     mctx.putImageData(img, 0, 0);
-  }, [strokes, rotDeg, uvSquash, showSeam, hoverUv]);
+  }, [strokes, rotDeg, uvSquash, showSeam, hoverUv, isDark]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

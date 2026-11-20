@@ -862,6 +862,7 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
+  isDark,
 }) => {
   const [windSpeed, setWindSpeed] = useState<number>(1.8);
   const [windAmp, setWindAmp] = useState<number>(36);
@@ -1075,15 +1076,21 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
 
       // Sky dusk/meadow backdrop
       const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-      bgGrad.addColorStop(0, '#14202e');
-      bgGrad.addColorStop(0.75, '#1e312b');
-      bgGrad.addColorStop(1, '#1a1814');
+      if (isDark) {
+        bgGrad.addColorStop(0, '#14202e');
+        bgGrad.addColorStop(0.75, '#1e312b');
+        bgGrad.addColorStop(1, '#1a1814');
+      } else {
+        bgGrad.addColorStop(0, '#dbeafe');
+        bgGrad.addColorStop(0.75, '#e0f2fe');
+        bgGrad.addColorStop(1, '#ecfdf5');
+      }
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, W, H);
 
       // Animated wind streamlines across both chambers
       if (windSpeed > 0.05 && windAmp > 1) {
-        ctx.strokeStyle = 'rgba(186, 230, 253, 0.18)';
+        ctx.strokeStyle = isDark ? 'rgba(186, 230, 253, 0.18)' : 'rgba(14, 116, 144, 0.22)';
         ctx.lineWidth = 1.5;
         for (let s = 0; s < 9; s++) {
           const sy = 56 + s * 22;
@@ -1097,7 +1104,7 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
       }
 
       // Center divider line
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(23,22,20,0.16)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(W / 2, 12);
@@ -1107,11 +1114,11 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
       // Soil mounds for Left & Right chambers
       const groundY = 262;
       for (const centerX of [W * 0.25, W * 0.75]) {
-        ctx.fillStyle = '#3b2c20';
+        ctx.fillStyle = isDark ? '#3b2c20' : '#785a40';
         ctx.beginPath();
         ctx.ellipse(centerX, groundY + 18, 142, 32, 0, Math.PI, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#291f17';
+        ctx.fillStyle = isDark ? '#291f17' : '#5c432e';
         ctx.fillRect(centerX - 155, groundY + 15, 310, 45);
       }
 
@@ -1127,17 +1134,17 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
 
       // Top Chamber Headers
       const drawHeader = (x: number, title: string, sub: string, badgeBg: string) => {
-        ctx.fillStyle = 'rgba(15, 16, 18, 0.84)';
+        ctx.fillStyle = isDark ? 'rgba(15, 16, 18, 0.84)' : 'rgba(255, 255, 255, 0.9)';
         ctx.beginPath();
         ctx.roundRect(x, 12, 316, 46, 8);
         ctx.fill();
         ctx.strokeStyle = badgeBg;
         ctx.lineWidth = 1.4;
         ctx.stroke();
-        ctx.fillStyle = '#f8fafc';
+        ctx.fillStyle = isDark ? '#f8fafc' : '#171614';
         ctx.font = '800 13px "Noto Sans SC", sans-serif';
         ctx.fillText(title, x + 12, 31);
-        ctx.fillStyle = '#cbd5e1';
+        ctx.fillStyle = isDark ? '#cbd5e1' : '#475569';
         ctx.font = '600 11px "Noto Sans SC", sans-serif';
         ctx.fillText(sub, x + 12, 48);
       };
@@ -1158,14 +1165,19 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
 
       // UV V-coordinate & Mask weight legend on Right Hero Blade
       if (showWireframe) {
-        ctx.fillStyle = 'rgba(15, 18, 22, 0.82)';
+        ctx.fillStyle = isDark ? 'rgba(15, 18, 22, 0.82)' : 'rgba(255, 255, 255, 0.92)';
         ctx.beginPath();
         ctx.roundRect(W - 146, 72, 134, 52, 7);
         ctx.fill();
-        ctx.fillStyle = '#fde047';
+        if (!isDark) {
+          ctx.strokeStyle = 'rgba(23, 22, 20, 0.14)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.fillStyle = isDark ? '#fde047' : '#b45309';
         ctx.font = '700 11px "JetBrains Mono", monospace';
         ctx.fillText('草尖 V=0 → 1-V=1.0', W - 138, 91);
-        ctx.fillStyle = '#94a3b8';
+        ctx.fillStyle = isDark ? '#94a3b8' : '#475569';
         ctx.fillText(pinRoot ? '草根 V=1 → 1-V=0.0' : '草根未乘0 → 权重1.0!', W - 138, 112);
       }
 
@@ -1174,7 +1186,7 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
 
     rafId = requestAnimationFrame(renderFrame);
     return () => cancelAnimationFrame(rafId);
-  }, [windSpeed, windAmp, showWireframe, pinRoot]);
+  }, [windSpeed, windAmp, showWireframe, pinRoot, isDark]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1333,6 +1345,7 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
+  isDark,
 }) => {
   const [tabMode, setTabMode] = useState<'instance' | 'switches'>('instance');
   const [workflowMode, setWorkflowMode] = useState<'hardcoded' | 'mi'>('hardcoded');
@@ -1528,11 +1541,11 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     for (let py = 0; py < H; py++) {
       for (let px = 0; px < W; px++) {
         const p4 = (py * W + px) * 4;
-        // Studio dark backdrop + soft floor reflection
-        const bgGrad = lerp(0.11, 0.19, py / H);
+        // Studio backdrop + soft floor reflection
+        const bgGrad = isDark ? lerp(0.11, 0.19, py / H) : lerp(0.95, 0.87, py / H);
         let r = bgGrad * 255;
-        let g = (bgGrad - 0.005) * 255;
-        let b = (bgGrad + 0.01) * 255;
+        let g = (bgGrad - (isDark ? 0.005 : 0.01)) * 255;
+        let b = (bgGrad + (isDark ? 0.01 : -0.02)) * 255;
 
         for (let i = 0; i < 3; i++) {
           const prop = propsData[i];
@@ -1634,11 +1647,20 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
         ctx.lineWidth = 2.2;
         ctx.strokeRect(cx - 92, 22, 184, 198);
       }
-      ctx.fillStyle = active ? 'rgba(251, 191, 36, 0.95)' : 'rgba(20, 19, 18, 0.8)';
+      ctx.fillStyle = active
+        ? 'rgba(251, 191, 36, 0.95)'
+        : isDark
+          ? 'rgba(20, 19, 18, 0.8)'
+          : 'rgba(255, 255, 255, 0.9)';
       ctx.beginPath();
       ctx.roundRect(cx - 84, 228, 168, 26, 6);
       ctx.fill();
-      ctx.fillStyle = active ? '#1c1917' : '#e7e5e4';
+      if (!active && !isDark) {
+        ctx.strokeStyle = 'rgba(23, 22, 20, 0.14)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      ctx.fillStyle = active ? '#1c1917' : isDark ? '#e7e5e4' : '#1e293b';
       ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(prop.name, cx, 245);
@@ -1646,11 +1668,23 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     ctx.textAlign = 'start';
 
     // Top status pill
-    ctx.fillStyle = 'rgba(15, 15, 16, 0.84)';
+    ctx.fillStyle = isDark ? 'rgba(15, 15, 16, 0.84)' : 'rgba(255, 255, 255, 0.92)';
     ctx.beginPath();
     ctx.roundRect(12, 10, 440, 26, 6);
     ctx.fill();
-    ctx.fillStyle = workflowMode === 'mi' ? '#86efac' : '#fca5a5';
+    if (!isDark) {
+      ctx.strokeStyle = 'rgba(23, 22, 20, 0.14)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.fillStyle =
+      workflowMode === 'mi'
+        ? isDark
+          ? '#86efac'
+          : '#15803d'
+        : isDark
+          ? '#fca5a5'
+          : '#b91c1c';
     ctx.font = '700 12px "Noto Sans SC", sans-serif';
     ctx.fillText(
       workflowMode === 'mi'
@@ -1659,7 +1693,7 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
       22,
       27
     );
-  }, [tabMode, propsData, selectedPropIdx, workflowMode]);
+  }, [tabMode, propsData, selectedPropIdx, workflowMode, isDark]);
 
   // Render Dynamic 2^N Permutation Tree in Tab 2
   useEffect(() => {
@@ -1671,7 +1705,7 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
 
     const W = canvas.width;
     const H = canvas.height;
-    ctx.fillStyle = '#151619';
+    ctx.fillStyle = isDark ? '#151619' : '#f7f5f0';
     ctx.fillRect(0, 0, W, H);
 
     const permutations = Math.pow(2, switchCount);
@@ -1683,11 +1717,27 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     const usableH = H - topPad - botPad;
 
     // Header summary inside canvas
-    ctx.fillStyle = 'rgba(28, 30, 36, 0.92)';
+    ctx.fillStyle = isDark ? 'rgba(28, 30, 36, 0.92)' : 'rgba(255, 255, 255, 0.95)';
     ctx.beginPath();
     ctx.roundRect(12, 8, W - 24, 28, 7);
     ctx.fill();
-    ctx.fillStyle = switchCount <= 3 ? '#86efac' : switchCount <= 6 ? '#fde047' : '#fca5a5';
+    if (!isDark) {
+      ctx.strokeStyle = 'rgba(23, 22, 20, 0.12)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.fillStyle =
+      switchCount <= 3
+        ? isDark
+          ? '#86efac'
+          : '#15803d'
+        : switchCount <= 6
+          ? isDark
+            ? '#fde047'
+            : '#b45309'
+          : isDark
+            ? '#fca5a5'
+            : '#b91c1c';
     ctx.font = '700 12px "JetBrains Mono", "Noto Sans SC", sans-serif';
     ctx.fillText(
       `独立静态开关的组合上限：2^${switchCount} = ${permutations.toLocaleString()} 种取值`,
@@ -1698,7 +1748,7 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     if (switchCount === 0) {
       // Single clean line from Root to 1 Shader
       const midY = topPad + usableH / 2;
-      ctx.strokeStyle = '#4ade80';
+      ctx.strokeStyle = isDark ? '#4ade80' : '#16a34a';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(leftX, midY);
@@ -1713,7 +1763,7 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
       ctx.arc(W - 150, midY, 9, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = isDark ? '#f8fafc' : '#1e293b';
       ctx.font = '700 12.5px "Noto Sans SC", sans-serif';
       ctx.fillText('M_Master 母材质', leftX - 42, midY + 26);
       ctx.fillText('2⁰ = 1 种开关组合', W - 240, midY + 26);
@@ -1733,7 +1783,17 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
 
         // True branch
         ctx.strokeStyle =
-          switchCount <= 3 ? 'rgba(74, 222, 128, 0.85)' : switchCount <= 6 ? 'rgba(250, 204, 21, 0.8)' : 'rgba(248, 113, 113, 0.8)';
+          switchCount <= 3
+            ? isDark
+              ? 'rgba(74, 222, 128, 0.85)'
+              : 'rgba(22, 163, 74, 0.85)'
+            : switchCount <= 6
+              ? isDark
+                ? 'rgba(250, 204, 21, 0.8)'
+                : 'rgba(217, 119, 6, 0.85)'
+              : isDark
+                ? 'rgba(248, 113, 113, 0.8)'
+                : 'rgba(220, 38, 38, 0.8)';
         ctx.lineWidth = Math.max(1.0, 2.6 - lv * 0.35);
         ctx.beginPath();
         ctx.moveTo(x0, y0);
@@ -1742,13 +1802,23 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
 
         // False branch
         ctx.strokeStyle =
-          switchCount <= 3 ? 'rgba(96, 165, 250, 0.78)' : switchCount <= 6 ? 'rgba(251, 146, 60, 0.78)' : 'rgba(232, 121, 249, 0.75)';
+          switchCount <= 3
+            ? isDark
+              ? 'rgba(96, 165, 250, 0.78)'
+              : 'rgba(37, 99, 235, 0.8)'
+            : switchCount <= 6
+              ? isDark
+                ? 'rgba(251, 146, 60, 0.78)'
+                : 'rgba(234, 88, 12, 0.8)'
+              : isDark
+                ? 'rgba(232, 121, 249, 0.75)'
+                : 'rgba(168, 85, 247, 0.78)';
         ctx.beginPath();
         ctx.moveTo(x0, y0);
         ctx.bezierCurveTo((x0 + x1) * 0.5, y0, (x0 + x1) * 0.5, yFalse, x1, yFalse);
         ctx.stroke();
 
-        ctx.fillStyle = '#f8fafc';
+        ctx.fillStyle = isDark ? '#f8fafc' : '#1e293b';
         ctx.beginPath();
         ctx.arc(x0, y0, Math.max(2.5, 5.5 - lv * 0.7), 0, Math.PI * 2);
         ctx.fill();
@@ -1759,7 +1829,18 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     const leafVisCount = 1 << visualDepth;
     for (let k = 0; k < leafVisCount; k++) {
       const y = topPad + ((k + 0.5) / leafVisCount) * usableH;
-      ctx.fillStyle = switchCount <= 3 ? '#4ade80' : switchCount <= 6 ? '#facc15' : '#f87171';
+      ctx.fillStyle =
+        switchCount <= 3
+          ? isDark
+            ? '#4ade80'
+            : '#16a34a'
+          : switchCount <= 6
+            ? isDark
+              ? '#facc15'
+              : '#d97706'
+            : isDark
+              ? '#f87171'
+              : '#dc2626';
       ctx.beginPath();
       ctx.arc(rightX, y, visualDepth >= 5 ? 2.4 : 4, 0, Math.PI * 2);
       ctx.fill();
@@ -1773,7 +1854,14 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
         const srcIdx = Math.floor((f / fanLines) * leafVisCount);
         const y0 = topPad + ((srcIdx + 0.5) / leafVisCount) * usableH;
         const y1 = topPad + ((f + 0.5) / fanLines) * usableH;
-        ctx.strokeStyle = switchCount >= 8 ? 'rgba(244, 63, 94, 0.52)' : 'rgba(251, 146, 60, 0.5)';
+        ctx.strokeStyle =
+          switchCount >= 8
+            ? isDark
+              ? 'rgba(244, 63, 94, 0.52)'
+              : 'rgba(225, 29, 72, 0.45)'
+            : isDark
+              ? 'rgba(251, 146, 60, 0.5)'
+              : 'rgba(234, 88, 12, 0.45)';
         ctx.lineWidth = 0.9;
         ctx.beginPath();
         ctx.moveTo(rightX, y0);
@@ -1794,7 +1882,7 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
       ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
       ctx.fillText('项目可仅使用其中少数组合', W - 154, H / 2 + 14);
     }
-  }, [tabMode, switchCount]);
+  }, [tabMode, switchCount, isDark]);
 
   const handlePropCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = propsCanvasRef.current;
