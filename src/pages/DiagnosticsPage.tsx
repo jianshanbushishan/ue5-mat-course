@@ -30,7 +30,11 @@ interface DiagnosticCase {
     | 'substrate_front_mat'
     | 'glass_no_forward'
     | 'water_hard_seam'
-    | 'exceed_16_samplers';
+    | 'exceed_16_samplers'
+    | 'multi_slot_drawcall'
+    | 'mid_breaks_instancing'
+    | 'no_lod_quad_overdraw'
+    | 'blind_opt_wrong_bound';
 }
 
 const CASES: DiagnosticCase[] = [
@@ -202,6 +206,62 @@ const CASES: DiagnosticCase[] = [
     lessonLabel: '9.4 材质体检与 Shared: Wrap 救星',
     renderMode: 'exceed_16_samplers',
   },
+  {
+    id: 'diag-13',
+    number: 'CASE 13',
+    difficulty: '进阶',
+    title: '满屏摆件帧率暴跌：显卡占用才 45%，CPU Draw 线程却已爆红',
+    symptom: '广场摆了 500 把低面数餐椅，总面数远不如一座背景大山，帧率却跌破 35 FPS，输入 `stat unit` 发现 `Draw` 超过 `22 ms`。',
+    wrongConfig: '每把椅子拆分了 5~6 个独立材质槽（Material Slots）且以 500 个独立 Actor 逐个提交，未合并材质槽也未设置剔除距离。',
+    rootCause: '在非 Nanite 管线下，单模型每多 1 个材质槽就成倍增加 Draw Call，再叠加 Depth / Base / Shadow 多通道，数千次状态切换把 CPU 渲染线程彻底堵死，GPU 只能闲等派工单！',
+    fixPrescription: '用纹理图集 / ORM 贴图将小摆件合并为 1 个材质槽，大批量同类物件改用 `HISM / ISM`（或开启 Nanite），并配置 `Cull Distance Volume` 与关掉小碎件 `Cast Shadow`。',
+    mnemonic: '小摆件严控 1 材质槽，先看 stat scenerendering 查 Draw Call！',
+    lessonId: 'frame-pipeline-draw-call',
+    lessonLabel: '9.5 渲染三线程、帧预算与 Draw Call',
+    renderMode: 'multi_slot_drawcall',
+  },
+  {
+    id: 'diag-14',
+    number: 'CASE 14',
+    difficulty: '进阶',
+    title: '给 500 棵树逐棵换秋叶色，实例化合批瞬间破裂帧率腰斩',
+    symptom: '为了避免 500 棵松树长得像克隆人，在蓝图循环里给每棵树调用 `Create Dynamic Material Instance (MID)` 随机改色，结果 Draw Call 立刻飙升回 500+。',
+    wrongConfig: '用批量独立 `MID` 替代实例化自定义数据，强行拆散了共享的材质渲染状态。',
+    rootCause: 'GPU 实例化（`DrawIndexedInstanced`）要求同批物体共享同一份材质与渲染状态；每个实例挂独立 `MID` 会破坏合批并增加大量对象管理与参数更新开销。',
+    fixPrescription: '全林地统一使用 1 份共享材质 `MI`，用 `PerInstanceRandom` 驱动自然秋色差；需要精准单棵改色或高亮时，ISM/HISM 用 `PerInstanceCustomData`，普通组件给参数勾选 `Use Custom Primitive Data (CPD)`！',
+    mnemonic: '批量变色严禁循环建 MID，随机与 CustomData 稳守 1 次 Draw Call！',
+    lessonId: 'gpu-instancing-custom-data',
+    lessonLabel: '9.6 GPU 实例化与“千人千面”材质术',
+    renderMode: 'mid_breaks_instancing',
+  },
+  {
+    id: 'diag-15',
+    number: 'CASE 15',
+    difficulty: '实战',
+    title: '远景高模烧白 Quad Overdraw：指甲盖大的雕像反而把 GPU 拖垮',
+    symptom: '拉远镜头俯瞰满山雕像与草丛时帧率反而比近看更低；打开视口 `Quad Overdraw` 视图，远处密密麻麻的小物体全部烧成刺眼纯白，且 VSM 阴影每帧重绘。',
+    wrongConfig: '高模资产未配置多级 `LOD`（死扛上万面 `LOD0`），且远处 `LOD` 仍挂载完整多槽重材质与全距离风场 `WPO`。',
+    rootCause: 'GPU 永远以 `2×2 Quad` 为单位执行像素着色器以计算偏导；远景微三角形只盖住 1 格却拖着 3 个辅助像素白跑着色器（浪费高达 75%），同时远景 WPO 会不断打碎 VSM 虚拟阴影缓存！',
+    fixPrescription: '为非 Nanite 网格配置按 `Screen Size` 切换的 `LOD0~LOD3`（或在支持的资产上启用 Nanite），远景 `LOD2/3` 合并材质槽并关闭 `WPO`，同时在组件设好 `WPO Disable Distance`（整片远景街区配 `HLOD`）。',
+    mnemonic: '微三角烧白 2×2 块，远景减面合槽关 WPO！',
+    lessonId: 'lod-quad-overdraw-hlod',
+    lessonLabel: '9.7 LOD 多细节层次与 Quad Overdraw',
+    renderMode: 'no_lod_quad_overdraw',
+  },
+  {
+    id: 'diag-16',
+    number: 'CASE 16',
+    difficulty: '实战',
+    title: '通宵精简材质节点一半，进关卡验收帧率竟然一帧没涨！',
+    symptom: '场景卡在 44 FPS，美术熬夜把所有地面与墙体材质的节点砍掉一半、指令数骤降，但回到同一机位一看 FPS 纹丝不动。',
+    wrongConfig: '未先运行 `stat unit` 定位木桶最短板，在明显 `CPU Draw Bound` 的场景下盲目优化 GPU 像素着色器。',
+    rootCause: '单帧耗时遵循 `Frame ≈ max(Game, Draw, GPU)` 并行木桶定律：只要 `Draw` 线程仍占 `22.8 ms`，即使把 `GPU` 从 `13 ms` 压到 `9 ms`，总帧时间也一毫秒不会减少！',
+    fixPrescription: '先输入 `stat unit` 锁定最长红条：`Draw` 爆红就查 `stat scenerendering` 治合批/材质槽/剔除/HLOD；`GPU` 爆红再用 `Alt+8`、`Quad Overdraw` 与 `ProfileGPU (Ctrl+Shift+,)` 锁定最肥通道对症开方！',
+    mnemonic: '先看 stat unit 找短板，再开 ProfileGPU 对症下药！',
+    lessonId: 'ue58-perf-tuning-workflow',
+    lessonLabel: '9.8 UE 5.8 性能调优实战闭环',
+    renderMode: 'blind_opt_wrong_bound',
+  },
 ];
 
 const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: boolean }> = ({
@@ -217,6 +277,139 @@ const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: b
     if (!ctx) return;
     const w = canvas.width;
     const h = canvas.height;
+
+    // Dedicated crisp 2D schematic previews for performance & instancing cases
+    if (
+      mode === 'multi_slot_drawcall' ||
+      mode === 'mid_breaks_instancing' ||
+      mode === 'no_lod_quad_overdraw' ||
+      mode === 'blind_opt_wrong_bound'
+    ) {
+      ctx.fillStyle = '#11141c';
+      ctx.fillRect(0, 0, w, h);
+
+      if (mode === 'multi_slot_drawcall') {
+        const bars = fixed
+          ? [
+              { label: 'Draw', ms: 6.8, col: '#10b981' },
+              { label: 'GPU', ms: 9.2, col: '#10b981' },
+            ]
+          : [
+              { label: 'Draw', ms: 23.4, col: '#ef4444' },
+              { label: 'GPU', ms: 9.8, col: '#3b82f6' },
+            ];
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(fixed ? '1 Slot + HISM: 42 Draw Calls' : '5 Slots × 500 Props: 4,200 Calls!', 10, 20);
+        // 16.67ms line
+        const lineX = 52 + (16.67 / 26) * 150;
+        ctx.strokeStyle = 'rgba(239,68,68,0.85)';
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(lineX, 30);
+        ctx.lineTo(lineX, 110);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        bars.forEach((b, i) => {
+          const y = 40 + i * 32;
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillText(b.label, 12, y + 14);
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          ctx.fillRect(52, y, 150, 20);
+          ctx.fillStyle = b.col;
+          ctx.fillRect(52, y, Math.min(150, (b.ms / 26) * 150), 20);
+          ctx.fillStyle = '#fff';
+          ctx.fillText(`${b.ms}ms`, 58, y + 14);
+        });
+        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
+        ctx.fillText(fixed ? '60+ FPS · GPU 满载高效' : '42 FPS · GPU 闲等派工单', 12, 122);
+      } else if (mode === 'mid_breaks_instancing') {
+        const cols = ['#22c55e', '#4ade80', '#eab308', '#f97316', '#16a34a', '#84cc16'];
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 6; c++) {
+            const cx = 24 + c * 33;
+            const cy = 34 + r * 30;
+            ctx.fillStyle = cols[(r * 6 + c) % cols.length];
+            ctx.beginPath();
+            ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+            ctx.fill();
+            if (!fixed) {
+              ctx.strokeStyle = '#ef4444';
+              ctx.lineWidth = 1.5;
+              ctx.strokeRect(cx - 12, cy - 11, 24, 22);
+            }
+          }
+        }
+        if (fixed) {
+          ctx.strokeStyle = '#2dd4bf';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(8, 18, w - 16, 94);
+        }
+        ctx.fillStyle = fixed ? '#5eead4' : '#fca5a5';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(
+          fixed ? '1 Draw Call · PerInstanceRandom/CPD' : '500 MIDs -> 500 Separate Calls!',
+          10,
+          125
+        );
+      } else if (mode === 'no_lod_quad_overdraw') {
+        // 4x2 enlarged 2x2 Quads showing red helper waste vs clean green
+        const qSize = 28;
+        const startX = 18;
+        const startY = 30;
+        for (let qy = 0; qy < 2; qy++) {
+          for (let qx = 0; qx < 6; qx++) {
+            const x0 = startX + qx * (qSize + 3);
+            const y0 = startY + qy * (qSize + 3);
+            for (let sy = 0; sy < 2; sy++) {
+              for (let sx = 0; sx < 2; sx++) {
+                const active = fixed ? !(qx === 5 && sx === 1) : sx === 0 && sy === 0;
+                ctx.fillStyle = active ? '#22c55e' : '#ef4444';
+                ctx.fillRect(x0 + sx * 14 + 1, y0 + sy * 14 + 1, 12, 12);
+              }
+            }
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(x0, y0, qSize, qSize);
+          }
+        }
+        ctx.fillStyle = fixed ? '#6ee7b7' : '#ffffff';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(fixed ? 'LOD2+合槽: 2x2 利用率 92%' : '无LOD微三角: 75% 辅助像素废算!', 12, 20);
+        ctx.fillStyle = fixed ? '#5eead4' : '#fca5a5';
+        ctx.fillText(fixed ? 'Quad Overdraw 翠绿 · VSM 缓存稳定' : 'Quad Overdraw 烧白 · WPO 碎阴影', 12, 118);
+      } else if (mode === 'blind_opt_wrong_bound') {
+        const rows = fixed
+          ? [
+              { k: 'Frame', v: 13.8, c: '#10b981' },
+              { k: 'Draw', v: 11.4, c: '#10b981' },
+              { k: 'GPU', v: 13.8, c: '#10b981' },
+            ]
+          : [
+              { k: 'Frame', v: 22.8, c: '#ef4444' },
+              { k: 'Draw', v: 22.8, c: '#ef4444' },
+              { k: 'GPU', v: 9.4, c: '#38bdf8' },
+            ];
+        ctx.fillStyle = '#5eead4';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText('stat unit  (Target <= 16.67ms)', 12, 20);
+        rows.forEach((r, i) => {
+          const y = 32 + i * 28;
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillText(r.k, 12, y + 13);
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          ctx.fillRect(54, y, 150, 18);
+          ctx.fillStyle = r.c;
+          ctx.fillRect(54, y, Math.min(150, (r.v / 26) * 150), 18);
+          ctx.fillStyle = '#fff';
+          ctx.fillText(`${r.v} ms`, 60, y + 13);
+        });
+        ctx.fillStyle = fixed ? '#6ee7b7' : '#fcd34d';
+        ctx.fillText(fixed ? '对症治 Draw -> 稳跑 72 FPS!' : '只砍 GPU 到 9.4ms，Frame 纹丝不动!', 12, 124);
+      }
+      return;
+    }
+
     const img = ctx.createImageData(w, h);
     const data = img.data;
 
@@ -379,7 +572,7 @@ const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: b
               [r, g, b] = shadePbrPixel({ N, V, L, baseColorLinear: baseLinear, metallic: 0, roughness: 0.62 });
             } else if (mode === 'srgb_on_roughness') {
               const intendedRough = 0.5;
-              const actualRough = fixed ? intendedRough : srgbToLinear(intendedRough); // ~0.25 shiny!
+              const actualRough = fixed ? intendedRough : srgbToLinear(intendedRough); // ~0.214 shiny!
               [r, g, b] = shadePbrPixel({
                 N,
                 V,

@@ -285,10 +285,12 @@ const HumanEyeGammaStage: React.FC<LessonStageProps> = ({
           gap: 7,
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5, fontWeight: 700 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5, fontWeight: 700, flexWrap: 'wrap', gap: 4 }}>
           <span>📏 台阶分配透视尺（横轴：人眼感受到的主观黑 → 白均匀刻度）</span>
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', fontSize: 11 }}>
-            {levels === 256 ? '展示 64 等分抽样刻度' : `真实展示全部 ${levels} 道台阶`}
+            {levels === 256
+              ? `每 4 级画 1 根示意刻度，全表暗部半程实际占 ${linearDarkSteps} / 256 级`
+              : `真实展示全部 ${levels} 道台阶`}
           </span>
         </div>
 
@@ -311,10 +313,14 @@ const HumanEyeGammaStage: React.FC<LessonStageProps> = ({
             />
           ))}
           <span style={{ position: 'absolute', left: 6, top: 4, fontSize: 10.5, fontWeight: 800, color: '#ffd3cd', textShadow: '0 1px 2px #000' }}>
-            ❌ Linear 平分：暗部半程仅 {linearDarkSteps} 道红线（空旷断层！）
+            {levels === 256
+              ? `❌ Linear 平分：暗部半程实际占 ${linearDarkSteps} / 256 级（空旷断层！）`
+              : `❌ Linear 平分：暗部半程仅 ${linearDarkSteps} 道红线（空旷断层！）`}
           </span>
           <span style={{ position: 'absolute', right: 6, top: 4, fontSize: 10.5, fontWeight: 800, color: '#0f172a', background: 'rgba(255,255,255,0.78)', padding: '0 5px', borderRadius: 4 }}>
-            亮部挤满 {levels - linearDarkSteps} 道浪费了
+            {levels === 256
+              ? `亮部挤满 ${levels - linearDarkSteps} / 256 级`
+              : `亮部挤满 ${levels - linearDarkSteps} 道浪费了`}
           </span>
         </div>
 
@@ -348,7 +354,9 @@ const HumanEyeGammaStage: React.FC<LessonStageProps> = ({
             }}
           />
           <span style={{ position: 'absolute', left: 6, top: 4, fontSize: 10.5, fontWeight: 800, color: '#dcfce7', textShadow: '0 1px 2px #000' }}>
-            ✅ sRGB 偏心加密：暗部半程稳占 {srgbDarkSteps} 道绿线（顺应人眼！）
+            {levels === 256
+              ? `✅ sRGB 偏心加密：暗部半程实际稳占 ${srgbDarkSteps} / 256 级（顺应人眼！）`
+              : `✅ sRGB 偏心加密：暗部半程稳占 ${srgbDarkSteps} 道绿线（顺应人眼！）`}
           </span>
         </div>
 
@@ -440,21 +448,28 @@ const SrgbVsLinearMathStage: React.FC<LessonStageProps> = ({
 
   const singleLin = srgbToLinear(spotSrgb);
   const wrongSumSrgb = saturate(spotSrgb + spotSrgb);
-  const rightSumLin = saturate(singleLin + singleLin);
+  const rawRightSumLin = singleLin + singleLin;
+  const rightSumLin = saturate(rawRightSumLin);
   const rightSumSrgb = linearToSrgb(rightSumLin);
 
   useEffect(() => {
+    const pairIssue =
+      pairOpt === 'rg'
+        ? '红绿脏黑带'
+        : pairOpt === 'ob'
+        ? '橙蓝发灰泥'
+        : '青品发暗塌陷';
     onKpiUpdate([
       {
         label: `单灯账面 sRGB ${spotSrgb.toFixed(2)}`,
         value: `物理仅 ${(singleLin * 100).toFixed(1)}%`,
-        sub: 'sRGB 0.5 → 线性 0.2140',
+        sub: `sRGB ${spotSrgb.toFixed(2)} → 线性 ${singleLin.toFixed(4)}`,
         tone: 'accent',
       },
       {
         label: '错误直接相加 (sRGB)',
         value: `${wrongSumSrgb.toFixed(2)} (${(srgbToLinear(wrongSumSrgb) * 100).toFixed(0)}% 光)`,
-        sub: wrongSumSrgb >= 0.99 ? '严重过曝死白 + 红绿脏黑带' : '亮度虚高失真',
+        sub: wrongSumSrgb >= 0.99 ? `严重过曝死白 + ${pairIssue}` : `亮度虚高失真 + ${pairIssue}`,
         tone: 'bad',
       },
       {
@@ -465,7 +480,7 @@ const SrgbVsLinearMathStage: React.FC<LessonStageProps> = ({
       },
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotSrgb, singleLin, wrongSumSrgb, rightSumLin, rightSumSrgb]);
+  }, [spotSrgb, singleLin, wrongSumSrgb, rightSumLin, rightSumSrgb, pairOpt]);
 
   useEffect(() => {
     const wCvs = wrongCvsRef.current;
@@ -579,7 +594,9 @@ const SrgbVsLinearMathStage: React.FC<LessonStageProps> = ({
       // Top spotlight label
       const midText = isWrong
         ? `两灯满强度硬加：${spotSrgb.toFixed(2)}+${spotSrgb.toFixed(2)}=${wrongSumSrgb.toFixed(2)} （满强度重叠时）`
-        : `两灯满强度线性相加：2 × ${singleLin.toFixed(4)} ≈ ${rightSumLin.toFixed(4)} -> 屏幕 ${rightSumSrgb.toFixed(4)}`;
+        : rawRightSumLin > 1.0
+        ? `两灯线性相加：2 × ${singleLin.toFixed(4)} = ${rawRightSumLin.toFixed(4)} (限幅 1.0000) -> 屏幕 ${rightSumSrgb.toFixed(4)}`
+        : `两灯满强度线性相加：2 × ${singleLin.toFixed(4)} = ${rightSumLin.toFixed(4)} -> 屏幕 ${rightSumSrgb.toFixed(4)}`;
 
       ctx.fillStyle = isWrong ? 'rgba(125, 28, 20, 0.88)' : 'rgba(24, 82, 42, 0.88)';
       const tw = ctx.measureText(midText).width + 14;
@@ -605,7 +622,7 @@ const SrgbVsLinearMathStage: React.FC<LessonStageProps> = ({
 
     drawAnnotations(wCtx, true);
     drawAnnotations(rCtx, false);
-  }, [spotSrgb, singleLin, wrongSumSrgb, rightSumLin, rightSumSrgb, overlapAmt, pairOpt, showWrongFocus]);
+  }, [spotSrgb, singleLin, wrongSumSrgb, rawRightSumLin, rightSumLin, rightSumSrgb, overlapAmt, pairOpt, showWrongFocus]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -658,13 +675,21 @@ const SrgbVsLinearMathStage: React.FC<LessonStageProps> = ({
         <div style={{ padding: '5px 8px', borderRadius: 7, background: 'var(--accent-sage)', color: 'var(--accent-sage-deep)' }}>
           <div style={{ fontWeight: 800 }}>② Linear 空间做加法</div>
           <div style={{ fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-            {singleLin.toFixed(4)} × 2 ≈ <strong>{rightSumLin.toFixed(4)}</strong> 光能
+            {rawRightSumLin > 1.0 ? (
+              <>
+                {singleLin.toFixed(4)} × 2 = {rawRightSumLin.toFixed(4)} (限幅 <strong>1.0000</strong>)
+              </>
+            ) : (
+              <>
+                {singleLin.toFixed(4)} × 2 = <strong>{rightSumLin.toFixed(4)}</strong> 光能
+              </>
+            )}
           </div>
         </div>
         <div style={{ padding: '5px 8px', borderRadius: 7, background: 'var(--bg-subtle)' }}>
           <div style={{ fontWeight: 800, color: 'var(--text-secondary)' }}>③ sRGB 分段编码</div>
           <div style={{ fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-            物理 {rightSumLin.toFixed(2)} → 屏幕 <strong>{rightSumSrgb.toFixed(4)}</strong>
+            物理 {rightSumLin.toFixed(4)} → 屏幕 <strong>{rightSumSrgb.toFixed(4)}</strong>
           </div>
         </div>
       </div>
@@ -1003,6 +1028,22 @@ const Ue58SrgbGoldenRuleStage: React.FC<LessonStageProps> = ({
           >
             ❌ 粗糙度误勾 (泼油反光)
           </button>
+          <button
+            type="button"
+            className="segmented-opt"
+            style={{
+              background: !woodSrgb && roughSrgb ? 'var(--accent-coral)' : 'var(--bg-card)',
+              color: !woodSrgb && roughSrgb ? 'var(--accent-coral-deep)' : 'var(--text-primary)',
+              border: '1.5px solid var(--border-strong)',
+              fontWeight: 700,
+            }}
+            onClick={() => {
+              setWoodSrgb(false);
+              setRoughSrgb(true);
+            }}
+          >
+            💥 双重翻车 (又白又油)
+          </button>
         </div>
       </div>
 
@@ -1043,7 +1084,7 @@ const Ue58SrgbGoldenRuleStage: React.FC<LessonStageProps> = ({
               fontWeight: 700,
             }}
           >
-            📦 UE 5.8 实时视口：铁箍橡木宝箱
+            📦 UE 5.8 实时视口：铁箍红木宝箱
           </div>
           <div
             style={{
@@ -1167,7 +1208,7 @@ const Ue58SrgbGoldenRuleStage: React.FC<LessonStageProps> = ({
         }}
       >
         <div style={{ fontWeight: 800, color: 'var(--text-secondary)' }}>
-          🔬 示例色样换算（模型每个纹素使用相同公式）：
+          🔬 示例色样换算（模型表面每个贴图像素使用相同公式）：
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
           <span>🎨 颜色贴图存值: <strong>0.45</strong></span>
@@ -1177,7 +1218,7 @@ const Ue58SrgbGoldenRuleStage: React.FC<LessonStageProps> = ({
         <div style={{ fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
           <span>📊 粗糙贴图存值: <strong>0.52</strong></span>
           <span>→ {!roughSrgb ? '直通不解码: 0.52 (真五成粗糙)' : '❌ 误做 sRGB 解码: 0.23 (光滑!)'}</span>
-          <span>→ PBR 高光结果: <strong>{!roughSrgb ? '自然哑光 ✅' : '刺眼油亮 ❌'}</strong></span>
+          <span>→ 表面高光结果: <strong>{!roughSrgb ? '自然哑光 ✅' : '刺眼油亮 ❌'}</strong></span>
         </div>
       </div>
 
@@ -1227,12 +1268,12 @@ const FileFormatsBitDepthStage: React.FC<LessonStageProps> = ({
   useEffect(() => {
     if (stepIndex === 0) {
       setMode('heightmap');
-    } else if (stepIndex === 1 || stepIndex === 2) {
+    } else if (stepIndex === 1) {
       setMode('carhood');
-    } else if (stepIndex === 3) {
+    } else if (stepIndex === 2) {
       setMode('formats');
-      setFormatSub('png_vs_exr');
-    } else if (stepIndex === 4) {
+      setFormatSub('jpg_vs_png');
+    } else if (stepIndex === 3 || stepIndex === 4) {
       setMode('carhood');
     }
   }, [stepIndex]);
@@ -1584,53 +1625,55 @@ const FileFormatsBitDepthStage: React.FC<LessonStageProps> = ({
       />
 
       {/* Micro-section diagram explaining why 8-bit creates normal stair-stepping */}
-      <div
-        style={{
-          background: 'var(--bg-card)',
-          border: '1.5px solid var(--border-soft)',
-          borderRadius: 10,
-          padding: '7px 11px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-          gap: 10,
-          alignItems: 'center',
-          fontSize: 11.5,
-        }}
-      >
-        <div>
-          <div style={{ fontWeight: 800, color: 'var(--accent-coral-deep)' }}>
-            🔬 放大 50 倍看 8-bit 缓坡切面：
+      {mode !== 'formats' && (
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1.5px solid var(--border-soft)',
+            borderRadius: 10,
+            padding: '7px 11px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: 10,
+            alignItems: 'center',
+            fontSize: 11.5,
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 800, color: 'var(--accent-coral-deep)' }}>
+              🔬 放大 50 倍看 8-bit 缓坡切面：
+            </div>
+            <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+              256 个整数撑不起平缓大曲面，中间变成<strong>平平台阶 + 突然折角</strong>，表面法线小牙签一会儿朝天、一会儿猛歪，高光当场碎成年轮！
+            </div>
           </div>
-          <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-            256 个整数撑不起平缓大曲面，中间变成<strong>平平台阶 + 突然折角</strong>，表面法线小牙签一会儿朝天、一会儿猛歪，高光当场碎成年轮！
-          </div>
-        </div>
-        <svg viewBox="0 0 260 54" style={{ width: '100%', height: 52, display: 'block' }}>
-          {/* Left: 8-bit stairs */}
-          <path
-            d="M 8 46 L 34 46 L 34 34 L 62 34 L 62 22 L 90 22 L 90 10 L 116 10"
-            fill="none"
-            stroke="#ef4444"
-            strokeWidth="2.5"
-          />
-          <line x1="21" y1="46" x2="21" y2="33" stroke="#f97316" strokeWidth="1.6" />
-          <line x1="34" y1="40" x2="24" y2="31" stroke="#f97316" strokeWidth="1.6" />
-          <line x1="48" y1="34" x2="48" y2="21" stroke="#f97316" strokeWidth="1.6" />
-          <text x="10" y="13" fontSize="9.5" fontWeight="bold" fill="#ef4444">8-bit 硬台阶</text>
+          <svg viewBox="0 0 260 54" style={{ width: '100%', height: 52, display: 'block' }}>
+            {/* Left: 8-bit stairs */}
+            <path
+              d="M 8 46 L 34 46 L 34 34 L 62 34 L 62 22 L 90 22 L 90 10 L 116 10"
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth="2.5"
+            />
+            <line x1="21" y1="46" x2="21" y2="33" stroke="#f97316" strokeWidth="1.6" />
+            <line x1="34" y1="40" x2="24" y2="31" stroke="#f97316" strokeWidth="1.6" />
+            <line x1="48" y1="34" x2="48" y2="21" stroke="#f97316" strokeWidth="1.6" />
+            <text x="10" y="13" fontSize="9.5" fontWeight="bold" fill="#ef4444">8-bit 硬台阶</text>
 
-          {/* Right: 16-bit smooth curve */}
-          <path
-            d="M 142 46 Q 195 34 250 10"
-            fill="none"
-            stroke="#22c55e"
-            strokeWidth="2.5"
-          />
-          <line x1="165" y1="42" x2="162" y2="30" stroke="#3b82f6" strokeWidth="1.6" />
-          <line x1="196" y1="31" x2="191" y2="19" stroke="#3b82f6" strokeWidth="1.6" />
-          <line x1="228" y1="19" x2="222" y2="7" stroke="#3b82f6" strokeWidth="1.6" />
-          <text x="142" y="13" fontSize="9.5" fontWeight="bold" fill="#16a34a">16-bit 丝滑斜坡</text>
-        </svg>
-      </div>
+            {/* Right: 16-bit smooth curve */}
+            <path
+              d="M 142 46 Q 195 34 250 10"
+              fill="none"
+              stroke="#22c55e"
+              strokeWidth="2.5"
+            />
+            <line x1="165" y1="42" x2="162" y2="30" stroke="#3b82f6" strokeWidth="1.6" />
+            <line x1="196" y1="31" x2="191" y2="19" stroke="#3b82f6" strokeWidth="1.6" />
+            <line x1="228" y1="19" x2="222" y2="7" stroke="#3b82f6" strokeWidth="1.6" />
+            <text x="142" y="13" fontSize="9.5" fontWeight="bold" fill="#16a34a">16-bit 丝滑斜坡</text>
+          </svg>
+        </div>
+      )}
 
       <div className="stage-controls-panel">
         {mode === 'formats' ? (
@@ -1775,15 +1818,12 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
     } else if (stepIndex === 1) {
       setTab('cards');
       setChanOpt('all4');
-    } else if (stepIndex === 2) {
+    } else if (stepIndex === 2 || stepIndex === 3) {
       setTab('leafhalo');
       setXrayRgb(false);
-    } else if (stepIndex === 3) {
-      setTab('cards');
-      setChanOpt('r');
     } else if (stepIndex === 4) {
-      setTab('leafhalo');
-      setXrayRgb(false);
+      setTab('cards');
+      setChanOpt('a');
     }
   }, [stepIndex]);
 
@@ -1821,7 +1861,7 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
         },
         {
           label: '右图边缘外扩底色 (Padding)',
-          value: '叶绿 (0.15, 0.47, 0.12)',
+          value: '叶绿 (0.15, 0.47, 0.11)',
           sub: '绿混绿 = 边缘严丝合缝无白晕',
           tone: 'good',
         },
@@ -2135,11 +2175,28 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
 
   const handleCardCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const xPct = (e.clientX - rect.left) / rect.width;
-    const yPct = (e.clientY - rect.top) / rect.height;
-    if (chanOpt !== 'all4' && xPct < 0.54) {
-      const u = clamp((xPct * 400 - 24) / 186, 0, 1);
-      const v = clamp((yPct * 222 - 18) / 186, 0, 1);
+    const px = ((e.clientX - rect.left) / rect.width) * 400;
+    const py = ((e.clientY - rect.top) / rect.height) * 222;
+    if (chanOpt === 'all4') {
+      const cardW = 88;
+      const cardH = 148;
+      const gap = 9;
+      const startX = Math.floor((400 - (cardW * 4 + gap * 3)) * 0.5);
+      const startY = 42;
+      if (py >= startY && py <= startY + cardH) {
+        for (let c = 0; c < 4; c++) {
+          const cx0 = startX + c * (cardW + gap);
+          if (px >= cx0 && px <= cx0 + cardW) {
+            const u = clamp((px - cx0) / (cardW - 1), 0, 1);
+            const v = clamp((py - startY) / (cardH - 1), 0, 1);
+            setProbeUV([u, v]);
+            break;
+          }
+        }
+      }
+    } else if (px >= 24 && px <= 24 + 186 && py >= 18 && py <= 18 + 186) {
+      const u = clamp((px - 24) / 185, 0, 1);
+      const v = clamp((py - 18) / 185, 0, 1);
       setProbeUV([u, v]);
     }
   };
@@ -2163,13 +2220,13 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
               border: '1.5px solid var(--border-strong)',
               overflow: 'hidden',
               height: 222,
-              cursor: chanOpt === 'all4' ? 'default' : 'crosshair',
+              cursor: 'crosshair',
             }}
           >
             <canvas
               ref={singleCvsRef}
               onClick={handleCardCanvasClick}
-              style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
+              style={{ width: '100%', height: '100%', display: 'block', objectFit: 'fill' }}
             />
           </div>
 
@@ -2192,7 +2249,7 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
               {[
                 { label: '🍁 红宝石中心', uv: [0.5, 0.5] as [number, number] },
                 { label: '🌿 翡翠绿花环', uv: [0.5, 0.22] as [number, number] },
-                { label: '🛡️ 宝蓝盾底', uv: [0.24, 0.5] as [number, number] },
+                { label: '🛡️ 宝蓝盾底', uv: [0.33, 0.5] as [number, number] },
                 { label: '✂️ 盾外镂空角', uv: [0.07, 0.08] as [number, number] },
               ].map((pt) => (
                 <button
@@ -2333,7 +2390,7 @@ const OrmChannelPackingStage: React.FC<LessonStageProps> = ({
   }, [stepIndex]);
 
   // 2048x2048 with Mipmaps (5,592,405 texels):
-  // BC1 = 0.5 bytes/texel = 2.67 MB; BC3 = 1.0 byte/texel = 5.33 MB; 3x BC1 = 8.00 MB
+  // BC1 = 0.5 bytes/texel = 2.67 MiB; BC3 = 1.0 byte/texel = 5.33 MiB; 3x BC1 = 8.00 MiB
   const vramMb = packMode === 'unpacked' ? 8.0 : packedFormat === 'bc7' || stuffAlpha4th ? 5.33 : 2.67;
   const samplerCount = packMode === 'unpacked' ? 3 : 1;
   const bcFormat = packMode === 'unpacked' ? '3 × BC1（每张约 2.67 MiB）' : packedFormat === 'bc7' ? 'BC7 · RGB/RGBA 均为 16 字节/块' : stuffAlpha4th ? 'BC3 · 16 字节/块' : 'BC1 · 8 字节/块';
@@ -2518,26 +2575,26 @@ const OrmChannelPackingStage: React.FC<LessonStageProps> = ({
         >
           <div style={{ fontWeight: 800, color: 'var(--text-secondary)' }}>📥 集装箱分舱清单 (O-R-M)：</div>
           <div style={{ padding: '5px 7px', borderRadius: 7, borderLeft: '4px solid #ef4444', background: 'var(--bg-panel)' }}>
-            <strong>R 红槽 ← O (AO 环境遮蔽)</strong>
-            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>BC1 块的两个红端点各 5 位</div>
+            <strong>R 红槽 ← O (AO 缝隙暗角)</strong>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>记录角落阴影（第 7.4 课详讲）</div>
           </div>
           <div style={{ padding: '5px 7px', borderRadius: 7, borderLeft: '4px solid #22c55e', background: 'var(--accent-sage)', color: 'var(--accent-sage-deep)' }}>
-            <strong>G 绿槽 ← R (粗糙度)</strong>
-            <div style={{ fontSize: 10.5 }}>BC1 的两个绿端点各 <strong>6 位</strong></div>
+            <strong>G 绿槽 ← R (Roughness 粗糙度)</strong>
+            <div style={{ fontSize: 10.5 }}>绿色压缩精度最细腻（第 6.2 课详讲）</div>
           </div>
           <div style={{ padding: '5px 7px', borderRadius: 7, borderLeft: '4px solid #3b82f6', background: 'var(--bg-panel)' }}>
-            <strong>B 蓝槽 ← M (金属度)</strong>
-            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>BC1 块的两个蓝端点各 5 位</div>
+            <strong>B 蓝槽 ← M (Metallic 金属度)</strong>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>区分金属与非金属（第 8.3 课详讲）</div>
           </div>
           {stuffAlpha4th && (
             <div style={{ padding: '5px 7px', borderRadius: 7, borderLeft: '4px solid #dc2626', background: 'var(--accent-coral)', color: 'var(--accent-coral-deep)' }}>
               <strong>A 第四槽 ← 高度数据</strong>
-              <div style={{ fontSize: 10.5 }}>{packedFormat === 'bc7' ? 'BC7 保持 16 字节/块' : '本预算把目标格式切到 BC3'}</div>
+              <div style={{ fontSize: 10.5 }}>{packedFormat === 'bc7' ? 'BC7 保持 16 字节/块（显存不变）' : '切为带透明 BC3，显存翻倍！'}</div>
             </div>
           )}
         </div>
 
-        {/* Column 2: Synthesized ORM Purple-Green Texture */}
+        {/* Column 2: Synthesized ORM Texture */}
         <div
           style={{
             position: 'relative',
@@ -2567,7 +2624,7 @@ const OrmChannelPackingStage: React.FC<LessonStageProps> = ({
               textAlign: 'center',
             }}
           >
-            {packMode === 'packed' ? '🎨 合体 T_Armor_ORM (紫绿花脸)' : '📚 打包前：3 张灰图各自独立'}
+            {packMode === 'packed' ? '🎨 合体 T_Armor_ORM (橙黄/洋紫花脸)' : '📚 打包前：3 张灰图各自独立'}
           </span>
         </div>
 
@@ -2708,7 +2765,7 @@ export const modules03_04: ModuleDefinition[] = [
             title: '8 个开关凑出 256 级台阶：按物理平分就会酿成暗部灾难',
             paragraphs: [
               '补一点点超好懂的电脑常识：计算机底层只认识“断电 `0`”和“通电 `1`”两种开关状态（1 个开关叫 `1-bit`）。普通图片给每种颜色配了 **8 个开关（`8-bit`）**，排列组合一共只能存下 `2⁸ = 256` **级亮度台阶**（也就是常见的 `0 ~ 255`）。',
-              '如果我们耿直地按**真实物理光子数量（`Linear` 线性平分）**把这 256 级台阶均匀切开，灾难就发生了：整整一半的宝贵名额（`128 ~ 255`）全浪费在了人眼根本分不清的大亮部；而在人眼最挑剔的整个暗部半程里，居然只分到了区区几十级台阶，阴影当场断裂成丑陋的**色带断层（Banding）**！',
+              '如果我们耿直地按**真实物理光子数量（`Linear` 线性平分）**把这 256 级台阶均匀切开，灾难就发生了：整整一半的宝贵名额（`128 ~ 255`）全浪费在了人眼分辨力远不如暗部的亮区（线性 `0.5 ~ 1.0` 仅占视觉最亮的一小段）；而在人眼最挑剔的整个暗部半程里，居然只分到了区区几十级台阶，阴影当场断裂成丑陋的**色带断层（Banding）**！',
             ],
             tryItPrompt: '观察画面下方的「台阶分配透视尺」第一行红线：在 16 级模式下，暗部半程只分到了可怜的 4 道红线，其余全挤在右边亮部！',
             callout: {
@@ -2723,10 +2780,15 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'experiment',
             title: '把台阶往暗部使劲挤一挤：`sRGB`（Gamma 编码）的省钱神技',
             paragraphs: [
-              'sRGB 用分段传递函数为暗部保留更密的线性亮度台阶。解码时，编码值 E ≤ 0.04045 用 E / 12.92，其余用 ((E + 0.055) / 1.055) ^ 2.4。常见的 E ^ 2.2 是近似，0.5 得 0.2176；本课读数和图像统一使用标准分段函数，0.5 得 0.2140。',
-              '编码和解码互为逆运算。写入有限位深时仍会量化；相同码值数量下，sRGB 通常能减轻可见暗部色带。',
+              '聪明的工程师想出了一个天才的“偏心曲线”——也就是大家常听说的 **Gamma（伽马）次方曲线**：把一个 `0 ~ 1` 之间的小数做 **大于 1 的次方**（比如 `2.2` 或 `2.4` 次方），中间调就会被往下压暗；反过来做 **`1 / 2.2`（约 `0.45`）次方**，暗部细节就会被往上拉宽提亮！',
+              '存图时，**`sRGB` 编码**故意把暗部拉宽提亮，让暗部抢占 8-bit 里整整一半的宝贵格子；等到显示器播放画面时，再用相反的解码曲线对称压暗还原。虽然把连续平滑的亮度切成一个个离散整数台阶（专业叫**量化**）总会舍入丢掉一点尾数，但同样只有 256 个台阶，把更多格子留给敏感的暗部后，阴影里的色带断层就能大幅减轻甚至肉眼难辨！',
             ],
             tryItPrompt: '把台阶数依次切换到 `32 级` 与 `256 级`，并切换「丝绒球 + 底部渐变尺」，亲眼见证偏心加密如何在极少台阶下消灭暗部断层！',
+            callout: {
+              tone: 'formula',
+              title: '严谨公式：sRGB 分段传递函数（IEC 61966-2-1）',
+              body: '解码（`sRGB → Linear`）：当编码值 `E ≤ 0.04045` 时用线性段 `E / 12.92`，其余用 `((E + 0.055) / 1.055) ^ 2.4`。常见口算 `E ^ 2.2` 是近似（`0.5` 得 `0.2176`），本课全部数值与图像统一采用标准分段函数（`0.5` 精确解码得 `0.2140`）。',
+            },
           },
           {
             stepNumber: 4,
@@ -2737,7 +2799,7 @@ export const modules03_04: ModuleDefinition[] = [
               '常见的网页图像和供 sRGB 显示使用的颜色贴图按 sRGB 编码。宽色域照片及线性 EXR 也很常见，导入前要核对源图的色彩空间。',
               '当你把这样一张颜色图片拖进 **UE 5.8** 时，引擎纹理面板里会自动帮它打上 `sRGB` 勾号，相当于贴上一张提醒条：“注意！这张图里的数字是为了省空间被拉高过的，算光照前记得先还原哦！”',
             ],
-            tryItPrompt: '拖动最下方的「黄色探针滑块」停在 `50%` 处：看看人眼觉得正好一半亮的中灰色（存盘值 `128`），真实物理光子其实只有多少？',
+            tryItPrompt: '把最下方的「黄色探针滑块」从 `20% → 50% → 80%` 来回拖动对比：看看暗部（`20%`）与中灰（`50%`，存盘值 `128`）对应的真实物理光能各有多小，而亮部（`80%`）又占了多大一块物理区间！',
             callout: {
               tone: 'ue58',
               title: 'UE 5.8 自动识别机制',
@@ -2847,14 +2909,14 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'background',
             title: '`sRGB` 是拉伸过的外币账单：不换算直接相加肯定算错账！',
             paragraphs: [
-              '打个比方就全通了：`sRGB` 里的数字是为了省空间被人为拉高过的“外币账单”。上一节我们刚验证过，账面写着 `0.5` 的灯，真实物理光能只有 **`0.2140`（21.4%）**！',
-              '两束编码值 0.5 的灰光都满强度照在同一点，在线性空间相加得到 0.4281，重新编码约 0.6858。直接加编码值则得到 1.0。渐变中的线性红、绿分量也要各自解码后再插值。',
+              '打个比方就全通了：`sRGB` 里的数字是为了省空间被人为拉高过的“外币账单”。上一节我们刚验证过，账面写着 `0.5` 的灯，真实物理光能只有 **`0.2140`（21.4%）**！直接拿账面数字硬加 `0.5 + 0.5 = 1.0`，画面直接飙到 100% 满格死白；正确做法是先换算回真实物理光，两盏灯相加得到 `0.4281`，重新编码回屏幕约 `0.6858`！',
+              '再算一遍底部的**红绿脏黑带**就更恍然大悟了：如果在 `sRGB` 空间直接把纯红 `(1, 0, 0)` 和纯绿 `(0, 1, 0)` 对半混合，中点会得到 `(0.5, 0.5, 0)`。看似红绿各一半很公平，可还原到物理世界，它其实只有 **`21.4%` 红光 + `21.4%` 绿光 = `42.8%` 总光能**——连两端任意纯色（`100%` 能量）的一半都不到！总亮度在正中间平白塌陷了一大半，当然会凹出一条发脏发暗的褐黑泥沟！',
             ],
             tryItPrompt: '把底部混色组切换到 `暖橙 ↔ 宝蓝` 和 `亮青 ↔ 品红`，看看在错误空间直接混色是不是每一组中间都会发灰发暗！',
             callout: {
               tone: 'formula',
               title: '两行算式看穿本质',
-              body: '错误硬加：0.5 + 0.5 = 1.00（100% 过曝死白） ｜ 正确线性：2 × 0.21404 ≈ 0.42808 物理光 → 转回屏幕 sRGB 编码后约 0.6858',
+              body: '双灯错误硬加：0.5 + 0.5 = 1.00（过曝死白） ｜ 正确线性：2 × 0.21404 ≈ 0.42808 → 屏幕 sRGB 约 0.6858；红绿中点 sRGB(0.5,0.5,0) 仅 42.8% 能量，而 Linear(0.5,0.5,0) = 100% 满能量 → sRGB(0.7354,0.7354,0) 亮黄！',
             },
           },
           {
@@ -2863,10 +2925,10 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'experiment',
             title: '亲手调灯验证：物理世界 `Linear` 让光照和混色重回真实',
             paragraphs: [
-              '现在看右半屏的正确做法：先把所有参与运算的颜料和灯光统一还原回**真实物理空间（`Linear` 线性空间）**。两盏灯 `2 × 0.21404 ≈ 0.42808`，算完后再打包回 `sRGB`（`0.6858`）发给屏幕——交叠区柔和通透，毫无生硬断崖！',
-              '红绿各占一半时，线性 RGB 为 (0.5, 0.5, 0)。分别做 sRGB 编码，得到约 (0.7354, 0.7354, 0)，中点比直接在编码空间插值更亮。',
+              '现在看右半屏的正确做法：先把所有参与运算的颜料和灯光统一还原回**真实物理空间（`Linear` 线性空间）**。两盏灯 `2 × 0.21404 ≈ 0.42808`，算完后再编码回 `sRGB`（`0.6858`）发给屏幕——交叠区柔和通透，毫无生硬断崖！',
+              '同样地，在线性空间把纯红 `(1, 0, 0)` 和纯绿 `(0, 1, 0)` 对半混合，中点得到物理光 **`(0.5, 0.5, 0)`**——也就是 **`50%` 红光 + `50%` 绿光 = `100%` 满格总光能**，能量一丝不丢！再做 `sRGB` 分段编码送给屏幕，就变成明亮干净的 **`(0.7354, 0.7354, 0)`** 鲜亮金黄，脏黑带瞬间烟消云散！',
             ],
-            tryItPrompt: '拖动「单盏聚光灯账面读数」滑块从 `0.30` 拉到 `0.70`，同步观察中间三格换算条里 `进门去伽马 → 线性相加 → 出门加伽马` 的实时数字！',
+            tryItPrompt: '拖动「单盏聚光灯账面读数」滑块从 `0.30` 拉到 `0.70`，同步观察下方三格换算条里 `① sRGB 分段解码 → ② Linear 空间做加法 → ③ sRGB 分段编码` 的实时数字！',
           },
           {
             stepNumber: 4,
@@ -2874,10 +2936,10 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'ue5',
             title: '走进 UE 5.8：引擎全自动“三明治”线性渲染管线',
             paragraphs: [
-              'UE 在采样开启 sRGB 的颜色图时执行解码，照明与颜色混合在线性空间进行。普通 Add、Multiply、Lerp 只计算传入的数值，因此纹理的读取方式仍需要作者正确配置。',
-              '引擎在后台自动帮你包好了一块“三明治”：① **进门解码**：勾了 `sRGB` 的颜色贴图一进门就自动按 sRGB 分段函数解码为线性值；② **中间算光**：所有材质节点与灯光纯粹按物理光子算数；③ **出门上屏**：画面最终送往显示器前，由色调映射器统一加上 `sRGB` 给眼睛看！',
+              'UE 在采样开启 `sRGB` 的颜色图时会自动执行解码，照明与颜色混合都在 `Linear` 线性空间进行。普通的 `Add`、`Multiply`、`Lerp` 节点只负责计算传入的数字，因此纹理的读取方式仍需要作者正确配置。',
+              '引擎在后台自动帮你包好了一块“三明治”：① **进门解码**：勾了 `sRGB` 的颜色贴图一进门就自动按 sRGB 分段函数解码为线性值；② **中间算光**：所有材质节点与灯光纯粹按物理光子算数；③ **出门上屏**：画面最终送往显示器前，由**色调映射器（把场景极高亮度压缩适配到普通屏幕的最终工序）**统一编码成 `sRGB` 给眼睛看！',
             ],
-            tryItPrompt: '调整「两盏聚光灯靠拢重叠度」滑块，感受 UE 5.8 `Lumen` 多光源叠加时右半屏那种自然柔顺的真实光感。',
+            tryItPrompt: '调整「两盏聚光灯靠拢重叠度」滑块，感受 UE 5.8 的 `Lumen`（实时全局光照系统）多光源叠加时右半屏那种自然柔顺的真实光感。',
           },
           {
             stepNumber: 5,
@@ -2892,7 +2954,7 @@ export const modules03_04: ModuleDefinition[] = [
             callout: {
               tone: 'warn',
               title: '拾色器粘贴色号看清后缀！',
-              body: 'UE 5.8 拾色器右侧有两个十六进制框：`Hex Linear` 和 `Hex sRGB`。从网页、Figma、Photoshop 复制来的 `#RRGGBB` 色号一律粘贴到 **`Hex sRGB`** 框里！',
+              body: 'UE 5.8 拾色器右侧有两个十六进制框：`Hex Linear` 和 `Hex sRGB`。从网页、Figma、Photoshop 复制来的 `#RRGGBB`（六位十六进制颜色代码，如 `#805032`）一律粘贴到 **`Hex sRGB`** 框里！',
             },
           },
         ],
@@ -2990,7 +3052,7 @@ export const modules03_04: ModuleDefinition[] = [
               '几乎每位虚幻新手在第一周都会撞上这两起“灵异惨案”：明明在贴图软件里调得醇厚温润的深红木宝箱，导进引擎一连上，木头竟像被人**撒了一层白面粉一样惨白发灰**（看左侧当前视口）！',
               '或者反过来，原本画的是粗糙沧桑的干木板与锻铁箍，进关卡一打光，整只箱子居然像**刚被人泼了一桶色拉油一样油亮刺眼**！贴图文件明明一个像素都没坏，罪魁祸首只是面板上一个小小的勾号！',
             ],
-            tryItPrompt: '点击舞台上方的「✅ 标准正确配置」按钮，再点回「❌ 颜色忘勾」和「❌ 粗糙度误勾」，直观感受宝箱在这三种状态下的巨大反差！',
+            tryItPrompt: '点击舞台上方的「✅ 标准正确配置」「❌ 颜色忘勾」「❌ 粗糙度误勾」与「💥 双重翻车」四个按钮，直观感受铁箍红木宝箱在这四种状态下的巨大反差！',
           },
           {
             stepNumber: 2,
@@ -2999,9 +3061,9 @@ export const modules03_04: ModuleDefinition[] = [
             title: '灵魂分家：虽然都存成图片，但“颜色照片”和“数学表格”是两个物种！',
             paragraphs: [
               '为什么有的图必须解码，有的图一解码就完蛋？因为游戏里的贴图虽然长着一样的 `.PNG / .TGA` 后缀，骨子里却分属两大阵营：',
-              '第一类叫 **颜色照片（Color）**：画师看着显示器画出来的木纹色、皮肤色、霓虹发光图案，存盘时已经被 `sRGB` 提亮过了，进门必须解码压回来；第二类叫 **纯数学表格（Data）**：画师在粗糙度图里涂 `0.5` 中灰，并不是想要“灰颜色”，而是字面意思想填 **`50%` 粗糙度这个数字**！它本来就是直来直去的线性数字，根本没被提亮过！',
+              '第一类叫 **颜色照片（Color）**：画师看着显示器画出来的木纹色、皮肤色、霓虹发光图案，存盘时已经被 `sRGB` 提亮过了，进门必须解码压回来；第二类叫 **纯数学表格（Data）**：比如控制表面光滑程度的粗糙度图（**`0` 代表像镜子一样极致光滑，`1` 代表像粉笔一样完全哑光**），画师在里面涂 `0.5` 中灰，并不是想要“灰颜色”，而是字面意思想填 **`50%` 粗糙度这个数字**！它本来就是直来直去的线性数字，根本没被提亮过！',
             ],
-            tryItPrompt: '盯着舞台底部的「实时三段数据追踪」栏，对比颜色贴图 `0.45` 和粗糙度贴图 `0.52` 在进门解码那一步截然不同的命运。',
+            tryItPrompt: '盯着舞台底部的「🔬 示例色样换算」栏，对比颜色贴图 `0.45` 和粗糙度贴图 `0.52` 在进门解码那一步截然不同的命运。',
           },
           {
             stepNumber: 3,
@@ -3010,7 +3072,7 @@ export const modules03_04: ModuleDefinition[] = [
             title: '亲手拨动两个 `sRGB` 勾选框，当场抓获“算歪”全过程',
             paragraphs: [
               '现在来亲手破案！看右侧仿真的 UE 5.8 面板：当你把「木纹颜色图」的 `sRGB` 勾去掉时，原本代表 `0.17` 深红木的 `0.45` 未经压暗直接溜进材质，出门上屏时又被显示器白白提亮一遍变成 **`0.7014`**——双重提亮，红木当场变粉笔灰！',
-              '再试着故意勾上「粗糙度图」的 `sRGB`：原本五成哑光的 `0.52` 一进门就被引擎自作聪明按 sRGB 分段函数解码为 **`0.23`**（同样光照下高光更集中）——干爽木箱瞬间变成油光锃亮的溜冰场！',
+              '再试着故意勾上「粗糙度图」的 `sRGB`：记住粗糙度是 **`0` 越滑、`1` 越糙**——原本五成哑光的 `0.52` 一进门就被引擎自作聪明按 sRGB 分段函数压低成了 **`0.23`**，表面粗糙度直接腰斩，干爽木箱瞬间变成油光锃亮的溜冰场！',
             ],
             tryItPrompt: '自由点击右侧两个 `勾选 sRGB` 开关，并左右拖动底部的「检视灯光角度」滑块，观察铁箍与木纹上的高光如何随开关突变！',
           },
@@ -3020,7 +3082,7 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'ue5',
             title: '走进 UE 5.8 实机操作：改完贴图 `sRGB`，别忘了看材质采样器类型！',
             paragraphs: [
-              '在 **UE 5.8** 中双击打开贴图资产，右侧 `Details` 面板里找到 `Texture -> sRGB` 即可开关；更省心的办法是直接把数据图的 **压缩设置（Compression Settings）** 改成 `Masks (no sRGB)` 或 `Grayscale`，引擎会自动帮你取消 `sRGB`！',
+              '在 **UE 5.8** 的内容浏览器中拖入贴图后，**双击贴图缩略图**打开贴图编辑器，右侧就是 `Details`（细节）属性面板，在 `Texture -> sRGB` 处即可开关；更省心的办法是直接把数据图的 **压缩设置（Compression Settings）** 改成 `Masks (no sRGB)` 或 `Alpha (no sRGB)`，引擎会自动取消 `sRGB`；如果使用 `Grayscale`（单通道灰度压缩），引擎不会自动取消，别忘了手动取消勾选 `sRGB`（并将采样器设为 `Linear Grayscale`）！',
               '同时留心一个小联动：如果你把一张已经在材质里连好线的贴图取消了 `sRGB`，记得回到材质编辑器点击那颗 `Texture Sample` 节点，确认左下角 **`Sampler Type`（采样类型）** 也同步变成了 `Linear Color`、`Linear Grayscale` 或 `Masks`，否则节点底部会亮起红色报错提醒你两者不匹配！',
             ],
             tryItPrompt: '把两个开关调回「颜色图打勾 ✓、粗糙度不打勾 ✗」，看右侧仿真面板里的 `Sampler` 提示如何全部亮起绿色通过状态。',
@@ -3038,16 +3100,16 @@ export const modules03_04: ModuleDefinition[] = [
             paragraphs: [
               '搞懂了前几步的账本换算，以后在 UE 5.8 里双击打开任何一张贴图，面对那个 **`sRGB`** 小方框再也不用死记硬背或瞎猜了，只需问自己一句话：',
               '• **给人眼直接看颜色的照片**（比如基础色 `BaseColor`、自发光图案 `Emissive`、UI 图标）👉 **必须打勾 `✓ sRGB`**！要是忘勾了，进引擎时没把拔高的暗部压回来，上屏幕前又被显示器白白提亮一遍，好好的红木箱就会像蒙了一层粉笔灰一样惨白！',
-              '• **给电脑算数学用的百分比表格**（比如粗糙度 `Roughness`、金属度 `Metallic`、环境遮蔽 `AO`、法线 `Normal`、高度图、`ORM` 打包图）👉 **严禁打勾 `sRGB`**！画师填 `0.5` 就是想要字面意思的五成粗糙，要是误勾了 `sRGB`，引擎进门就把它狠狠压成 `0.2140`，粗糙铁箍与水泥地当场变成泼了油的溜冰场！',
+              '• **给电脑算数学用的百分比表格**（比如控制光滑度的粗糙度 `Roughness`、区分金属的金属度 `Metallic`、压暗缝隙的环境遮蔽 `AO`、记录凹凸朝向的法线 `Normal`、记录高低起伏的高度图，以及多图合一的 `ORM` 打包图——这些都会在后文第 4~8 章详讲）👉 **严禁打勾 `sRGB`**！画师填 `0.5` 就是想要字面意思的五成粗糙，要是误勾了 `sRGB`，引擎进门就把它狠狠压成 `0.2140`，粗糙铁箍与水泥地当场变成泼了油的溜冰场！',
             ],
-            tryItPrompt: '试着在仿真面板里故意同时弄反两个开关（取消颜色图 `sRGB` + 勾选粗糙度 `sRGB`），记住这个“又白又油”的典型翻车长相，以后在项目里一眼就能揪出病根！',
+            tryItPrompt: '试着点一下顶部的「💥 双重翻车 (又白又油)」按钮（或手动取消颜色图 `sRGB` + 勾选粗糙度 `sRGB`），记住这个“又白又油”的典型翻车长相，以后在项目里一眼就能揪出病根！',
           },
         ],
         takeaways: [
           '判断 `sRGB` 只需一问：画的是**给人眼看的颜色照片**（必勾 `✓`），还是**给电脑算数的百分比表格**（严禁勾 `✗`）？',
           '颜色图（`BaseColor`、`Emissive`）漏勾 `sRGB` → 缺少进门压暗，被屏幕二次提亮，画面惨白发灰如撒面粉。',
           '数据图（`Roughness`、`Metallic`、`AO`、`Normal`、`ORM`）误勾 `sRGB` → `0.5` 被压暗成 `0.2140`，哑光表面变成泼油反光。',
-          '在 UE 5.8 修改贴图 `sRGB` 状态后，需确保材质内 `Texture Sample` 的 `Sampler Type`（`Color` vs `Linear Color / Masks`）与之对应。',
+          '在 UE 5.8 中把压缩设为 `Masks (no sRGB)` / `Alpha (no sRGB)` 会自动关闭 `sRGB`，若用 `Grayscale` 需手动取消勾选 `sRGB`，并确保材质采样器类型（`Color` vs `Linear Color / Linear Grayscale / Masks`）一致。',
         ],
         schematic: {
           title: 'UE 5.8 颜色贴图与数据贴图分流铁律',
@@ -3079,7 +3141,7 @@ export const modules03_04: ModuleDefinition[] = [
             },
             {
               id: 'substrate_slab',
-              title: 'Substrate 层板 (Slab BSDF)',
+              title: 'Substrate Slab BSDF',
               subtitle: 'UE 5.8 默认物理材质核心',
               category: 'substrate',
               x: 345,
@@ -3089,12 +3151,12 @@ export const modules03_04: ModuleDefinition[] = [
                 { id: 'diff', label: 'Diffuse Albedo (漫反射)', color: '#4ade80' },
                 { id: 'rough', label: 'Roughness (粗糙度)', color: '#38bdf8' },
               ],
-              outputs: [{ id: 'bsdf', label: 'BSDF 层板输出', color: '#a855f7' }],
+              outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
             },
             {
               id: 'mat_root',
               title: '材质主节点',
-              subtitle: '输出至延迟渲染管线',
+              subtitle: '输出至最终画面渲染',
               category: 'output',
               x: 660,
               y: 95,
@@ -3134,9 +3196,9 @@ export const modules03_04: ModuleDefinition[] = [
             title: '平看一模一样的两张灰图，贴上跑车引擎盖怎么炸出一圈圈“梯田”？',
             paragraphs: [
               '先看当前舞台的「模式 1：平铺直看高度图」：左边是一张 `8-bit` 灰度穹顶图，右边是 `16-bit`，哪怕你把脸贴在显示器上找茬，两边看起来也几乎 **99.9% 一模一样**！',
-              '现在，见证奇迹的时刻到了——点击舞台上方切换到 **「🚗 模式 2：贴上光滑汽车引擎盖打斜光」**！天呐，刚才还平平滑滑的左半边车盖，高光里竟然炸出了一圈圈像山坡梯田和树木年轮一样的丑陋波纹；而右半边却像液态蓝宝石一样平滑如镜！',
+              '现在，见证奇迹的时刻到了——点击舞台上方切换到 **「🚗 模式 2：贴上光滑引擎盖打斜光」**！天呐，刚才还平平滑滑的左半边车盖，高光里竟然炸出了一圈圈像山坡梯田和树木年轮一样的丑陋波纹；而右半边却像液态蓝宝石一样平滑如镜！',
             ],
-            tryItPrompt: '立即点击舞台顶部的「🚗 模式 2：贴上光滑汽车引擎盖打斜光」，然后拖动白色对比拉帘，亲眼看看左半边惊人的等高线梯田条纹！',
+            tryItPrompt: '立即点击舞台顶部的「🚗 模式 2：贴上光滑引擎盖打斜光」，然后拖动白色对比拉帘，亲眼看看左半边惊人的等高线梯田条纹！',
           },
           {
             stepNumber: 2,
@@ -3144,7 +3206,7 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'background',
             title: '揭秘两大痛点：为什么严禁用 `JPG`？为什么 `256` 级撑不起缓坡？',
             paragraphs: [
-              'JPEG 的有损编码会量化 8×8 变换块中的频率信息，损失可能表现为块边、振铃或色边模糊。保留无损源文件便于后续烘焙和目标平台压缩。这里直接比较同一源图经浏览器 JPEG 与 PNG 编解码后的像素。',
+              '先说文件格式：`JPG（JPEG）` 是为了发网页省流量发明的有损格式——它会把图像切成 `8×8` 小方块并扔掉高频细节，结果边缘出现块状模糊和波纹毛刺。游戏贴图源图必须用无损的 **`PNG`** 或 **`TGA`**（游戏美术特别偏爱 **`.TGA`**，因为它无损、读写快，还能把透明通道干干净净地独立分开存，不会擅自把透明区域的 RGB 底色清成纯白破坏边缘，下一节马上验证！）。',
               '再看刚才的车盖梯田之谜：`8-bit` 只有 **256 级整数台阶**。当曲面坡度很平缓时，屏幕每隔好几个像素才允许高度往上跳 `1` 级，中间全是平平的台阶（看下方放大 50 倍剖面图）！肉眼看灰度察觉不到 `1/255` 的跳变，可一旦用来算表面法线并打上光滑烤漆高光，每一级台阶折角都会把光线猛地弹歪，瞬间现出梯田原形！换成 **`16-bit`（`65,536` 级台阶，细腻 256 倍）**，台阶彻底化作顺滑斜坡！',
             ],
             tryItPrompt: '在「模式 2」下左右拖动「斜射高光角度」与「烤漆粗糙度」滑块：观察烤漆越光滑，左边的 `8-bit` 梯田波纹暴露得越无处遁形！',
@@ -3155,10 +3217,10 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'experiment',
             title: '切到模式 3：揪出 `JPG` 马赛克块，再戴墨镜看 `.EXR` 里的万倍太阳！',
             paragraphs: [
-              '除了 `PNG / TGA`，你还会遇到一位重量级大佬：**`.EXR`（以及 `.HDR`）**。普通图片最高只能存到 `1.0`（纯白），正午太阳和白炽灯泡全被一刀砍平同归于尽；而 `EXR` 不用整数改用**科学计数法小数（浮点数）**，能轻松存下亮度高达 `20.0` 甚至 `10,000.0` 的真实太阳能量！',
-              '切到舞台「模式 3」亲自试试这两组实验：① 浏览器把同一幅渲染好的徽章分别编码成 JPEG（quality 0.25）与 PNG，再解码到画布。对照细线和边缘，差异取决于源图与编码器；② 切到 `LDR 截断与 HDR 数值示意`，把相机曝光往低拉（相当于给镜头戴上墨镜）——左边 `8-bit` 太阳直接变成一块毫无生气的死灰铁饼，右边 `EXR` 则显现出炽热的金色日冕与太阳核心！',
+              '除了 `PNG / TGA`，你还会遇到一位重量级大佬：**`.EXR`（以及 `.HDR`）**。注意分清两者的核心差异：无论是 `8-bit` 还是 **`16-bit 整数 PNG`**，都属于 **LDR（Low Dynamic Range，低动态范围）**——哪怕 `16-bit PNG` 有 65,536 级细腻台阶，它的天花板依然死死卡在 `0 ~ 1.0`（纯白），正午太阳和白炽灯超过 `1.0` 的能量全被一刀砍平；而 **`16-bit / 32-bit 浮点 EXR`** 属于 **HDR（High Dynamic Range，高动态范围）**，改用类似科学计数法的**浮点数**，能轻松记录高达 `20.0` 甚至 `10,000+` 的真实太阳强光！',
+              '现在舞台已切到「模式 3」，亲自试试这两组实验：① 先看 `实编码 JPEG 对 PNG`：浏览器把同一幅徽章分别编码成有损 JPEG（quality 0.25）与无损 PNG 再解码，仔细观察红环细线与边缘的色块模糊；② 切到 `LDR 截断与 HDR 数值示意`，把相机曝光往低拉（像给镜头戴墨镜）——左边卡死在 `1.0` 的 `PNG` 太阳直接变成一块死灰圆饼，右边浮点 `EXR` 则显现出炽热的金色日冕与太阳核心！',
             ],
-            tryItPrompt: '点选顶部「🗂️ 模式 3」，先看 JPG 方块伪影，再切到「LDR 截断与 HDR 数值示意」并把曝光滑块拉低到 `0.10x` 附近！',
+            tryItPrompt: '先在「实编码 JPEG 对 PNG」拉动对比帘揪出 JPG 边缘色块，再切到「LDR 截断与 HDR 数值示意」并把曝光滑块拉低到 `0.10x` 附近！',
           },
           {
             stepNumber: 4,
@@ -3166,11 +3228,11 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'ue5',
             title: '走进 UE 5.8：一张清单定死项目里每种贴图该存什么格式！',
             paragraphs: [
-              '先按内容选择源文件位深，再在目标平台检查实际纹理格式和质量。',
-              '• **常规颜色、粗糙度、遮罩、`ORM` 贴图** 👉 存 **`8-bit PNG` 或 `TGA`**（体积适中、无损干净）；',
-              '• Landscape 高度可用 16-bit 单通道 PNG 或支持的 RAW 格式。精细置换可保留高位深源数据，再验证引擎的实际精度。天空照明用浮点 EXR 或 HDR 源图，在 Texture Editor 确认目标像素格式。',
+              '先按用途选对源图格式与位深，导入 UE 5.8 后再在贴图编辑器（Texture Editor）里核对目标平台的实际压缩格式和精度：',
+              '• **常规颜色、粗糙度、遮罩、`ORM` 贴图** 👉 存 **`8-bit 无损 PNG` 或 `TGA`**（体积适中、无损干净，带独立透明通道时尤其推荐 `TGA`）；',
+              '• **Landscape 地形高度与精细凹凸置换** 👉 存 **`16-bit 单通道整数 PNG`**（或支持的 `RAW`），用 65,536 级消灭缓坡梯田；**天空球环境照明（HDRI）** 👉 存 **`16-bit / 32-bit 浮点 EXR`（或 `.HDR`）**，留住远超 `1.0` 的真实太阳能量！',
             ],
-            tryItPrompt: '在同一光照和粗糙度下切换平面与反光车盖，记录什么条件最容易看到高度量化误差。',
+            tryItPrompt: '在同一光照和粗糙度下切换「模式 1（平铺直看）」与「模式 2（反光引擎盖）」，看看在什么粗糙度与斜光角度下最容易揪出 8-bit 高度台阶！',
             callout: {
               tone: 'ue58',
               title: 'UE 5.8 地形系统贴心提示',
@@ -3190,9 +3252,9 @@ export const modules03_04: ModuleDefinition[] = [
           },
         ],
         takeaways: [
-          '需要精确保留数据的源图使用无损格式。JPEG 对细线、色边的影响取决于内容、质量与编码器设置。',
-          '8-bit UNORM 有 256 级，16-bit UNORM 有 65,536 级。高度源图的量化误差可在求导得到的法线与高光中被放大。',
-          '环境天空球照明需使用浮点格式 `.EXR / .HDR`，才能记录远超 `1.0` 的真实太阳强光。',
+          '游戏贴图源文件应使用无损的 **`PNG`** 或 **`TGA`**（`TGA` 能干净独立保存 Alpha 通道），避免有损 `JPG` 在 `8×8` 块边界留下模糊与毛刺。',
+          '`8-bit` 整数贴图（`0~1` 均匀切分）只有 256 级，`16-bit` 整数 PNG 有 65,536 级；平缓曲面高度图的台阶误差在计算法线与光滑高光时会被成倍放大。',
+          '`16-bit 整数 PNG` 属于 `LDR`（上限卡死 `1.0`），而天空球照明需要 `HDR` 浮点格式 **`.EXR / .HDR`**，才能记录远超 `1.0` 的真实太阳强光。',
           '已经被砍成 `8-bit` 的断层图在修图软件里单纯另存为 `16-bit` 无法恢复平滑，必须从源头软件直接导出 `16-bit`。',
         ],
         schematic: {
@@ -3267,10 +3329,10 @@ export const modules03_04: ModuleDefinition[] = [
             stepNumber: 1,
             shortLabel: '彩图与树叶白边',
             tag: 'phenomenon',
-            title: '两个新手必问之谜：为什么贴图节点长着 5 个圆点？为什么透明树叶总镶着白边？',
+            title: '两个新手必问之谜：为什么贴图节点长着 6 个圆点？为什么透明树叶总镶着白边？',
             paragraphs: [
-              '刚进材质编辑器连贴图时，大家都会好奇两件事：第一，为什么每张 `Texture Sample` 贴图节点右边，最顶上是一个白圆点，底下还跟着**红、绿、蓝、灰 4 个小圆点**？而且从红圆点拉根线出去预览，出来的居然不是红图，而是一张黑白图！',
-              '第二，美术师在画图软件里抠好了漂亮的绿树叶，存成透明背景 `.PNG` 导进引擎做镂空树枝，为什么每片叶子边缘都长出一圈像劣质贴纸一样的**刺眼白边**？搞懂今天这一课，两个谜底一次性全揭开！',
+              '刚进材质编辑器连贴图时，大家都会好奇两件事：第一，为什么每张 `Texture Sample` 贴图节点右边，顶上是一个白圆点（`RGB`），中间跟着**红、绿、蓝、灰 4 个小圆点（`R / G / B / A`）**，最底下还有一个白圆点（`RGBA`，把四页一起打包输出）？而且从红圆点拉根线出去预览，出来的居然不是红图，而是一张黑白图！',
+              '第二，美术师在画图软件里抠好了漂亮的绿树叶，存成透明背景 `.PNG` 导进引擎做镂空树枝，为什么每片叶子边缘都长出一圈像劣质贴纸一样的**刺眼白边**（有时甚至是脏黑边）？搞懂今天这一课，两个谜底一次性全揭开！',
             ],
             tryItPrompt: '在左侧舞台点击「📚 四页同屏拆开」与「⚪ RGB 彩色合体」来回切换，看看这枚彩色皇家枫叶徽章拆开后究竟长什么样！',
           },
@@ -3283,18 +3345,18 @@ export const modules03_04: ModuleDefinition[] = [
               '请把这句话刻进直觉里：**在显卡显存里，从来就不存在什么“彩色颜料”，一张 `RGBA` 贴图只不过是用订书机钉在一起的 4 张 `0~1` 黑白灰度表格！** 第 1 页（`R`）记红光深浅，第 2 页（`G`）记绿光，第 3 页（`B`）记蓝光，第 4 页（`A` Alpha）则是顺手附赠的第四张黑白表（常用来记镂空遮罩）。',
               '只有当你把最顶上的总捆绑口 `RGB` 连给屏幕颜色时，前 3 页才会合力点亮显示器的红绿蓝灯珠变回彩图；**只要你单独揪出 `R / G / B / A` 任意一页，它就是一张彻头彻尾的单通道黑白灰度图！**',
             ],
-            tryItPrompt: '在「四页同屏拆开」视图下，依次点击下方的「🍁 红宝石中心」与「🛡️ 宝蓝盾底」按钮：看红宝石在第 1 页亮成纯白（`0.95`），在第 2、3 页却黑成一团（`0.12`）！',
+            tryItPrompt: '在「四页同屏拆开」视图下，依次点击下方的「🍁 红宝石中心」与「🛡️ 宝蓝盾底」按钮（也可以直接点击四张灰度卡任意处取色）：看红宝石在第 1 页亮成纯白（`0.95`），在第 2、3 页却黑成一团（`0.12`）！',
           },
           {
             stepNumber: 3,
             shortLabel: '拆页与白边镜',
             tag: 'experiment',
-            title: '切到实验二抓真凶：透明 `PNG` 的隐形纯白底色是如何污染叶缘的？',
+            title: '切到实验二抓真凶：透明 `PNG` 的隐形底色是如何污染叶缘的？',
             paragraphs: [
-              '既然 `RGB` 和第 4 页 `A` 是分开记账的四张纸，那当你在画图软件里把树叶背景擦成“全透明（`A = 0`）”存为 `PNG` 时，前 3 页 `RGB` 在透明区域填了什么数字呢？答案令人大跌眼镜：**很多软件为了压缩体积，会偷偷把 `A = 0` 区域的 `RGB` 全部涂成纯白 `(1, 1, 1)`！**',
-              '平时看图时因为 `A = 0` 把白底挡住了你看不见；可一进游戏，显卡在树叶边缘做平滑混色（双线性采样）时，会把叶缘的深绿像素和旁边 `A = 0` 底下的隐藏纯白像素各取一半混在一起——镂空线一切下去，一圈刺眼的惨白镶边就漏出来了！解决办法叫 **边缘颜色外扩（Padding / Dilation）**：让树叶绿色往外蔓延铺满背景底色！',
+              '既然 `RGB` 和第 4 页 `A` 是分开记账的四张纸，那当你在画图软件里把树叶背景擦成“全透明（`A = 0`）”存为 `PNG` 时，前 3 页 `RGB` 在透明区域填了什么数字呢？答案令人大跌眼镜：**很多软件为了压缩体积，会把 `A = 0` 区域的 `RGB` 全部清空成纯白 `(1, 1, 1)` 或纯黑 `(0, 0, 0)`！**',
+              '平时看图时因为 `A = 0` 把底色挡住了你看不见；可一进游戏，显卡在树叶边缘做平滑混色（双线性采样）时，会把叶缘的深绿像素和旁边 `A = 0` 底下的隐藏纯白（或纯黑）像素混在一起——镂空线一切下去，一圈刺眼的**惨白镶边**（底色为白时）或发脏的**黑边**（底色为黑时）就漏出来了！解决办法叫 **边缘颜色外扩（Padding / Dilation）**：让树叶自身的绿色往外蔓延铺满背景底色，白边黑边都能一举根除！',
             ],
-            tryItPrompt: '切换到顶部「🍃 实验二：透明 PNG 树叶白边放大镜」，然后打开下方的「🔬 掀开透明遮罩透视底层 RGB」开关——左图刺眼的纯白背景当场人赃俱获！',
+            tryItPrompt: '现在舞台已切到「🍃 实验二：透明 PNG 树叶白边放大镜」，打开下方的「🔬 掀开透明遮罩透视底层 RGB」开关——左图刺眼的纯白背景当场人赃俱获！',
           },
           {
             stepNumber: 4,
@@ -3302,14 +3364,14 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'ue5',
             title: '走进 UE 5.8：单通道直连标量口，做树叶必开 `Masked` 混合模式',
             paragraphs: [
-              '回到 **UE 5.8 材质编辑器**，现在看 `Texture Sample` 节点的 5 个引脚就再亲切不过了：顶上白圆点输出三维数组 `(R,G,B)` 连颜色；底下红、绿、蓝、灰 4 个圆点各自输出 `1` 个 `0~1` 小数（`Float`），可以直接插进 `Roughness`、`Lerp Alpha` 或 **`Opacity Mask`（不透明遮罩）**！',
+              '回到 **UE 5.8 材质编辑器**，现在看 `Texture Sample` 节点的 **6 个输出引脚**就再亲切不过了：顶上白圆点 `RGB` 输出三维颜色数组，最底下白圆点 `RGBA` 一次打包输出全部四个通道；中间红、绿、蓝、灰 4 个圆点各自输出 `1` 个 `0~1` 小数（`Float`），可以直接插进 `Roughness`、`Lerp Alpha` 或 **`Opacity Mask`（不透明遮罩）**！',
               '做树叶、铁丝网、破布条时，选中材质主节点将左下角 **`Blend Mode`（混合模式）改为 `Masked`（遮罩镂空）**，把第 4 页 `A` 引脚连进 `Opacity Mask`：凡是高于 `Opacity Mask Clip Value`（默认 `0.333`）的像素实心保留，低于它的像素一刀切穿透！',
             ],
-            tryItPrompt: '关掉透视开关恢复树叶镂空预览，左右拖动「Masked 镂空裁剪阈值」滑块，观察左图白边如何顽固跟随，而右图外扩处理后在任何阈值下都翠绿干净！',
+            tryItPrompt: '保持关闭透视开关（正常镂空预览），左右拖动「Masked 镂空裁剪阈值」滑块，观察左图白边如何顽固跟随，而右图外扩处理后在任何阈值下都翠绿干净！',
             callout: {
               tone: 'ue58',
-              title: 'Substance Painter 导出无白边贴图秘籍',
-              body: '在 SP 导出带透明遮罩的贴图时，背景填充务必选择 **`Dilation + Transparent`** 或导出实心扩边 **`TGA`**（前 3 页铺满外扩颜色，第 4 页存独立 Alpha），彻底根除白边！',
+              title: 'Substance Painter（常用三维贴图绘制软件）导出无白边秘籍',
+              body: '在 Substance Painter 导出带透明遮罩的贴图时，背景填充务必选择 **`Dilation + Transparent`**，或直接导出实心扩边 **`TGA`**（前 3 页铺满外扩颜色，第 4 页存独立 Alpha），彻底根除白边与黑边！',
             },
           },
           {
@@ -3321,13 +3383,13 @@ export const modules03_04: ModuleDefinition[] = [
               '最后破除一个全网最高频的新手误会：“老师，我的 PNG 明明在电脑看图软件里背景是透明格子，为什么拖进 UE 5.8 连上 `BaseColor` 后，透明的地方全变成纯白或纯黑方块了？”',
               '现在你秒懂了：因为看图软件默认帮你把第 4 页当透明度用了，而 **UE 5.8 默认材质是 `Opaque`（实心不透明石块）**，只读了前 3 页 `RGB` 颜色，压根没看第 4 页 `A`！记住：**`Alpha` 只是第四张普通黑白表，你想让它管镂空就得开 `Masked` 连遮罩口，想管玻璃半透就得开 `Translucent`，甚至还能拿它去存高度或光滑度！**',
             ],
-            tryItPrompt: '切回「🃏 实验一」点选单个 `A 第四页` 按钮看一眼这张黑白剪影表，彻底建立“贴图 = 四页独立黑白数据表”的技术美术思维！',
+            tryItPrompt: '观察左侧舞台刚切出的「⬜ A 第四页」黑白剪影表，再点选「⚪ RGB 彩色合体」对比一下，彻底建立“贴图 = 四页独立黑白数据表”的技术美术思维！',
           },
         ],
         takeaways: [
-          '一张 `RGBA` 彩色贴图在显卡底层只是装订在一起的 **4 张独立 `0~1` 黑白灰度表**，单独连出 `R/G/B/A` 任一引脚得到的都是单通道浮点数。',
-          '直出透明背景 `PNG` 常将 `Alpha=0` 处的隐藏 `RGB` 清成纯白 `(1,1,1)`，经边缘采样混合后会在镂空树叶周围产生刺眼白边。',
-          '消除镂空边缘白边的工业标准做法是 **边缘颜色外扩（Padding / Dilation）** 或用 `TGA` 独立管理实心扩边 `RGB` 与 `Alpha`。',
+          '一张 `RGBA` 彩色贴图在显卡底层只是装订在一起的 **4 张独立 `0~1` 黑白灰度表**，UE 5.8 的 `Texture Sample` 提供 `RGB / R / G / B / A / RGBA` 共 6 个输出引脚，单独连出 `R/G/B/A` 得到的都是单通道浮点数。',
+          '直出透明背景 `PNG` 常将 `Alpha=0` 处的隐藏 `RGB` 清成纯白 `(1,1,1)` 或纯黑 `(0,0,0)`，经边缘采样混合后会在镂空树叶周围产生刺眼白边或脏黑边。',
+          '消除镂空边缘白边与黑边的工业标准做法是 **边缘颜色外扩（Padding / Dilation）** 或用 `TGA` 独立管理实心扩边 `RGB` 与 `Alpha`。',
           '在 UE 5.8 中导入透明图片不会自动透明，必须将材质 `Blend Mode` 设为 `Masked`（连 `Opacity Mask`）或 `Translucent`。',
         ],
         schematic: {
@@ -3353,14 +3415,14 @@ export const modules03_04: ModuleDefinition[] = [
             },
             {
               id: 'leaf_slab',
-              title: 'Substrate 层板 (叶片)',
+              title: 'Substrate Slab BSDF (叶片)',
               subtitle: '边缘混色仍是纯净叶绿',
               category: 'substrate',
               x: 335,
               y: 35,
               width: 205,
               inputs: [{ id: 'albedo', label: 'Diffuse Albedo', color: '#e5e7eb' }],
-              outputs: [{ id: 'bsdf', label: 'Front Material', color: '#a855f7' }],
+              outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
             },
             {
               id: 'masked_root',
@@ -3388,22 +3450,22 @@ export const modules03_04: ModuleDefinition[] = [
         id: 'orm-channel-packing',
         moduleId: '04',
         number: '4.3',
-        title: 'ORM 通道打包 · 一次采样读取三种属性',
-        subtitle: '拆解共享的块端点，并比较不同目标格式添加 Alpha 后的显存变化。',
+        title: 'ORM 通道打包 —— 用一张“花脸图”同时装下三张材质属性表',
+        subtitle: '把 AO、粗糙度、金属度拼进 R/G/B 三个通道，一次采样全带走，再算清加第 4 通道的显存账！',
         duration: '10 分钟',
-        difficulty: '进阶',
+        difficulty: '零基础',
         StageComponent: OrmChannelPackingStage,
         steps: [
           {
             stepNumber: 1,
-            shortLabel: '神秘紫绿贴图',
+            shortLabel: '神秘花脸贴图',
             tag: 'phenomenon',
-            title: '打开 3A 游戏工程文件夹，为什么到处都是诡异的“紫绿荧光花脸图”？',
+            title: '打开 3A 游戏工程文件夹，为什么到处都是诡异的“荧光花脸图”？',
             paragraphs: [
-              '只要你下载过虚幻商城资产、Quixel Megascans 扫描模型或打开大厂项目文件夹，一定会看到这样一幕：每套材质除了正常的颜色图和蓝紫色法线图之外，必定还躺着第 3 张名字带 `_ORM`（或 `_ARM`）、长得**又紫又绿像荧光涂鸦一样怪异的贴图**（看舞台中间那张图）！',
-              '机甲明明是深蓝配钛合金灰，美术师为什么要画一张紫绿花脸图？而右边读取这张花脸图渲染出来的 3D 护甲板，居然质感细腻精准得不得了！',
+              '只要你下载过虚幻商城资产、Quixel Megascans 扫描模型或打开大厂项目文件夹，一定会看到这样一幕：每套材质除了正常的颜色图和蓝紫色法线图之外，必定还躺着第 3 张名字带 `_ORM`（或 `_ARM`）、长得**橙黄配洋紫、或又紫又绿像荧光涂鸦一样怪异的贴图**（看舞台中间那张图）！',
+              '机甲明明是深蓝漆面配亮银钛合金，美术师为什么要画一张这么怪异的花脸图？而且右边读取这张花脸图渲染出来的 3D 护甲板，居然质感细腻精准得不得了！',
             ],
-            tryItPrompt: '拖动舞台下方的「调整护甲边缘金属掉漆磨损度」滑块，同步观察中间紫绿花脸图里的蓝色边框变化，以及右侧 3D 机甲护板露出亮银金属的过程！',
+            tryItPrompt: '拖动舞台下方的「调整护甲边缘金属掉漆磨损度」滑块，同步观察中间花脸图里的洋紫金属边框变化，以及右侧 3D 机甲护板露出亮银金属的过程！',
           },
           {
             stepNumber: 2,
@@ -3411,30 +3473,35 @@ export const modules03_04: ModuleDefinition[] = [
             tag: 'background',
             title: '集装箱拼柜省大钱：把三张黑白表塞进同一本账册的红、绿、蓝三页！',
             paragraphs: [
-              'AO、粗糙度与金属度若共用 UV、分辨率、寻址和过滤要求，可以装入一张 RGB 图。示例中独立的三次读取合为一次。显存按原图和打包图各自的目标像素格式计算。',
-              '聪明的技术美术玩起了“海运集装箱拼柜（**Channel Packing 通道打包**）”，把三张黑白表按国际通用顺序塞进同一张图：**`R` 红槽 = `O`cclusion（AO 遮蔽）**、**`G` 绿槽 = `R`oughness（粗糙度）**、**`B` 蓝槽 = `M`etallic（金属度）**，取首字母合称 **`ORM` 贴图**！非金属区红绿较高合出标志性黄绿色，金属区加上蓝光就呈现出青紫花脸！',
+              '一件写实物体除了颜色外，还需要三张黑白灰度表来描述质感（后面第 7~8 章会逐一细讲）：**`AO`（环境遮蔽，第 7.4 课详讲）**记录缝隙角落的自然暗角，**`Roughness`（粗糙度，第 8.1 课详讲）**决定表面光滑还是哑光，**`Metallic`（金属度，第 8.3 课详讲）**区分哪里是纯金属、哪里是油漆非金属。既然三张表全是单通道黑白图，分别存成 3 张贴图岂不是让显卡每像素跑 3 趟查表、占 3 份显存？',
+              '聪明的技术美术玩起了“海运集装箱拼柜（**Channel Packing 通道打包**）”，把三张黑白表按行业通用顺序塞进同一张图的红、绿、蓝三页：**`R` 红槽 = `O`cclusion（AO 遮蔽）**、**`G` 绿槽 = `R`oughness（粗糙度）**、**`B` 蓝槽 = `M`etallic（金属度）**，取首字母合称 **`ORM` 贴图**！正因为硬把三张互不相干的数据叠成彩图看，舞台中间的护甲非金属漆面区（红高绿中、蓝为 0）合出了醒目的**橙黄色**，金属边框区（红高蓝满、绿较低）合出了鲜艳的**品红/洋紫色**！',
             ],
-            tryItPrompt: '将目标设为 RGB 用 BC1 / RGBA 用 BC3，先关闭 Alpha，在三张独立 BC1 和一张打包 BC1 间切换。估算从约 8.00 MiB 到 2.67 MiB。',
+            tryItPrompt: '点击舞台顶部的「打包前：3 张独立 BC1」和「ORM 三图合一」来回切换，看看采样跑腿次数如何从 `3 次` 降到 `1 次`，显存估算如何从 `8.00 MiB` 骤降到 `2.67 MiB`！',
           },
           {
             stepNumber: 3,
-            shortLabel: '共享端点',
+            shortLabel: '绿槽与禁sRGB',
             tag: 'experiment',
-            title: 'BC1 压缩一个 4×4 块时，绿色的 6 位用在哪里？',
+            title: '为什么偏偏把粗糙度放进绿槽 `G`，而且严禁勾选 `sRGB`？',
             paragraphs: [
-              'ORM 是约定俗成的资产布局。其他布局也可用，但导出约定和材质接线必须一致。',
-              'BC1 的一个 4×4 块共享两个 RGB565 端点，16 个纹素各用一个 2 位索引选择调色板。绿色端点各 6 位，但 RGB 三通道共享索引，粗糙度误差也取决于其他通道。实例块（小端十六进制）为 FF FF 00 00 78 78 78 78。两端为白和黑，每行索引 0、2、3、1，解码灰度 255、170、85、0。若原始四行都是 255、185、75、0，每行误差依次为 0、−15、+10、0。',
+              '`R=AO、G=Roughness、B=Metallic` 是虚幻生态最常见的通用顺序（只要导出约定和材质连线一致，其他顺序也能工作）。之所以普遍把**粗糙度放进绿通道 `G`**，是因为显卡在压缩贴图时（类似人眼对绿色最敏感的原理），会给绿色通道分配稍细腻一点的精度，用来保护对高光变化最挑剔的粗糙度再合适不过！',
+              '同时千万别忘了第 3 章铁律：`ORM` 里塞的三张全都是“给电脑算数的百分比表格”，**绝对不能勾选 `sRGB`**！一旦误开了 `sRGB`，绿槽里代表哑光的粗糙度数值立刻会被压弯变小，干爽的机甲漆面当场泛起不自然的塑料油光！',
             ],
-            tryItPrompt: '试着取消右上角的「✅ UE 5.8 压缩设为 Masks (自动禁勾 sRGB)」勾号，重温第 3 章铁律：一旦 `ORM` 数据图误开了 `sRGB`，右侧护甲立刻泛起错误油光！',
+            tryItPrompt: '试着取消舞台右上角的「✅ UE 5.8 压缩设为 Masks (自动禁勾 sRGB)」开关，观察右侧 3D 机甲护板与上方 KPI 里的 `示例 G = 0.5 粗糙度` 如何立刻泛油报错，再重新勾回修复！',
+            callout: {
+              tone: 'tip',
+              title: '进阶预告（第 6.2 课解锁）：为什么绿色通道精度更细腻？',
+              body: '在常见的显卡 4×4 块压缩格式（如 `BC1`）中，每个压缩块用 `RGB565` 存储端点（红 5 位、绿 6 位、蓝 5 位），绿色多出的 1 位精度正是把 `Roughness` 放进 `G` 槽的历史由来；不过三通道共用块内插值索引，底层压缩原理我们会在 **第 6.2 课** 用显微镜完整拆解！',
+            },
           },
           {
             stepNumber: 4,
             shortLabel: 'UE5.8连线规范',
             tag: 'ue5',
-            title: '走进 UE 5.8：导入选 `Masks (no sRGB)`，配合翻译桥直连 `Substrate`！',
+            title: '走进 UE 5.8：导入选 `Masks (no sRGB)`，三根线直连材质！',
             paragraphs: [
-              '导出时核对各通道含义，导入后选 Masks (no sRGB)，在 Texture Editor 查看目标平台实际 Pixel Format。平台和项目设置决定最终使用哪种块格式。',
-              '③ 在材质编辑器里只放 **1 颗** `Texture Sample`（自动变为 `Sampler Type: Masks`），从 `R` 连环境遮蔽、`G` 连粗糙度、`B` 连金属度（在 UE 5.8 默认 `Substrate` 模式下，基础色与金属度经过 `Metalness-To-DiffuseAlbedo-F0` 桥接节点送入层板即可）！',
+              '把打包好的 `ORM` 贴图放进 **UE 5.8** 只需三步标准流程：**① 核对通道约定**，确认源图就是 `R=AO / G=Roughness / B=Metallic`；**② 设置压缩模式**，双击贴图把右侧 `Compression Settings` 改成 **`Masks (no sRGB)`**（引擎会自动关闭 `sRGB` 并按目标平台选用合适的非颜色压缩格式）；',
+              '**③ 单节点连三根线**：在材质编辑器里只放 **1 颗** `Texture Sample`（自动变为 `Sampler Type: Masks`），把 `R` 连环境遮蔽、`G` 连粗糙度、`B` 连金属度。在 UE 5.8 默认的 **`Substrate` 层板材质（第 8.4 课详讲）** 中，基础色与金属度经过 `Substrate Metalness-To-DiffuseAlbedo-F0` 桥接节点送入 `Substrate Slab BSDF`，最终由 `BSDF` 引脚连到材质主节点的 `Front Material`（若使用传统材质，则直接把 `R/G/B` 接进主节点的 `Ambient Occlusion / Roughness / Metallic` 即可）！',
             ],
             tryItPrompt: '切换到页面顶部的「节点原理图」视图（或查看本课接线图），对照一遍 `T_Armor_ORM` 的红、绿、蓝三根线是怎样一根不落地喂给材质的！',
             callout: {
@@ -3445,25 +3512,25 @@ export const modules03_04: ModuleDefinition[] = [
           },
           {
             stepNumber: 5,
-            shortLabel: 'Alpha 的格式成本',
+            shortLabel: 'Alpha 显存账',
             tag: 'pitfall',
-            title: '加入第四通道时，目标格式是否改变？',
+            title: '实战避坑：顺手把第 4 页 `Alpha` 也塞满，真的能“白嫖”省显存吗？',
             paragraphs: [
               '几乎每个聪明好学的同学学到这儿都会灵机一动：“老师！刚才 4.2 节不是说贴图有 `R, G, B, A` 四页吗？现在 `ORM` 只用了前三页，第 4 页 `Alpha` 空着也是空着，我再塞第 4 张高度图进去做成 `ORMA`，岂不是白嫖一张贴图？”',
-              '在 RGB 用 BC1、RGBA 用 BC3 的配置中，每 4×4 块由 8 字节增为 16 字节，完整 mip 链约从 2.67 到 5.33 MiB。如果两种输入都用 BC7，均为 16 字节/块，添加 Alpha 后仍约 5.33 MiB。ASTC 8×8 也用 16 字节，但覆盖 64 个纹素，即 2 bpp。',
+              '答案是：**不一定，取决于目标平台使用的压缩格式！** 在最常见的传统压缩组合（无透明用 `BC1`、带透明切到 `BC3`）里，一旦塞入第 4 页 `Alpha`，显存块体积会从 8 字节涨到 16 字节，一张 `2048×2048` 完整多级缩略图（Mip 链）贴图的显存会直接从 **`2.67 MiB` 翻倍到 `5.33 MiB`**，等于平白多占了一整张图的显存！只有当项目本身已经统一采用高质量 **`BC7`** 格式（无论是否带 `Alpha` 都是 `16` 字节/块、约 `5.33 MiB`）时，加入第 4 通道才不会额外增加显存。',
             ],
-            tryItPrompt: '分别选择两种目标格式假设，各开关一次 Alpha，记下四个估算值，再到目标平台的 Texture Editor 核对实际格式。',
+            tryItPrompt: '先在下方选择 `RGB 用 BC1 / RGBA 用 BC3`，勾选「加入第四通道 Alpha 高度数据」看显存条瞬间翻倍；再切换 `RGB 与 RGBA 都用 BC7` 对比一次！',
           },
         ],
         takeaways: [
-          '本例 ORM 约定 R = AO、G = Roughness、B = Metallic。共用 UV 时一次采样得到三项数据。',
-          'BC1 每个块共享两个 RGB565 端点，16 个纹素各用 2 位索引。绿色端点精度和解码后每个纹素的精度含义不同。',
+          '`ORM` 通道打包约定 `R = AO（缝隙暗角）`、`G = Roughness（粗糙度）`、`B = Metallic（金属度）`，让三张黑白数据表共用一次贴图采样。',
+          '把 `Roughness` 放在 `G` 绿槽，是为了照顾显卡块压缩中绿色稍细腻的精度分配（第 6.2 课深入拆解）。',
           '`ORM` 属于纯数学数据表，导入 UE 5.8 必须将压缩设为 **`Masks (no sRGB)`**，严禁勾选 `sRGB`。',
-          'Alpha 的成本取决于目标格式是否改变。BC1 到 BC3 的块大小翻倍，BC7 保持 16 字节/块。',
+          '给打包图多塞第 4 通道 `Alpha` 未必省显存：传统 `BC1 → BC3` 会让显存直接翻倍（`2.67 → 5.33 MiB`），而全线使用 `BC7` 时有无 `Alpha` 均为 `5.33 MiB`。',
         ],
         schematic: {
           title: 'UE 5.8 标准 ORM 打包贴图对接 Substrate 完整连法',
-          caption: '仅用 2 张贴图（颜色图 + ORM 打包图）完成全套次世代 PBR 物理属性输入，极省纹理读取',
+          caption: '仅用 2 张贴图（颜色图 + ORM 打包图）完成全套物理属性输入，极省纹理读取（8.4 课详解 Substrate 层板；传统材质可直接将 R/G/B 接进根节点）',
           nodes: [
             {
               id: 'tex_color',
@@ -3484,7 +3551,7 @@ export const modules03_04: ModuleDefinition[] = [
               x: 20,
               y: 155,
               width: 185,
-              previewColor: '#6ad14f',
+              previewColor: '#d99a2b',
               outputs: [
                 { id: 'r', label: 'R (AO 遮蔽)', color: '#ef4444' },
                 { id: 'g', label: 'G (粗糙度)', color: '#22c55e' },
@@ -3495,11 +3562,11 @@ export const modules03_04: ModuleDefinition[] = [
             {
               id: 'metal_bridge',
               title: '金属度转换桥',
-              subtitle: 'Metalness-To-DiffuseAlbedo-F0',
+              subtitle: 'Substrate Metalness-To-DiffuseAlbedo-F0',
               category: 'math',
-              x: 255,
+              x: 245,
               y: 45,
-              width: 205,
+              width: 225,
               inputs: [
                 { id: 'base', label: 'BaseColor', color: '#e5e7eb' },
                 { id: 'metal', label: 'Metallic', color: '#3b82f6' },
@@ -3514,7 +3581,7 @@ export const modules03_04: ModuleDefinition[] = [
               title: 'Substrate Slab BSDF',
               subtitle: 'UE 5.8 物理层板',
               category: 'substrate',
-              x: 505,
+              x: 515,
               y: 55,
               width: 190,
               inputs: [
@@ -3529,7 +3596,7 @@ export const modules03_04: ModuleDefinition[] = [
               title: '材质主节点',
               subtitle: '单趟采样配齐三大属性',
               category: 'output',
-              x: 735,
+              x: 745,
               y: 110,
               width: 175,
               inputs: [

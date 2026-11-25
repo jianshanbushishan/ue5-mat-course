@@ -15,6 +15,7 @@ import {
   saturate,
   shadePbrPixel,
   smoothstep,
+  srgbToLinear,
   valueNoise,
   Vec3,
 } from '../lib/graphics';
@@ -438,10 +439,11 @@ const WaterPoolStage: React.FC<LessonStageProps> = ({
       // Optional Step 2 Microscopic RGB Beer-Lambert Ray Diagram Overlay!
       if (raysOverlay) {
         const drawRayBundle = (cx: number, topY: number, botY: number, isDeep: boolean) => {
-          const colors = [
-            { col: '#ff4d4d', label: 'R', stopFrac: isDeep ? clamp(0.32 / Math.max(0.35, effAbs), 0.18, 0.95) : 0.95 },
-            { col: '#34d399', label: 'G', stopFrac: 1.0 },
-            { col: '#60a5fa', label: 'B', stopFrac: 1.0 },
+          const dMeters = isDeep ? 3.6 : 0.28;
+          const channels = [
+            { col: '#ff4d4d', label: 'R', coeff: 1.95 },
+            { col: '#34d399', label: 'G', coeff: 0.34 },
+            { col: '#60a5fa', label: 'B', coeff: 0.085 },
           ];
           ctx.save();
           ctx.fillStyle = 'rgba(12, 18, 28, 0.72)';
@@ -449,9 +451,15 @@ const WaterPoolStage: React.FC<LessonStageProps> = ({
           ctx.roundRect(cx - 46, topY - 8, 92, botY - topY + 28, 8);
           ctx.fill();
 
-          colors.forEach((c, i) => {
+          channels.forEach((c, i) => {
             const rx = cx + (i - 1) * 20;
-            const endY = lerp(topY + 12, botY, c.stopFrac);
+            const oneWayOptical = effAbs * c.coeff * dMeters;
+            const tTwoWay = Math.exp(-effAbs * c.coeff * dMeters * 2.05);
+            const stopFrac = effAbs < 0.05 ? 1.0 : clamp(1.85 / Math.max(0.01, oneWayOptical), 0.16, 1.0);
+            const absorbed = isDeep && stopFrac < 0.95;
+            const endY = lerp(topY + 12, botY, stopFrac);
+
+            ctx.globalAlpha = 1.0;
             ctx.strokeStyle = c.col;
             ctx.lineWidth = 2.6;
             ctx.beginPath();
@@ -461,12 +469,13 @@ const WaterPoolStage: React.FC<LessonStageProps> = ({
 
             // Arrowhead or X if absorbed
             ctx.fillStyle = c.col;
-            if (isDeep && i === 0 && effAbs > 0.35) {
-              ctx.font = '800 11px sans-serif';
+            if (absorbed) {
+              ctx.font = '800 10px sans-serif';
               ctx.textAlign = 'center';
-              ctx.fillText('✕被水吃掉', rx + 8, endY + 10);
+              ctx.fillText(i === 0 ? '✕被水吃掉' : '✕衰减', i === 0 ? rx + 8 : rx, endY + 11);
             } else {
-              // Bounce up dashed arrow
+              // Bounce up dashed arrow, dimmed proportionally to two-way transmittance
+              ctx.globalAlpha = clamp(0.18 + tTwoWay * 0.82, 0.18, 1.0);
               ctx.setLineDash([3, 3]);
               ctx.beginPath();
               ctx.moveTo(rx + 4, botY);
@@ -475,6 +484,7 @@ const WaterPoolStage: React.FC<LessonStageProps> = ({
               ctx.setLineDash([]);
             }
           });
+          ctx.globalAlpha = 1.0;
           ctx.restore();
         };
 
@@ -645,7 +655,7 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
   }, [resetSignal]);
 
   const effLight = isPitfall ? 'unlit_trans' : lightingMode;
-  const effFresnel = useFresnel;
+  const effFresnel = isPitfall ? false : useFresnel;
   const effRough = roughness;
   const effIor = glassMode === 'thin_stained' ? 1.0 : ior;
 
@@ -833,24 +843,31 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
             const tint = ringR < 0.52 ? tints[(seg + 1) % 4] : tints[seg];
             transCol = [transCol[0] * tint[0], transCol[1] * tint[1], transCol[2] * tint[2]];
           } else {
-            // Subtle thick optical glass iron tint on thicker path
-            const path = 1 - zDisk * 0.6;
+            // Subtle thick optical glass iron tint on thicker path (vanishes when IOR = 1.0 air)
+            const glassPresence = smoothstep(1.0, 1.12, effIor);
+            const path = (1 - zDisk * 0.6) * glassPresence;
             transCol = [transCol[0] * (1 - 0.08 * path), transCol[1] * (1 - 0.02 * path), transCol[2] * (1 - 0.04 * path)];
           }
 
-          let outCol: Vec3;
+          const transLin: Vec3 = [
+            srgbToLinear(transCol[0]) * 1.15,
+            srgbToLinear(transCol[1]) * 1.15,
+            srgbToLinear(transCol[2]) * 1.15,
+          ];
+
+          let outLin: Vec3;
           if (effLight === 'unlit_trans') {
             // ① PITFALL / Volumetric NonDirectional: NO specular highlight, looks like murky grey plastic wrap!
-            const greyFilm: Vec3 = [0.58, 0.6, 0.63];
+            const greyFilmLin: Vec3 = [srgbToLinear(0.58) * 1.15, srgbToLinear(0.6) * 1.15, srgbToLinear(0.63) * 1.15];
             const flatOpacity = effFresnel ? lerp(0.18, 0.68, Math.pow(1 - NdotV, 3.5)) : 0.38;
-            outCol = lerp3(transCol, greyFilm, flatOpacity);
+            outLin = lerp3(transLin, greyFilmLin, flatOpacity);
           } else {
             // ① Surface ForwardShading: Crisp arched studio window reflection + GGX sun highlight + Fresnel!
             const opticalIor = glassMode === 'thin_stained' ? 1.52 : effIor;
+            const interfaceStrength = smoothstep(1.0, 1.06, opticalIor);
             const f0 = Math.pow((opticalIor - 1) / (opticalIor + 1), 2);
-            const fresnel = effFresnel
-              ? f0 + (1 - f0) * Math.pow(1 - NdotV, 5)
-              : 0.16;
+            const fresnel =
+              (effFresnel ? f0 + (1 - f0) * Math.pow(1 - NdotV, 5) : 0.16) * interfaceStrength;
 
             const R = reflect3([0, 0, -1], N);
             const envSpec = sampleEnvMap(R, effRough, 'studio');
@@ -860,12 +877,12 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
             const Hvec = norm3([L[0], L[1], L[2] + 1]);
             const specExp = lerp(240, 9, clamp(effRough / 0.6, 0, 1));
             const specPeak = lerp(2.6, 0.35, clamp(effRough / 0.6, 0, 1));
-            const winSpec = Math.pow(Math.max(0, dot3(N, Hvec)), specExp) * specPeak;
+            const winSpec = Math.pow(Math.max(0, dot3(N, Hvec)), specExp) * specPeak * interfaceStrength;
 
             // Secondary rim bounce on lower-right
             const L2 = norm3([0.58, -0.45, 0.68]);
             const H2 = norm3([L2[0], L2[1], L2[2] + 1]);
-            const rimSpec = Math.pow(Math.max(0, dot3(N, H2)), lerp(90, 6, clamp(effRough / 0.6, 0, 1))) * 0.65;
+            const rimSpec = Math.pow(Math.max(0, dot3(N, H2)), lerp(90, 6, clamp(effRough / 0.6, 0, 1))) * 0.65 * interfaceStrength;
 
             const reflTotal: Vec3 = [
               envSpec[0] + winSpec + rimSpec * 0.9,
@@ -873,26 +890,24 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
               envSpec[2] + winSpec * 0.96 + rimSpec * 1.05,
             ];
 
-            outCol = [
-              transCol[0] * (1 - fresnel) + reflTotal[0] * fresnel + winSpec * 0.55,
-              transCol[1] * (1 - fresnel) + reflTotal[1] * fresnel + winSpec * 0.55,
-              transCol[2] * (1 - fresnel) + reflTotal[2] * fresnel + winSpec * 0.55,
-            ];
-            outCol = [
-              linearToSrgb(acesTonemap(outCol[0])),
-              linearToSrgb(acesTonemap(outCol[1])),
-              linearToSrgb(acesTonemap(outCol[2])),
+            outLin = [
+              transLin[0] * (1 - fresnel) + reflTotal[0] * fresnel + winSpec * 0.55,
+              transLin[1] * (1 - fresnel) + reflTotal[1] * fresnel + winSpec * 0.55,
+              transLin[2] * (1 - fresnel) + reflTotal[2] * fresnel + winSpec * 0.55,
             ];
           }
 
-          d[idx] = Math.round(clamp(outCol[0]) * 255);
-          d[idx + 1] = Math.round(clamp(outCol[1]) * 255);
-          d[idx + 2] = Math.round(clamp(outCol[2]) * 255);
+          d[idx] = Math.round(clamp(linearToSrgb(acesTonemap(outLin[0]))) * 255);
+          d[idx + 1] = Math.round(clamp(linearToSrgb(acesTonemap(outLin[1]))) * 255);
+          d[idx + 2] = Math.round(clamp(linearToSrgb(acesTonemap(outLin[2]))) * 255);
           d[idx + 3] = 255;
         } else {
-          d[idx] = Math.round(clamp(bg[0]) * 255);
-          d[idx + 1] = Math.round(clamp(bg[1]) * 255);
-          d[idx + 2] = Math.round(clamp(bg[2]) * 255);
+          const bgLin0 = srgbToLinear(bg[0]) * 1.15;
+          const bgLin1 = srgbToLinear(bg[1]) * 1.15;
+          const bgLin2 = srgbToLinear(bg[2]) * 1.15;
+          d[idx] = Math.round(clamp(linearToSrgb(acesTonemap(bgLin0))) * 255);
+          d[idx + 1] = Math.round(clamp(linearToSrgb(acesTonemap(bgLin1))) * 255);
+          d[idx + 2] = Math.round(clamp(linearToSrgb(acesTonemap(bgLin2))) * 255);
           d[idx + 3] = 255;
         }
       }
@@ -961,18 +976,17 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
             }}
           />
 
-          <StageSegmented
-            label="④ 薄彩窗 vs 厚实心水晶"
-            value={glassMode}
-            options={[
-              { value: 'thick_crystal', label: '厚实心水晶折射球' },
-              { value: 'thin_stained', label: '薄窗彩玻 (投彩色光影)' },
-            ]}
-            onChange={(v) => {
-              setIsPitfall(false);
-              setGlassMode(v);
-            }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <StageToggle
+              label="② 菲涅尔边缘控透 (Fresnel)"
+              checked={effFresnel}
+              onChange={(c) => {
+                setIsPitfall(false);
+                setUseFresnel(c);
+              }}
+              hint="正视高透 · 边缘掠射强反光"
+            />
+          </div>
 
           <StageSlider
             label="③ Roughness 磨砂毛玻璃模糊度"
@@ -987,6 +1001,19 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
             }}
           />
 
+          <StageSegmented
+            label="④ 玻璃形态：厚实心水晶 vs 薄彩窗"
+            value={glassMode}
+            options={[
+              { value: 'thick_crystal', label: '厚实心水晶折射球' },
+              { value: 'thin_stained', label: '薄窗彩玻 (关屏幕折射)' },
+            ]}
+            onChange={(v) => {
+              setIsPitfall(false);
+              setGlassMode(v);
+            }}
+          />
+
           <StageSlider
             label="④ 实心折射率 IOR (1.0无偏折 → 2.4钻石)"
             value={ior}
@@ -995,14 +1022,14 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
             step={0.02}
             formatValue={(v) =>
               glassMode === 'thin_stained'
-                ? '薄窗固定 1.00'
+                ? '薄窗关折射 (None)'
                 : v < 1.05
                   ? '1.00 (空气)'
                   : v < 1.4
                     ? `${v.toFixed(2)} (水)`
                     : v < 1.75
                       ? `${v.toFixed(2)} (玻璃)`
-                      : `${v.toFixed(2)} (钻石倒置)`
+                      : `${v.toFixed(2)} (宝石/钻石)`
             }
             onChange={(v) => {
               setIsPitfall(false);
@@ -1010,21 +1037,17 @@ const GlassRefractionStage: React.FC<LessonStageProps> = ({
               setIor(v);
             }}
           />
-        </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {glassMode === 'thin_stained' && (
-            <StageToggle label="地面彩影示意：静态灯 + CPU Lightmass" hint="关闭模拟 Lumen GI，窗面继续染色" checked={bakedShadow} onChange={setBakedShadow} />
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <StageToggle
+                label="地面彩影示意：静态灯 + CPU Lightmass"
+                hint="关闭模拟 Lumen GI，窗面继续染色"
+                checked={bakedShadow}
+                onChange={setBakedShadow}
+              />
+            </div>
           )}
-          <StageToggle
-            label="② 菲涅尔边缘控透 (Fresnel)"
-            checked={useFresnel}
-            onChange={(c) => {
-              setIsPitfall(false);
-              setUseFresnel(c);
-            }}
-            hint="正视高透 · 边缘掠射强反光"
-          />
         </div>
       </div>
     </div>
@@ -1169,23 +1192,26 @@ const FogVolumetricsStage: React.FC<LessonStageProps> = ({
             col = [0.11 + moss * 0.09, 0.14 + moss * 0.11, 0.09 + moss * 0.06];
           }
 
+          // Convert sRGB-tuned base forest palette into linear space before adding linear volumetric scattering
+          col = [srgbToLinear(col[0]), srgbToLinear(col[1]), srgbToLinear(col[2])];
+
           // 2. Volumetric Fog Tyndall God Rays!
           // Trace pixel back toward canopy along sun ray direction
           if (!isGround && !inSolidTree) {
             const canopyHitU = u - (v - 0.12) * slopeTan;
             const shaftLight = isCanopyGap(canopyHitU);
-            // Henyey-Greenstein forward scattering phase factor
+            // Standard Henyey-Greenstein forward scattering phase factor (exponent 1.5)
             const cosTheta = clamp(1 - sunDist * 0.72, -1, 1);
             const g2 = effG * effG;
-            const hg = (1 - g2) / Math.pow(Math.max(0.12, 1 + g2 - 2 * effG * cosTheta), 1.35);
-            const hgNorm = clamp(hg * 0.18, 0.06, 1.65);
+            const hg = (1 - g2) / Math.pow(Math.max(0.12, 1 + g2 - 2 * effG * cosTheta), 1.5);
+            const hgNorm = clamp(hg * 0.14, 0.05, 1.55);
 
             const beamFade = smoothstep(0.95, 0.12, v);
-            const godRay = shaftLight * hgNorm * beamFade * 0.52 + 0.06 * hgNorm;
+            const godRay = shaftLight * hgNorm * beamFade * 0.55 + 0.05 * hgNorm;
             col = [
               col[0] + godRay * 1.05,
-              col[1] + godRay * 0.84,
-              col[2] + godRay * 0.48,
+              col[1] + godRay * 0.78,
+              col[2] + godRay * 0.36,
             ];
           }
 
@@ -1195,8 +1221,9 @@ const FogVolumetricsStage: React.FC<LessonStageProps> = ({
               smoothstep(0.48, 0.68, v) * smoothstep(groundHeightV + 0.04, groundHeightV - 0.05, v);
             const n3d = fbm(u * 7.5 + t * 0.38, v * 9.0 - t * 0.18, 4);
             const wisp = smoothstep(0.32, 0.76, n3d) * heightMask;
-            const mistLit: Vec3 = lerp3([0.52, 0.64, 0.68], [0.92, 0.84, 0.66], skyGlow * 0.6);
-            col = lerp3(col, mistLit, clamp(wisp * 0.82, 0, 0.85));
+            const mistSrgb: Vec3 = lerp3([0.52, 0.64, 0.68], [0.92, 0.84, 0.66], skyGlow * 0.6);
+            const mistLin: Vec3 = [srgbToLinear(mistSrgb[0]), srgbToLinear(mistSrgb[1]), srgbToLinear(mistSrgb[2])];
+            col = lerp3(col, mistLin, clamp(wisp * 0.82, 0, 0.85));
           }
 
           // 4. Foreground Low-Cost Translucent Fog Billboard Card (placed at u in [0.50..0.95], v in [0.56..0.92])
@@ -1217,13 +1244,13 @@ const FogVolumetricsStage: React.FC<LessonStageProps> = ({
               effCardFade > 1 ? saturate(groundDistCm / effCardFade) : 1.0;
 
             const cardAlpha = clamp(cardEdgeFade * puffNoise * 0.66 * depthFadeFactor, 0, 1);
-            const cardCol: Vec3 = [0.78, 0.85, 0.88];
-            col = lerp3(col, cardCol, cardAlpha);
+            const cardLin: Vec3 = [srgbToLinear(0.78), srgbToLinear(0.85), srgbToLinear(0.88)];
+            col = lerp3(col, cardLin, cardAlpha);
           }
 
-          d[idx] = Math.round(clamp(acesTonemap(col[0] * 1.15)) * 255);
-          d[idx + 1] = Math.round(clamp(acesTonemap(col[1] * 1.15)) * 255);
-          d[idx + 2] = Math.round(clamp(acesTonemap(col[2] * 1.15)) * 255);
+          d[idx] = Math.round(clamp(linearToSrgb(acesTonemap(col[0] * 1.18))) * 255);
+          d[idx + 1] = Math.round(clamp(linearToSrgb(acesTonemap(col[1] * 1.18))) * 255);
+          d[idx + 2] = Math.round(clamp(linearToSrgb(acesTonemap(col[2] * 1.18))) * 255);
           d[idx + 3] = 255;
         }
       }
@@ -1397,7 +1424,12 @@ const DissolveShieldStage: React.FC<LessonStageProps> = ({
         },
         {
           label: '样本 Noise = 0.49',
-          value: 0.49 < dissolveLevel ? '已裁掉' : 0.49 < dissolveLevel + edgeWidth ? '保留且发光' : '保留，无火边',
+          value:
+            0.49 < dissolveLevel
+              ? '已裁掉'
+              : dissolveLevel > 0.005 && 0.49 < dissolveLevel + edgeWidth
+                ? '保留且发光'
+                : '保留，无火边',
           tone: 'good',
         },
       ]);
@@ -1491,7 +1523,8 @@ const DissolveShieldStage: React.FC<LessonStageProps> = ({
                 // Surviving armor surface (`OpacityMask = 1`)
                 const panelGroove = Math.abs(Math.sin(vSphere * 9)) < 0.06 ? 0.45 : 1.0;
                 const N = norm3([uSphere, vSphere, zSphere]);
-                const rim = 1 - saturate((nVal - dissolveLevel) / edgeWidth);
+                const startFade = smoothstep(0, 0.04, dissolveLevel);
+                const rim = (1 - saturate((nVal - dissolveLevel) / edgeWidth)) * startFade;
                 col = shadePbrPixel({
                   N,
                   V: [0, 0, 1],
@@ -1549,8 +1582,9 @@ const DissolveShieldStage: React.FC<LessonStageProps> = ({
         ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
         ctx.fillRect(gx0, waterY, gw, gyBot - waterY);
 
-        // Fill narrow fire rim zone just above water level
-        if (edgeWidth > 0.005) {
+        // Fill narrow fire rim zone just above water level (fades out cleanly at L = 0)
+        const hasFireBand = edgeWidth > 0.005 && dissolveLevel > 0.005;
+        if (hasFireBand) {
           ctx.fillStyle = effHdr > 3 ? 'rgba(251, 146, 60, 0.34)' : 'rgba(180, 95, 45, 0.25)';
           ctx.fillRect(gx0, rimTopY, gw, waterY - rimTopY);
         }
@@ -1571,7 +1605,7 @@ const DissolveShieldStage: React.FC<LessonStageProps> = ({
             if (hVal < dissolveLevel) {
               ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
               ctx.setLineDash([3, 3]);
-            } else if (hVal < dissolveLevel + edgeWidth) {
+            } else if (hasFireBand && hVal < dissolveLevel + edgeWidth) {
               ctx.strokeStyle = effHdr > 3 ? '#ff8c24' : '#b8622a';
               ctx.setLineDash([]);
             } else {
@@ -1659,6 +1693,13 @@ const DissolveShieldStage: React.FC<LessonStageProps> = ({
               }
             }
 
+            // Convert opaque background into linear space so shield & exterior share the exact same ACES + sRGB curve
+            let sceneLin: Vec3 = [
+              srgbToLinear(sceneCol[0]) * 1.15,
+              srgbToLinear(sceneCol[1]) * 1.15,
+              srgbToLinear(sceneCol[2]) * 1.15,
+            ];
+
             // 2. Raycast Translucent Hex Energy Shield Sphere centered at (shieldPosX, 0.58, zCenter = 0.98)
             const sx = (u - shieldPosX) * aspect;
             const sy = v - 0.58;
@@ -1691,26 +1732,22 @@ const DissolveShieldStage: React.FC<LessonStageProps> = ({
                 const shieldAlpha = clamp(0.08 + fresnel * 0.62 + hexLine * 0.25 + invDepthFade * 0.92, 0, 1);
 
                 const cyanCore: Vec3 = lerp3(
-                  [0.08, 0.72, 1.0],
-                  [0.75, 0.98, 1.0],
+                  [0.05, 0.62, 1.0],
+                  [0.72, 0.98, 1.0],
                   clamp(invDepthFade * 1.1 + fresnel * 0.35, 0, 1)
                 );
 
-                const outR = sceneCol[0] * (1 - shieldAlpha * 0.45) + cyanCore[0] * shieldIntensity * 0.68;
-                const outG = sceneCol[1] * (1 - shieldAlpha * 0.45) + cyanCore[1] * shieldIntensity * 0.68;
-                const outB = sceneCol[2] * (1 - shieldAlpha * 0.45) + cyanCore[2] * shieldIntensity * 0.68;
-
-                sceneCol = [
-                  linearToSrgb(acesTonemap(outR)),
-                  linearToSrgb(acesTonemap(outG)),
-                  linearToSrgb(acesTonemap(outB)),
+                sceneLin = [
+                  sceneLin[0] * (1 - shieldAlpha * 0.42) + cyanCore[0] * shieldIntensity * 0.72,
+                  sceneLin[1] * (1 - shieldAlpha * 0.42) + cyanCore[1] * shieldIntensity * 0.72,
+                  sceneLin[2] * (1 - shieldAlpha * 0.42) + cyanCore[2] * shieldIntensity * 0.72,
                 ];
               }
             }
 
-            d[idx] = Math.round(clamp(sceneCol[0]) * 255);
-            d[idx + 1] = Math.round(clamp(sceneCol[1]) * 255);
-            d[idx + 2] = Math.round(clamp(sceneCol[2]) * 255);
+            d[idx] = Math.round(clamp(linearToSrgb(acesTonemap(sceneLin[0]))) * 255);
+            d[idx + 1] = Math.round(clamp(linearToSrgb(acesTonemap(sceneLin[1]))) * 255);
+            d[idx + 2] = Math.round(clamp(linearToSrgb(acesTonemap(sceneLin[2]))) * 255);
             d[idx + 3] = 255;
           }
         }
@@ -2018,7 +2055,7 @@ const WorldSnowTriplanarStage: React.FC<LessonStageProps> = ({
             // Snow thickens & softens underlying rock normal!
             const softWorldN = norm3(lerp3(worldN, norm3([nx, ny, zR * silhouetteR]), snowAlpha * 0.68));
             const rockBase: Vec3 = [0.16 + h0 * 0.14, 0.15 + h0 * 0.13, 0.14 + h0 * 0.12];
-            const snowBase: Vec3 = [0.84, 0.89, 0.96];
+            const snowBase: Vec3 = [0.82, 0.85, 0.88];
 
             // Small painted red arrow marker on rock's original "local top" so user clearly sees the rock spinning!
             const isMarker = Math.abs(uR) < 0.06 && vR > 0.35 && vR < 0.72;
@@ -2265,12 +2302,10 @@ function getSculptureGeometry(
     const ang = Math.atan2(ny, nx);
     const finWave = 0.08 * Math.sin(ang * 7 + Math.sin(ang * 2) * 0.8);
     const outerR = 0.74 + finWave;
-    const holeDist = Math.hypot(nx - 0.18 * Math.cos(ang * 2), ny + 0.05) - 0.11;
 
     if (r > outerR || (r > 0.24 && r < 0.35 && Math.sin(ang * 3) > 0.15)) {
       return { inside: false, thicknessMm: 0, N: [0, 0, 1] };
     }
-    void holeDist;
 
     // Variable thickness: razor-thin carved outer fins (1.3mm) -> mid scroll ring (5.2mm) -> thick central boss (13.8mm)
     const edgeThin = saturate((outerR - r) / 0.22);
@@ -2369,7 +2404,7 @@ const SssClearCoatStage: React.FC<LessonStageProps> = ({
           tone: isPitfall ? 'bad' : mfpMm > 1.5 ? 'good' : 'warn',
         },
         {
-          label: '薄边(1.5mm) vs 厚芯(13mm)',
+          label: sssSubject === 'jade' ? '薄边(1.5mm) vs 厚芯(13mm)' : '耳窝薄(1.2mm) vs 耳轮厚(11.5mm)',
           value: isPitfall ? '自发光与厚度无关' : isBacklit && mfpMm > 1.5 ? '背光下比较两处透射' : '调整背光方向和自由程',
           tone: mfpMm > 1.5 && !isPitfall ? 'good' : 'warn',
         },
@@ -2442,27 +2477,14 @@ const SssClearCoatStage: React.FC<LessonStageProps> = ({
               sssSubject === 'jade' ? [0.07, 0.34, 0.19] : [0.58, 0.36, 0.29];
             const surfaceRough = sssSubject === 'jade' ? 0.16 : 0.42;
 
-            // Surface direct + studio ambient shading
-            const surf = shadePbrPixel({
-              N: geo.N,
-              V: [0, 0, 1],
-              L,
-              baseColorLinear: baseAlbedo,
-              metallic: 0,
-              roughness: surfaceRough,
-              lightIntensity: 2.2,
-              envMode: 'cave',
-            });
+            let emissiveLinear: Vec3 = [0, 0, 0];
+            let lightIntensity = 2.4;
 
             if (isPitfall) {
               // PITFALL: Faking jade/skin glow with flat Emissive Color! Glows flat green/red everywhere regardless of thickness or light angle!
-              const fakeGlow: Vec3 = sssSubject === 'jade' ? [0.06, 0.55, 0.26] : [0.55, 0.14, 0.1];
-              col = [
-                clamp(surf[0] * 0.4 + fakeGlow[0]),
-                clamp(surf[1] * 0.4 + fakeGlow[1]),
-                clamp(surf[2] * 0.4 + fakeGlow[2]),
-              ];
-            } else if (mfpMm > 0.05) {
+              emissiveLinear = sssSubject === 'jade' ? [0.04, 0.62, 0.22] : [0.62, 0.1, 0.06];
+              lightIntensity = 0.85;
+            } else if (mfpMm > 0) {
               // Distance-dependent transmission approximation with prescribed thickness.
               // Channel-specific MFP ratios: Jade lets green travel far; Human skin/blood lets red travel 4x farther than blue/green!
               const mfpVec: Vec3 =
@@ -2470,26 +2492,37 @@ const SssClearCoatStage: React.FC<LessonStageProps> = ({
                   ? [mfpMm * 0.28, mfpMm * 1.18, mfpMm * 0.55]
                   : [mfpMm * 1.35, mfpMm * 0.38, mfpMm * 0.18];
 
-              const attenR = Math.exp(-geo.thicknessMm / Math.max(0.05, mfpVec[0]));
-              const attenG = Math.exp(-geo.thicknessMm / Math.max(0.05, mfpVec[1]));
-              const attenB = Math.exp(-geo.thicknessMm / Math.max(0.05, mfpVec[2]));
+              const attenR = Math.exp(-geo.thicknessMm / Math.max(0.001, mfpVec[0]));
+              const attenG = Math.exp(-geo.thicknessMm / Math.max(0.001, mfpVec[1]));
+              const attenB = Math.exp(-geo.thicknessMm / Math.max(0.001, mfpVec[2]));
 
               // Back-lighting alignment: peaks when L is behind object (L.z < 0) + forward wrap scattering
               const backPhase = Math.pow(saturate(-L[2] * 0.72 + 0.36), 1.65);
               const localSpotProx = Math.exp(-Math.hypot(nx - spotScreenX * 0.65, ny - 0.1) * 1.25);
-              const transPower = (backPhase * 3.4 * (0.45 + 0.55 * localSpotProx) + 0.28);
+              const transPower = backPhase * 3.8 * (0.45 + 0.55 * localSpotProx) + 0.24;
 
               const sssTint: Vec3 =
-                sssSubject === 'jade' ? [0.18, 1.0, 0.48] : [1.0, 0.26, 0.12];
+                sssSubject === 'jade' ? [0.16, 1.0, 0.44] : [1.0, 0.22, 0.09];
 
-              col = [
-                linearToSrgb(acesTonemap(surf[0] + sssTint[0] * attenR * transPower)),
-                linearToSrgb(acesTonemap(surf[1] + sssTint[1] * attenG * transPower)),
-                linearToSrgb(acesTonemap(surf[2] + sssTint[2] * attenB * transPower)),
+              emissiveLinear = [
+                sssTint[0] * attenR * transPower,
+                sssTint[1] * attenG * transPower,
+                sssTint[2] * attenB * transPower,
               ];
-            } else {
-              col = surf;
             }
+
+            // Single ACES + single sRGB pass via shadePbrPixel (zero double-gamma & zero jump at mfp -> 0)
+            col = shadePbrPixel({
+              N: geo.N,
+              V: [0, 0, 1],
+              L,
+              baseColorLinear: baseAlbedo,
+              emissiveLinear,
+              metallic: 0,
+              roughness: surfaceRough,
+              lightIntensity,
+              envMode: 'cave',
+            });
           }
 
           d[idx] = Math.round(clamp(col[0]) * 255);
@@ -2576,12 +2609,34 @@ const SssClearCoatStage: React.FC<LessonStageProps> = ({
             const flakeTiltY = (hash2(7.3, flake.cellId * 57) - 0.5) * 0.28;
             const flakeN = norm3([macroN[0] + flakeTiltX, macroN[1] + flakeTiltY, macroN[2]]);
 
-            // Bottom Slab: Rough Metallic Flake Base
+            // Bottom Slab: Rough Metallic Flake Base + Optional Top Clear Coat combined in linear space before single ACES+sRGB
             const V: Vec3 = [0, 0, 1];
             const Hvec = norm3([L[0], L[1], L[2] + 1]);
             const flakeGlint = Math.pow(Math.max(0, dot3(flakeN, Hvec)), 26) * 1.35;
 
-            const bottomLinear = shadePbrPixel({
+            const NdotV = clamp(dot3(macroN, V), 0.02, 1);
+            const ccFresnel = 0.04 + 0.96 * Math.pow(1 - NdotV, 5);
+            const interfaceTrans = effCoat ? 1 - ccFresnel * 0.85 : 1.0;
+
+            let extraR = carPigment[0] * flakeGlint * 0.65 * interfaceTrans;
+            let extraG = carPigment[1] * flakeGlint * 0.65 * interfaceTrans;
+            let extraB = carPigment[2] * flakeGlint * 0.65 * interfaceTrans;
+
+            // Crisp twin garage fluorescent light tube reflections stretched across smooth clear coat!
+            if (effCoat) {
+              const R = reflect3([0, 0, -1], macroN);
+              const tube1 = Math.exp(-Math.pow((R[1] - 0.48 - R[0] * 0.18) / (0.022 + coatRoughness * 0.35), 2));
+              const tube2 = Math.exp(-Math.pow((R[1] - 0.22 - R[0] * 0.18) / (0.022 + coatRoughness * 0.35), 2));
+              const tubeMask =
+                smoothstep(0.75, 0.55, Math.abs(R[0])) *
+                (tube1 + tube2) *
+                lerp(2.1, 0.32, clamp(coatRoughness * 3, 0, 1));
+              extraR += tubeMask;
+              extraG += tubeMask * 0.99;
+              extraB += tubeMask * 1.02;
+            }
+
+            col = shadePbrPixel({
               N: macroN,
               V,
               L,
@@ -2590,35 +2645,13 @@ const SssClearCoatStage: React.FC<LessonStageProps> = ({
                 carPigment[1] * (0.85 + flake.cellId * 0.45),
                 carPigment[2] * (0.85 + flake.cellId * 0.45),
               ],
+              emissiveLinear: [extraR, extraG, extraB],
               metallic: 0.88,
               roughness: baseRoughness,
+              clearCoat: effCoat ? 1.0 : 0.0,
+              clearCoatRoughness: coatRoughness,
               envMode: 'studio',
             });
-
-            let r = bottomLinear[0] + carPigment[0] * flakeGlint * 0.55;
-            let g = bottomLinear[1] + carPigment[1] * flakeGlint * 0.55;
-            let b = bottomLinear[2] + carPigment[2] * flakeGlint * 0.55;
-
-            // Top Slab: Substrate Vertical Layer Smooth Clear Coat!
-            if (effCoat) {
-              const NdotV = clamp(dot3(macroN, V), 0.02, 1);
-              const ccFresnel = 0.04 + 0.96 * Math.pow(1 - NdotV, 5);
-              const R = reflect3([0, 0, -1], macroN);
-              const ccEnv = sampleEnvMap(R, coatRoughness, 'studio');
-
-              // Crisp twin garage fluorescent light tube reflections stretched across smooth clear coat!
-              const tube1 = Math.exp(-Math.pow((R[1] - 0.48 - R[0] * 0.18) / (0.022 + coatRoughness * 0.35), 2));
-              const tube2 = Math.exp(-Math.pow((R[1] - 0.22 - R[0] * 0.18) / (0.022 + coatRoughness * 0.35), 2));
-              const tubeMask = smoothstep(0.75, 0.55, Math.abs(R[0])) * (tube1 + tube2) * lerp(1.35, 0.25, coatRoughness * 3);
-
-              // Interface darkening/richness under clear coat + crisp specular layer on top
-              const interfaceTrans = 1 - ccFresnel * 0.85;
-              r = r * interfaceTrans * 0.92 + ccEnv[0] * ccFresnel * 0.65 + tubeMask;
-              g = g * interfaceTrans * 0.92 + ccEnv[1] * ccFresnel * 0.65 + tubeMask * 0.99;
-              b = b * interfaceTrans * 0.92 + ccEnv[2] * ccFresnel * 0.68 + tubeMask * 1.02;
-            }
-
-            col = [clamp(r), clamp(g), clamp(b)];
           }
 
           d[idx] = Math.round(col[0] * 255);
@@ -2923,7 +2956,7 @@ const IceParallaxToonStage: React.FC<LessonStageProps> = ({
         },
         {
           label: '明暗二分阈值',
-          value: shadeStyle === 'toon' ? `N·L = ${toonThreshold.toFixed(2)}` : '连续余弦曲线',
+          value: shadeStyle === 'toon' ? `Half-Lambert = ${toonThreshold.toFixed(2)}` : '连续余弦曲线',
           tone: 'neutral',
         },
         {
@@ -3204,12 +3237,12 @@ const IceParallaxToonStage: React.FC<LessonStageProps> = ({
                 envMode: 'sunny',
               });
             } else {
-              // UE 5.8 Substrate Toon BSDF: Crisp step/smoothstep ramp + stylized specular halo + ink outline!
-              const ndl = dot3(N, L) * 0.5 + 0.5;
+              // UE 5.8 Substrate Toon BSDF: Half-Lambert (0.5 * N·L + 0.5) ramp + stylized specular halo + ink outline!
+              const halfLambert = dot3(N, L) * 0.5 + 0.5;
               const ramp = smoothstep(
                 toonThreshold - edgeSoftness,
                 toonThreshold + edgeSoftness,
-                ndl
+                halfLambert
               );
               col = lerp3(shadowColor, litColor, ramp);
 
@@ -3291,7 +3324,7 @@ const IceParallaxToonStage: React.FC<LessonStageProps> = ({
 
       ctx.font = '700 11px "Noto Sans SC", sans-serif';
       ctx.fillStyle = '#fbcfe8';
-      ctx.fillText('✂️ 色阶二分曲线 (N·L → 亮暗)', gx, gy - 7);
+      ctx.fillText('✂️ 色阶曲线 (Half-Lambert → 亮暗)', gx, gy - 7);
       ctx.fillStyle = '#94a3b8';
       ctx.fillText(`背光 0.0       阈值 ${toonThreshold.toFixed(2)}       受光 1.0`, gx, gy + gh + 16);
       ctx.restore();
@@ -3341,7 +3374,7 @@ const IceParallaxToonStage: React.FC<LessonStageProps> = ({
         correctLabel={
           mode === 'ice_parallax'
             ? '适度 HeightRatio (0.04~0.12) 多层叠合，2 个平面三角形骗出三尺深冰!'
-            : '实验性 Toon Profile 曲线示意 · 网页另绘轮廓线'
+            : '二次元暗部混入通透冷紫/暖粉环境色（Toon Profile 曲线示意，网页另绘轮廓线）'
         }
         onToggle={setIsPitfall}
       />
@@ -3512,8 +3545,8 @@ export const module10: ModuleDefinition = {
           title: '一杯水明明是透明的，为什么深水池底会自动变蓝？',
           paragraphs: [
             '很多新手做水的第一步，是建一个半透明材质球，然后把颜色涂成天蓝色——结果放进场景里一看，浅水滩也蓝得像倒了蓝墨水，假得像铺了一张蓝色塑料布。',
-            '真相藏在阳光里：阳光是红、绿、蓝混在一起的白光，而**水是一个极其“挑食”的吃货——它最爱吃红光和橙光，最不爱吃蓝绿光**！在刚没过脚踝的**浅水台阶**，阳光刚下水就撞上白沙弹回你眼里，红绿蓝全须全尾都在，所以浅水看着几乎透明发白；到了三米深的**深水区**，阳光往返跑了六米远，红光半路早被水吃得干干净净，只剩蓝光和绿光活着浮出水面！',
-            '至于波光粼粼与岸边软边：一张波纹朝一个方向滑行就像传送带运塑料瓦，**两层不同尺度的水波朝相反方向交错碰撞**才会灵动翻涌；再用摄像机测出“水底沙子距离减去水面距离 = 水深”，让水深趋近 0 厘米的岸边自动变透明并铺上白沫，硬切线就彻底消失了！',
+            '真相藏在阳光里：阳光是红、绿、蓝混在一起的白光，而**水是一个极其“挑食”的吃货——它最爱吃红光和橙光，最不爱吃蓝绿光**！在刚没过脚踝的**浅水台阶**，水深趋近 `0`，阳光刚下水几乎没被吃掉就撞上白沙弹回你眼里，红绿蓝全须全尾都在，所以浅滩自然清澈露沙、毫无生硬切边；到了三米深的**深水区**，阳光往返跑了六米远，红光半路早被水吃得干干净净，只剩蓝光和绿光活着浮出水面！',
+            '至于灵动波光与岸边白沫：一张波纹朝一个方向滑行就像传送带运塑料瓦，必须用**两层不同尺度的水波朝相反斜向交错碰撞**才会波光粼粼；而在浅水边缘叠上一圈细腻白色浪沫（网页演示直接读取池底水深生成；在 UE 5.8 不透明单层水里则通过绘制岸线遮罩连入 `TopMaterialOpacity` 铺出白沫——至于普通半透明材质用的 `DepthFade`，咱们留到 10.3 节雾片里专门拆解），海岸线瞬间就活了！',
           ],
           tryItPrompt:
             '👉 拖动舞台下方的「① 红光深度吸收浓度」滑块（此时已自动为你开启 RGB 光束透视图），看左侧浅滩台阶保持清澈的同时，右侧深水坑是如何自动染上翡翠深蓝的！',
@@ -3542,47 +3575,64 @@ export const module10: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：用 Single Layer Water BSDF 一站式落地',
           paragraphs: [
-            '在桌面延迟渲染、启用 Substrate 的场景里放一个浅色斜坡当池底，让水平水面与斜坡相交。新建 Surface / Opaque 材质，将 Substrate Single Layer Water BSDF 接到 Front Material。此路径使用水体专用通道读取水后场景。',
-            '给 WaterAlbedo 单次散射反照率 (0.025, 0.27, 0.44)，WaterExtinction 消光系数先试 (0.0195, 0.0034, 0.00085)，单位 1/cm，红通道衰减最快。两枚 Panner 的速度分别为 (0.03, 0.02) 和 (−0.02, 0.025)，分别接同一张法线贴图的两个 Texture Sample 的 UVs，两个 RGB 经 BlendAngleCorrectedNormals 接 Normal。',
-            '岸沫需要知道哪里是浅水。网页已知池底高度，用 1 − Saturate(水深 / 白沫宽度) 提取浅水。UE 中最容易复现的是给水面 UV 画一张灰度岸线遮罩，近岸白、深水黑，关闭 sRGB。R 接 TopMaterialOpacity，BaseColor 给白色，Roughness 给 0.1。遮罩为 0 处看水体，白带处出现浅色表层。',
+            '① **搭建基础单层水框架**：在启用 Substrate 的场景里先摆一块浅色斜坡当池底，让水平水面穿过斜坡。新建 **`Surface / Opaque`（不透明）**材质，放出一颗 **`Substrate Single Layer Water BSDF`**，将它的 **`BSDF`** 引脚连到材质根节点的 **`Front Material`**。虽然它是 `Opaque`（从而享有不透明级的高光反射与阴影性能），但引擎会走水体专用通道自动读取水底景物，并按真实水体折射率（**`IOR ≈ 1.33`**）计算水下折射！',
+            '② **填好“水挑食吃红光”的两个体积参数**：`WaterAlbedo` 是水中微粒散射出的蓝绿底色，先填 `(0.025, 0.27, 0.44)`；`WaterExtinction` 是**消光系数（单位 `1/cm`）**，先填 `(0.0195, 0.0034, 0.00085)`——数字越大代表“吃光越猛”：红通道 `0.0195/cm` 意味着红光在水里每走大约 **`51 cm`（`1 ÷ 0.0195`）就只剩约 `37%`**，而蓝通道 `0.00085/cm` 要跑 `11.7 米` 才会降到同样比例，于是水越深自然越蓝！水面粗糙度 `Roughness` 统一建议从 **`0.08~0.10`** 起步。',
+            '③ **两层不同尺度反向水波 + 岸边白沫**：建两个不同平铺倍率的 **`TexCoord`**（如大波 `(2, 2)` 与细涟漪 `(5.5, 5.5)`），分别送入两枚反向斜走的 **`Panner`**（速度 `(0.03, 0.02)` 和 `(-0.02, 0.025)`），去采样同一张法线贴图；**两张法线表达的是 3D 斜坡方向，不能直接相加或 `Lerp`，必须用专用法线混合节点 `BlendAngleCorrectedNormals`** 正确叠合后再连入 `Normal`！最后做岸沫：给水面 UV 画一张灰度岸线遮罩（近岸白、深水黑，务必关闭 `sRGB`），把 `R` 通道连入 **`TopMaterialOpacity`**（在不透明单层水上叠加洁白泡沫表皮），`BaseColor` 给白色、`Roughness` 设 `0.08~0.10`（注：`DepthFade` 仅适用于 `Translucent` 半透明材质，如 10.3 雾片，不用于 Opaque 单层水）。',
           ],
           tryItPrompt:
-            '打开原理图，沿两路 UV 找到各自的法线采样，再找到独立控制岸沫的岸线遮罩。',
+            '打开右上角「原理图」，顺着两组不同缩放的 TexCoord → Panner 找到 BlendAngleCorrectedNormals，再对照体积参数与岸线遮罩如何汇入 Single Layer Water BSDF！',
           callout: {
             tone: 'ue58',
-            title: 'UE 5.8 水体参数小贴士',
-            body: 'Roughness 从 0.08 开始。用白沫测试遮罩先全黑、再全白，确认表层覆盖有效后换回画好的岸线。移动岸线或改变水位时需要更新遮罩。',
+            title: 'UE 5.8 水体实操与“水下焦散”小贴士',
+            body: '水面 Roughness 建议设在 0.08~0.10；调试岸线白沫时可先临时给 TopMaterialOpacity 填常量 0 和 1 确认表层覆盖生效，再换回贴图。另外请注意：Single Layer Water BSDF 负责体积吸收、散射、水下折射（IOR ≈ 1.33）与镜面高光，并不会自动生成水底晃动的焦散光网（Caustics）——想要水底焦散，需额外配合 Decal（贴花）、Light Function（灯光函数）或利用 ColorScaleBehindWater 叠加实现。',
           },
         },
         {
           stepNumber: 5,
           shortLabel: '造水防坑口诀',
           tag: 'pitfall',
-          title: '检查池底、法线和岸线遮罩',
+          title: '造水防坑口诀：看水深验吸收、用专用混合叠法线、别混淆焦散与 DepthFade',
           paragraphs: [
-            '固定水面与灯光，移动池底坡度，比较浅区与深区的颜色。观察红通道随光程增加而衰减。',
-            '调试岸沫时先用常量替换遮罩 R。能看见白色表层后，复查 UV、遮罩极性与岸线位置。需要带 DepthFade 的普通半透明雾片，见 10.3。',
+            '记住这四条实操检查项：**① 水色靠“池底深度”自然滤出**——固定水面和灯光后，把池底斜坡抬高或压深，应立刻看到浅处透出沙色、深处红光被吃净变蓝；如果整片死蓝不变，检查是否错选了普通 `Translucent` 或忘了填 `WaterExtinction`。',
+            '**② 岸沫遮罩先用 0/1 盲测，焦散另行叠加**——调岸沫先用常量 `0` 与 `1` 验证 `TopMaterialOpacity` 生效，再排查贴图 UV 方向与是否关闭 `sRGB`；也别在 Opaque 单层水里找 `DepthFade`（那是 10.3 半透明雾片的专属节点），需要池底阳光焦散光斑时记得加一盏带 `Light Function` 的投影光或水底 `Decal`！',
           ],
           tryItPrompt:
             '最后再点一次顶部的「看踩坑现象 ↔ 切正确配置」对比开关，把这四个视觉特征稳稳印在脑海里！',
         },
       ],
       takeaways: [
-        '深水变蓝不是表面涂了蓝颜料，而是水分子优先吸收长波红光（比尔-朗伯定律），随水底深度自然滤出蓝绿色',
-        '真实水波必须用至少两层不同缩放与相反斜向的 Panner 滚动法线贴图并混合，彻底告别单向平移塑料感',
-        '网页用已知水深生成浅水带。手工岸线纹理可在不透明单层水中通过 TopMaterialOpacity 控制泡沫覆盖。',
-        'UE 5.8 中优先使用 Single Layer Water BSDF，兼顾物理体积吸收、水下折射、焦散与不透明级高光性能',
+        '深水变蓝不是表面涂了蓝颜料，而是水分子优先吸收长波红光（比尔-朗伯定律，消光系数单位 1/cm），随水底深度自然滤出蓝绿色',
+        '真实水波必须用至少两层不同 TexCoord 缩放与相反斜向的 Panner 滚动法线贴图，并用 BlendAngleCorrectedNormals 混合',
+        '浅水自然露沙源于深度趋零时吸收消失；Opaque 单层水的岸边白沫通过灰度岸线遮罩连入 TopMaterialOpacity 实现（DepthFade 留给半透明雾片）',
+        'UE 5.8 中优先使用 Single Layer Water BSDF，一站式兼顾物理体积吸收、散射、水下折射（IOR ≈ 1.33）与不透明级高光；水底焦散需额外用 Light Function / Decal 或 ColorScaleBehindWater 实现',
       ],
       schematic: {
-        title: '单层水的法线、消光与岸沫',
-        caption: '沿两条 UV 路径分别采样同一法线图。岸线 R 覆盖白色表层，体积参数决定水下颜色。',
+        title: '单层水的双尺度法线、体积消光与岸沫',
+        caption: '两组不同平铺倍率的 TexCoord 经反向 Panner 采样同一法线图并由 BlendAngleCorrectedNormals 混合；体积参数与 IOR≈1.33 负责水下光学，岸线 R 驱动 TopMaterialOpacity。',
         nodes: [
+          {
+            id: 'tcA',
+            title: 'TexCoord A (2×2)',
+            subtitle: '大尺度主波浪平铺',
+            category: 'input',
+            x: 20, y: 20, width: 175,
+            outputs: [{ id: 'uv', label: 'UV', color: '#38bdf8' }],
+          },
+          {
+            id: 'tcB',
+            title: 'TexCoord B (5.5×5.5)',
+            subtitle: '细碎涟漪不同尺度平铺',
+            category: 'input',
+            x: 20, y: 140, width: 175,
+            outputs: [{ id: 'uv', label: 'UV', color: '#38bdf8' }],
+          },
           {
             id: 'panA',
             title: 'Panner A',
             subtitle: 'Speed (0.03, 0.02)',
             category: 'math',
-            x: 20, y: 20, width: 215,
+            x: 220, y: 20, width: 185,
+            inputs: [{ id: 'uv', label: 'Coord', color: '#38bdf8' }],
             outputs: [{ id: 'uv', label: 'UV', color: '#38bdf8' }],
           },
           {
@@ -3590,42 +3640,43 @@ export const module10: ModuleDefinition = {
             title: 'Panner B',
             subtitle: 'Speed (−0.02, 0.025)',
             category: 'math',
-            x: 20, y: 140, width: 215,
+            x: 220, y: 140, width: 185,
+            inputs: [{ id: 'uv', label: 'Coord', color: '#38bdf8' }],
             outputs: [{ id: 'uv', label: 'UV', color: '#38bdf8' }],
           },
           {
             id: 'texA',
             title: 'Texture Sample A',
-            subtitle: '同一张切线空间法线纹理',
+            subtitle: '切线空间水波法线图',
             category: 'texture',
-            x: 265, y: 20, width: 215,
+            x: 430, y: 20, width: 190,
             inputs: [{ id: 'uv', label: 'UVs', color: '#38bdf8' }],
             outputs: [{ id: 'n', label: 'RGB 法线', color: '#3b82f6' }],
           },
           {
             id: 'texB',
             title: 'Texture Sample B',
-            subtitle: 'Sampler Type = Normal',
+            subtitle: '同一张法线 · Normal',
             category: 'texture',
-            x: 265, y: 140, width: 215,
+            x: 430, y: 140, width: 190,
             inputs: [{ id: 'uv', label: 'UVs', color: '#38bdf8' }],
             outputs: [{ id: 'n', label: 'RGB 法线', color: '#3b82f6' }],
           },
           {
             id: 'mix',
             title: 'BlendAngleCorrectedNormals',
-            subtitle: '混合两次采样得到的法线',
+            subtitle: '专用法线混合（禁直接相加）',
             category: 'math',
-            x: 510, y: 35, width: 215,
+            x: 645, y: 35, width: 215,
             inputs: [{ id: 'a', label: 'BaseNormal', color: '#3b82f6' }, { id: 'b', label: 'AdditionalNormal', color: '#3b82f6' }],
             outputs: [{ id: 'n', label: '混合法线', color: '#3b82f6' }],
           },
           {
             id: 'volume',
             title: '水体体积参数',
-            subtitle: '消光单位 1/cm',
+            subtitle: '消光 1/cm（红光衰减最快）',
             category: 'param',
-            x: 510, y: 185, width: 215,
+            x: 645, y: 185, width: 215,
             outputs: [{ id: 'a', label: '单次散射反照率', color: '#22c55e' }, { id: 'ext', label: '消光系数 RGB', color: '#22c55e' }],
           },
           {
@@ -3633,15 +3684,15 @@ export const module10: ModuleDefinition = {
             title: '岸线遮罩 Texture Sample',
             subtitle: '近岸白、深水黑 · sRGB 关',
             category: 'texture',
-            x: 510, y: 315, width: 215,
+            x: 645, y: 315, width: 215,
             outputs: [{ id: 'r', label: 'R', color: '#e5e7eb' }],
           },
           {
             id: 'water',
             title: 'Substrate Single Layer Water BSDF',
-            subtitle: 'BaseColor = 白，Roughness = 0.1',
+            subtitle: 'BaseColor 白 · Rough 0.08~0.10 · IOR≈1.33',
             category: 'substrate',
-            x: 770, y: 110, width: 215,
+            x: 895, y: 110, width: 235,
             inputs: [{ id: 'n', label: 'Normal', color: '#3b82f6' }, { id: 'a', label: 'WaterAlbedo', color: '#22c55e' }, { id: 'ext', label: 'WaterExtinction', color: '#22c55e' }, { id: 'f', label: 'TopMaterialOpacity', color: '#e5e7eb' }],
             outputs: [{ id: 'm', label: 'BSDF', color: '#a855f7' }],
           },
@@ -3650,11 +3701,13 @@ export const module10: ModuleDefinition = {
             title: '水面材质',
             subtitle: 'Surface / Opaque',
             category: 'output',
-            x: 1020, y: 120, width: 215,
+            x: 1160, y: 120, width: 175,
             inputs: [{ id: 'm', label: 'Front Material', color: '#a855f7' }],
           },
         ],
         edges: [
+          { fromNode: 'tcA', fromPin: 'uv', toNode: 'panA', toPin: 'uv', color: '#38bdf8' },
+          { fromNode: 'tcB', fromPin: 'uv', toNode: 'panB', toPin: 'uv', color: '#38bdf8' },
           { fromNode: 'panA', fromPin: 'uv', toNode: 'texA', toPin: 'uv', color: '#38bdf8' },
           { fromNode: 'panB', fromPin: 'uv', toNode: 'texB', toPin: 'uv', color: '#38bdf8' },
           { fromNode: 'texA', fromPin: 'n', toNode: 'mix', toPin: 'a', color: '#3b82f6' },
@@ -3699,7 +3752,7 @@ export const module10: ModuleDefinition = {
           tag: 'background',
           title: '揪出“灰蒙蒙塑料膜”真凶：被省掉的高光与折射拐弯',
           paragraphs: [
-            '90% 的新手第一次在引擎里做玻璃都会崩溃：“我已经把不透明度调到 0.2、粗糙度调到 0 了，怎么看着还是像块脏塑料膜？” 真凶咱们在第 9 章刚抓到过：半透明物体进不了 `GBuffer` 底片室，引擎为了省电，**默认把半透明材质的表面镜面高光直接阉割关掉了**！没了那道清亮的窗户反光，再怎么调透明度都是白费劲。',
+            '90% 的新手第一次在引擎里做玻璃都会崩溃：“我已经把不透明度调到 0.2、粗糙度调到 0 了，怎么看着还是像块脏塑料膜？” 真凶咱们在第 9 章刚抓到过：半透明物体进不了 `GBuffer` 底片室，UE 的 `Translucency Lighting Mode` 默认是省电的 **`Volumetric NonDirectional`（体积无方向近似）**，直接把表面镜面高光关掉了！必须在 Details 里切到 **`Surface ForwardShading`**，那道救命的窗户反光才会立刻回来。',
             '那吸管为什么会变弯？因为光在空气里跑得最快（定为基准 **`1.0`**），一头钻进水（**`1.33`**）、玻璃（**`1.52`**）或钻石（**`2.42`**）里速度骤降，斜着进去就会发生偏折拐弯——这个数字就叫**折射率（IOR）**！如果再把玻璃表面用砂纸打磨出微山谷，穿过去的光被乱撞打散，就变成了雾蒙蒙的**冰镇磨砂毛玻璃**。',
           ],
           tryItPrompt:
@@ -3707,7 +3760,7 @@ export const module10: ModuleDefinition = {
           callout: {
             tone: 'tip',
             title: '常见透明材质真实折射率（IOR）速记',
-            body: '空气 = 1.00（完全不拐弯） · 纯水/冰 = 1.31~1.33 · 普通窗户/酒杯玻璃 = 1.50~1.52 · 水晶 = 1.8~2.0 · 钻石 = 2.42。',
+            body: '空气 = 1.00（完全不拐弯） · 纯水/冰 = 1.31~1.33 · 普通窗户/酒杯玻璃 = 1.50~1.52 · 天然石英水晶 = 1.54~1.55 / 铅水晶 = 1.56~1.70 · 高折射燧石玻璃/宝石（蓝宝石、锆石）= 1.77~2.00 · 钻石 = 2.42。',
           },
         },
         {
@@ -3729,117 +3782,122 @@ export const module10: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：Surface ForwardShading 与薄/厚双路线',
           paragraphs: [
-            '表面玻璃示例使用桌面 Surface 域、Substrate Slab 和 Translucent - Colored Transmittance，Translucency Lighting Mode 选 Surface ForwardShading。将透射颜色经 Substrate Transmittance-To-MeanFreePath 接 SSS MFP，选择 Simple Volume；将 Slab 接 Front Material。',
-            '薄窗示例选择关闭屏幕折射，观察背景直线与有色透视。网页地面上的彩斑是对静态灯透射的绘制示意。默认 Lumen GI 和 VSM 无法从窗面染色这一步得到同样的地面彩影。',
-            '另做可烘焙的彩影对照：新建支持静态光照的普通非 World Partition 关卡，启用 Allow Static Lighting，关闭 Force No Precomputed Lighting，设 Dynamic Global Illumination Method = None。用传统引脚工作流的 Surface / Translucent / Default Lit 材质，彩色纹理接 Base Color，Opacity 设 0.5，单面窗勾 Two Sided。把窗和有有效光照 UV 的浅色地板设为 Static。',
+            '① **先在 Details 面板打通玻璃基础开关**：新建 `Surface` 域材质，把 `Blend Mode` 设为 **`Translucent - Colored Transmittance`（彩色透射半透明）**，把 `Translucency Lighting Mode` 从默认的 **`Volumetric NonDirectional`** 改为 **`Surface ForwardShading`**（这一步救回窗户镜面高光！），再勾选 **`Simple Volume`**（开启清透体积透射）。',
+            '② **搭好清透 `Substrate Slab BSDF`（严防发白浑浊）**：把 Slab 的 **`Diffuse Albedo` 务必设为纯黑 `(0, 0, 0)`**（给任何浅色都会让玻璃发白变牛奶塑料！）；`F0` 直接接标量常数 **`0.04`**（对应玻璃 `IOR ≈ 1.5`，Slab 会按物理菲涅尔自动算出掠射角强反光，**无需**像旧教程那样手连 `Fresnel` 节点）；`Roughness` 设 `0.02~0.06`（清透）或调高做磨砂。接着用 **`Substrate Transmittance-To-MeanFreePath`**，把透射颜色（清玻璃纯白、彩窗接贴图）与物理厚度 **`Thickness`（单位 cm，如薄窗 `0.5 cm`）** 换算成 **`SSS MFP`** 接进 Slab，最后将 Slab 的 **`BSDF`** 接入 **`Front Material`**。',
+            '③ **按形态选对 `Refraction Method`**：做**厚实心酒杯/水晶球**时，在 Details 把 `Refraction Method` 选为 **`Index of Refraction`**（或 **`Pixel Normal Offset`**），再往根节点 `Refraction` 引脚接入真实 IOR（如 `1.52`）；做**薄平板窗户**时，直接把 **`Refraction Method` 设为 `None`**——真正彻底关闭屏幕折射开销，窗外景物笔直不歪，同时完整保留玻璃表面镜面反光与染色透视！',
           ],
           tryItPrompt:
-            '放一盏 Static Directional Light 斜照窗面，让阴影落到地板上。执行 Build → Build Lighting Only，观察地板出现彩色窗格。改变窗色后重新烘焙，再比较地面。',
+            '切到右上角「原理图」核对：Diffuse Albedo 设黑、Transmittance-To-MFP 必填 Thickness (cm)、F0 填标量 0.04，以及 Refraction Method 的分治策略！',
           callout: {
             tone: 'ue58',
-            title: 'UE 5.8 薄玻璃彩色阴影怎么开？',
-            body: '图中是玻璃表面材质。地板彩影另用 CPU Lightmass 和静态灯烘焙；另一条官方支持路径是 Path Tracer 配 Thin Translucent。',
+            title: '选修进阶：怎么在地面投出教堂彩窗的彩色光斑？',
+            body: '默认实时 Lumen GI 与 VSM 不会自动从彩色玻璃投出彩色阴影；如需离线电影级彩影可用 Path Tracer 配 Thin Translucent，如需实时场景烘焙彩影则走静态光照路线：新建非 World Partition 关卡 → 项目开启 Allow Static Lighting、关闭 Force No Precomputed Lighting、设 Dynamic Global Illumination Method = None → 彩窗用传统 Translucent/Default Lit（彩图接 Base Color、Opacity 0.5、勾 Two Sided）并将窗与带有效 Lightmap UV 的地板设为 Static → 放一盏 Static Directional Light 斜照后执行 Build → Build Lighting Only。',
           },
         },
         {
           stepNumber: 5,
           shortLabel: '玻璃防坑口诀',
           tag: 'pitfall',
-          title: '实战避坑：做玻璃先开前向高光，区分介质 IOR 与屏幕扰动',
+          title: '实战避坑：做玻璃先开前向高光，薄窗关掉 Refraction Method',
           paragraphs: [
-            '记住这句价值千金的玻璃防坑口诀：**“玻璃发灰先查前向高光，实心杯球给折射，薄薄平窗折射留 1.0”**！',
-            '普通玻璃的物理 IOR 约为 1.5。平行薄窗的出射方向近似保持不变，单层屏幕空间折射缺少两个界面的完整信息。薄窗示例关闭屏幕扭曲，保留玻璃表面反射。',
+            '记住这句价值千金的玻璃防坑口诀：**“玻璃发灰先切 `Surface ForwardShading`，漫反射 `Diffuse Albedo` 必设纯黑，实心杯球开折射，薄薄平窗直接把 `Refraction Method` 设为 `None`！”**',
+            '普通玻璃的物理 IOR 约 `1.52`，但光线穿过薄平窗的两个平行表面后会还原平行方向、几乎不偏折；单层屏幕空间折射缺少背面信息，强行给薄窗开 `1.52` 只会把窗外街道扯得面目全非。把薄窗的 `Refraction Method` 设为 `None`，既避免扭曲穿帮又直接省掉整套屏幕折射开销，同时表面 `F0 = 0.04` 的真实菲涅尔反光毫发无损！',
           ],
           tryItPrompt:
             '把模式切回「厚实心水晶」，故意把 `IOR` 拉到 `1.00` 再拉到 `1.52`，想象一下如果整扇落地窗都像 `1.52` 这样扭曲窗外街道会有多吓人！',
         },
       ],
       takeaways: [
-        '半透明材质默认关闭表面高光导致像“灰塑料膜”，做玻璃第一步必改 Lighting Mode 为 Surface ForwardShading',
-        '薄窗可关闭屏幕折射以保持直线；地面彩影需匹配支持透射彩影的光照路径。',
-        '彩窗自身透射由玻璃材质决定，静态彩影示例还需 Static 灯、静态接收面与重新烘焙。',
-        '实心酒杯、水晶与宝石填入真实 IOR（玻璃 1.52 / 钻石 2.42），拉高 Roughness 即可平滑过渡为冰镇磨砂毛玻璃',
+        '半透明材质默认使用 Volumetric NonDirectional 关闭表面高光导致像“灰塑料膜”，做玻璃第一步必切 Surface ForwardShading',
+        'Substrate 玻璃 Slab 的 Diffuse Albedo 必须设纯黑 (0,0,0)、F0 给标量 0.04（无需手连 Fresnel 节点），并通过 Transmittance-To-MFP（需填 Thickness cm）驱动 SSS MFP',
+        '厚实心杯球开启 Refraction Method（Index of Refraction / Pixel Normal Offset）并填真实 IOR；薄平窗将 Refraction Method 设为 None 彻底省去折射开销且保持背景笔直',
+        '彩窗地面投射彩色光斑需匹配静态灯 CPU Lightmass 烘焙或 Path Tracer，默认实时 Lumen GI 仅呈现窗面本身透射染色',
       ],
       schematic: {
         title: 'UE 5.8 清透水晶与彩绘玻璃材质核心节点图',
-        caption: '开启 Surface ForwardShading 救回高光，利用 Transmittance-To-MFP 与 IOR 分治薄彩窗与厚水晶',
+        caption: '开启 Surface ForwardShading 救回高光，Diffuse Albedo 设黑，Transmittance-To-MFP 须填 Thickness (cm)，薄平窗将 Refraction Method 设为 None',
         nodes: [
           {
             id: 'glassColor',
-            title: '玻璃透射色 & 粗糙度',
-            subtitle: '清玻纯白(1,1,1) / 彩玻贴图',
+            title: '玻璃透射色、厚度与粗糙度',
+            subtitle: '清玻纯白 / 彩玻贴图 · 厚度 cm',
             category: 'param',
             x: 20,
-            y: 30,
-            width: 195,
+            y: 25,
+            width: 210,
             previewColor: '#38bdf8',
             outputs: [
               { id: 'col', label: 'Transmittance', color: '#38bdf8' },
+              { id: 'thick', label: 'Thickness (cm)', color: '#e5e7eb' },
               { id: 'rough', label: 'Roughness', color: '#22c55e' },
             ],
           },
           {
             id: 'transMfp',
             title: 'Transmittance-To-MFP',
-            subtitle: '透射色转物理自由程',
+            subtitle: '透射色 + 厚度转物理自由程',
             category: 'substrate',
-            x: 260,
-            y: 25,
-            width: 200,
-            inputs: [{ id: 'inCol', label: 'Transmittance', color: '#38bdf8' }],
+            x: 265,
+            y: 20,
+            width: 210,
+            inputs: [
+              { id: 'inCol', label: 'Transmittance', color: '#38bdf8' },
+              { id: 'inThick', label: 'Thickness (cm)', color: '#e5e7eb' },
+            ],
             outputs: [{ id: 'mfp', label: 'MFP', color: '#a855f7' }],
           },
           {
             id: 'fresnelGlass',
-            title: 'Fresnel / F0 参数',
-            subtitle: 'F0 ≈ 0.04 (玻璃折射边缘亮)',
-            category: 'input',
-            x: 260,
-            y: 150,
-            width: 200,
+            title: 'F0 标量常数 (0.04)',
+            subtitle: '对应玻璃 IOR≈1.5，Slab 自动算菲涅尔',
+            category: 'param',
+            x: 265,
+            y: 165,
+            width: 210,
             outputs: [{ id: 'f0', label: 'F0 (0.04)', color: '#e5e7eb' }],
           },
           {
             id: 'iorNode',
-            title: '折射率 IOR 参数',
-            subtitle: '薄平窗 1.0 / 实心杯 1.52',
+            title: '折射率 IOR（仅厚实心开）',
+            subtitle: '厚杯球 1.52 / 薄平窗 Method=None',
             category: 'param',
-            x: 260,
-            y: 265,
-            width: 200,
+            x: 265,
+            y: 275,
+            width: 210,
             outputs: [{ id: 'ior', label: 'IOR', color: '#f59e0b' }],
           },
           {
             id: 'glassSlab',
             title: 'Substrate Slab BSDF',
-            subtitle: '清透介质层板',
+            subtitle: 'Diffuse Albedo = (0,0,0) 纯黑！',
             category: 'substrate',
-            x: 505,
-            y: 80,
-            width: 205,
+            x: 515,
+            y: 85,
+            width: 215,
             inputs: [
               { id: 'mfp', label: 'SSS MFP', color: '#a855f7' },
               { id: 'rough', label: 'Roughness', color: '#22c55e' },
               { id: 'f0', label: 'F0', color: '#e5e7eb' },
             ],
-            outputs: [{ id: 'mat', label: 'Glass Slab', color: '#a855f7' }],
+            outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
           },
           {
             id: 'glassRoot',
             title: '材质根节点 (Translucent)',
-            subtitle: '必开 Surface ForwardShading!',
+            subtitle: 'Surface ForwardShading · Simple Volume',
             category: 'output',
-            x: 755,
+            x: 770,
             y: 120,
-            width: 185,
+            width: 215,
             inputs: [
               { id: 'front', label: 'Front Material', color: '#a855f7' },
-              { id: 'refr', label: 'Refraction (IOR)', color: '#f59e0b' },
+              { id: 'refr', label: 'Refraction (厚玻璃用)', color: '#f59e0b' },
             ],
           },
         ],
         edges: [
           { fromNode: 'glassColor', fromPin: 'col', toNode: 'transMfp', toPin: 'inCol', color: '#38bdf8' },
+          { fromNode: 'glassColor', fromPin: 'thick', toNode: 'transMfp', toPin: 'inThick', color: '#e5e7eb' },
           { fromNode: 'transMfp', fromPin: 'mfp', toNode: 'glassSlab', toPin: 'mfp', color: '#a855f7' },
           { fromNode: 'glassColor', fromPin: 'rough', toNode: 'glassSlab', toPin: 'rough', color: '#22c55e' },
           { fromNode: 'fresnelGlass', fromPin: 'f0', toNode: 'glassSlab', toPin: 'f0', color: '#e5e7eb' },
@@ -3899,7 +3957,7 @@ export const module10: ModuleDefinition = {
           title: '亲手组合三级造雾神器，再抹掉雾片插地的穿帮硬线！',
           paragraphs: [
             '除了漫天均匀的体积光柱，真实山谷里还有贴着地面翻滚的浓雾团——点击开关 `粒子体积材质 · 噪声山岚`，看谷底瞬间涌起丝丝缕缕流动的立体云雾！',
-            '再把目光投向画面右下角虚线框里的**前景省电雾片（把一张画着白雾的半透明平面卡片插在斜坡上）**：试着把 `前景雾片 DepthFade 软边距离` 拉到 `0 cm`！看见那条像硬纸板插进泥土里的刺眼直切线了吗？再缓缓推回 `85 cm`，贴近地面的几厘米自动羽化变透，纸片瞬间化作真雾！',
+            '再把目光投向画面右下角虚线框里的**前景省电雾片（一张画着白雾的半透明平面卡片插在斜坡上）**：试着把 `前景雾片 DepthFade 软边距离` 拉到 `0 cm`！看见那条像硬纸板插进泥土里的刺眼直切线了吗？再缓缓推回 `85 cm`，贴近地面的几十厘米自动羽化变透——这就是我们首次正式认识的半透明神器 **`DepthFade（深度渐隐）`**，它的算式非常直白：`saturate((SceneDepth - PixelDepth) / FadeDistance)`（拿雾片背后实体墙面的深度减去雾片自身像素深度，再除以羽化距离；离墙越近越趋近 `0` 变透，离墙越远越趋近 `1` 保留雾色！下一节 10.4 还会把它倒过来玩出科幻护盾！）。',
           ],
           tryItPrompt:
             '重点拉动「前景雾片 DepthFade 软边距离」在 `0 cm` 和 `90 cm` 之间对比，看右下角斜坡上的穿帮切线是如何彻底隐形的！',
@@ -3910,17 +3968,16 @@ export const module10: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：全局体积雾、Local Fog Volume 与软边雾片分工',
           paragraphs: [
-            '在 UE 5.8 商业大作里，美术师绝不会只靠一招吃遍天，而是按远中近精准分工：',
-            '在桌面延迟场景添加 Exponential Height Fog，开启 Volumetric Fog，Scattering Distribution 设 0.6。放一盏投影的 Directional Light，Volumetric Scattering Intensity 设 1，用有缝隙的遮挡物挡在光路上。逆光观察光柱。',
-            '均匀雾团可直接放 Local Fog Volume Actor 调 Radial Fog Density；动态噪声雾另建 Volume 域材质，用 Substrate Volumetric-Fog-Cloud BSDF 接 Front Material（Volume / Additive）。Albedo 设 (0.8, 0.8, 0.8)，将世界坐标缩放 0.01 后采样 Noise，Saturate 后乘 0.5，再乘 SphereMask(AbsoluteWorldPosition, ParticlePositionWS, ParticleRadius, 0.5) 控制粒子边界，连 Extinction。',
-            '在 Niagara 新建一个 CPU 发射器，Spawn Burst Instantaneous 生成 1 个静止粒子，给足寿命与尺寸（如 800 cm）。将体积材质指定给 Sprite Renderer 的 Material，系统放入镜头前。开关该系统，应只有此处的雾团消失。近景雾片另用 Surface 半透明平面，把雾纹理 Alpha 接 DepthFade 的 Opacity，FadeDistance 设 85 cm，输出接 Substrate Coverage Weight 的 Weight，A 接 Unlit BSDF（透射色设黑）。',
+            '① **远景光柱（全局体积雾）与中景均匀团雾**：先在场景放入 `Exponential Height Fog` 并勾选 **`Volumetric Fog`**，把 `Scattering Distribution`（前向散射系数）调到 `0.6`；再配一盏开启阴影的 `Directional Light`（`Volumetric Scattering Intensity = 1`），用树冠缝隙遮挡光线，逆光即刻出现丁达尔金柱！想在山谷局部添一团均匀白雾，直接拖入 **`Local Fog Volume`** Actor 调 `Radial Fog Density` 即可，零节点且极省性能。',
+            '② **近景防穿地软边雾片（核心实操）**：新建 `Surface` 域 + **`Translucent Grey Transmittance`** 半透明材质，把雾气纹理 `Alpha` 连进 **`DepthFade`** 的 **`Opacity`** 引脚、`FadeDistance` 设 `85 cm`（算出贴地自动渐隐的透明度）。接着放一颗 **`Substrate Unlit BSDF`**（雾片无需金属镜面反射，`Emissive Color` 填灰白雾色，**`TransmittanceColor` 设纯黑 `(0,0,0)`**——表示只按自身雾色与覆盖率混合，不额外把背后景物当滤光片染色）。最后用 **`Substrate Coverage Weight`**（Substrate 里专门控制半透明覆盖不透明度的节点：`A` 接 Unlit 层板，`Weight` 接 `DepthFade` 输出）连入 **`Front Material`**！',
+            '③ **【选做进阶支线】用 Niagara 粒子做 3D 噪声流动体积雾**：若想让局部雾团内部带着翻滚的 3D 噪波纹理，可新建 **`Material Domain = Volume`（体积域——不再画物体表皮，而是往 3D 空间体素网格里填雾气密度）** + **`Blend Mode = Additive`（叠加模式——把多团局部雾的密度和散射叠加进全局体积雾）** 的材质，用 `Substrate Volumetric-Fog-Cloud BSDF` 接 `Front Material`，`Albedo` 设 `(0.8, 0.8, 0.8)`，用世界坐标 × `0.01` 采样 `Noise` 再乘以球形边界 **`SphereMask(AbsoluteWorldPosition, ParticlePositionWS, ParticleRadius, 0.5)`**（`AbsoluteWorldPosition` 是当前体素世界位置，`ParticlePositionWS / ParticleRadius` 是粒子中心与半径，`SphereMask` 用来把雾气柔化收在粒子球体内部）接入 `Extinction`，赋给 Niagara CPU 发射器（`Spawn Burst Instantaneous` 生成 1 颗半径约 `800 cm` 的静止粒子）的 `Sprite Renderer` 即可。',
           ],
           tryItPrompt:
-            '切到右上角「原理图」查看 UE 5.8 体积材质域（Volumetric-Fog-Cloud BSDF）与近景软边雾片的双路线连法！',
+            '切到右上角「原理图」分别对照上方（选做粒子体积雾）与下方（必学近景 DepthFade 软边雾片）两条独立材质连线！',
           callout: {
             tone: 'ue58',
-            title: 'UE 5.8 Local Fog Volume 为什么备受推崇？',
-            body: 'Local Fog Volume 通过组件自己的径向和高度密度生成均匀雾团。需要自定义空间噪声时，用注入体积雾的粒子和 Volume 域材质。',
+            title: '新手落地顺序建议：先 Local Fog Volume + 雾片，再玩粒子体积雾',
+            body: '日常项目里 80% 的局部雾团用 Local Fog Volume（零节点、高性能）配少量带 DepthFade 的雾片就足够出片；只有需要自定义 3D 噪声或动态翻涌云团时，再启用选做支线的 Volume 域材质 + Niagara 粒子。',
           },
         },
         {
@@ -3939,8 +3996,8 @@ export const module10: ModuleDefinition = {
       takeaways: [
         '丁达尔体积光柱源于水滴把阳光散射进人眼 + 树木阴影切割明暗，调高前向散射（Anisotropy g）可显著增强逆光神光',
         '远山变淡源于消光（Extinction）沿途吞噬反射光，天然拉开画面近实远虚的大气透视层次',
-        '全局光柱用 Volumetric Fog，均匀雾团用 Local Fog Volume，需要纹理噪声的示例用 Niagara 粒子搭载 Volume 材质。',
-        '任何半透明烟雾面片/粒子靠近地面墙壁时，必须在 Opacity 乘上 DepthFade 抹除穿插硬边',
+        '全局光柱用 Volumetric Fog，均匀雾团用 Local Fog Volume；进阶动态噪声团雾可用 Material Domain = Volume / Additive 配合 Niagara 粒子注入',
+        '任何半透明雾片靠近地面墙壁时，将雾纹理 Alpha 接入 DepthFade 的 Opacity 引脚（FadeDistance ≈ 85 cm），再送入 Substrate Coverage Weight 的 Weight 抹除穿插硬边',
       ],
       schematic: {
         title: '粒子体积材质与半透明雾片',
@@ -4085,39 +4142,39 @@ export const module10: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：Masked 一刀切镂空与 Substrate 自发光连法',
           paragraphs: [
-            '溶解用 Surface / Masked，材质的 Opacity Mask Clip Value 保持默认 0.3333。Noise 和进度 L 进 If 的 A、B，A>B 和 A=B 填 1，A<B 填 0；将 Equals Threshold 设 0，输出 Keep 接根节点 Opacity Mask。边带强度用 Keep × (1 − Saturate((Noise − L) / Width))，Width 设 0.07，再乘橙色与 12，接 Slab 的 Emissive Color。',
-            '验收时设 L=0.46：Noise=0.45 裁掉，0.49 可见且发光，0.53 及更高值可见但没有火边。护盾另用 Surface / Translucent 材质，以 Fresnel 控制 Coverage Weight 的 Weight，DepthFade（Opacity=1）→ OneMinus 作为交界发光权重。',
+            '① **烧蚀溶解材质（`Surface / Masked` + 勾选 `Two Sided`）**：选 `Masked`（保持默认 `Opacity Mask Clip Value = 0.3333`），这样烧出破洞时零半透明排序错乱、还能投出随溶解收缩的动态阴影；**务必在 Details 勾选 `Two Sided（双面渲染）`**，否则装甲烧穿后往窟窿里看会因为背面被剔除而变成空心纸片！把 `Noise` 与进度 `L` 送进 **`If`（比大小裁判节点，`Equals Threshold = 0`）** 的 `A、B`：`A > B` 和 `A == B` 填 `1`（保留），`A < B` 填 `0`（裁空），输出 `Keep` 连进根节点 `Opacity Mask`。燃烧火边则用 `Keep × (1 − Saturate((Noise − L) / Width))`（`Width = 0.07`），乘橙色与 HDR 倍率 `12` 后接入 `Substrate Slab BSDF` 的 **`Emissive Color`**（验收：`L = 0.46` 时，`Noise = 0.45` 裁掉、`0.49` 可见且发光、`0.53+` 可见无火边）。',
+            '② **科幻能量护盾（`Surface / Translucent` 或 `Additive` + 勾选 `Two Sided`）**：新建 `Surface / Translucent Grey Transmittance` 材质并**勾选 `Two Sided`**（透视看到护盾内壁更立体；若只要纯光效全息盾且想更省电，也可把 Blend Mode 换成 **`Additive` 叠加发光**，代价是无法给背景加暗色滤镜）。用 **`DepthFade`**（`Opacity = 1`，**`Fade Distance = 12 cm`**）接 `OneMinus` 拿到碰墙交界亮环，与 **`Fresnel`** 合并限幅后一边驱动 **`Substrate Coverage Weight`** 的 `Weight` 控透明，另一边乘青色 HDR 接入 **`Substrate Unlit BSDF`**（`TransmittanceColor` 设黑）的 `Emissive Color`，经 `Coverage Weight` 连到 `Front Material`！',
           ],
           tryItPrompt:
-            '切到右上角「原理图」视图，对照查看溶解切割支路与反转 DepthFade 护盾支路是如何汇入 Substrate 层板的！',
+            '切到右上角「原理图」视图，对照查看溶解切割支路（If + Slab）与反转 DepthFade 护盾支路（Unlit + Coverage Weight）的完整连线！',
           callout: {
             tone: 'ue58',
-            title: '动态驱动溶解进度的小技巧',
-            body: '把 DissolveLevel 设为 Scalar Parameter，在蓝图 Timeline 或 Niagara 粒子 Dynamic Material Parameters 中从 0 推到 1，角色即可丝滑化灰消散！',
+            title: '动态驱动溶解进度 & 防止 0% 提前冒火边的小技巧',
+            body: '把溶解进度 L 设为 Scalar Parameter，在蓝图 Timeline（随时间平滑推高数值的动画曲线）或 Niagara 粒子的 Dynamic Material Parameters（实时传给材质的动态参数）里驱动即可。小秘诀：把动画 0~1 的进度重映射到 [−Width, 1 + Width]（或像本页舞台一样在 L=0 附近乘淡入系数），就能确保 0% 时装甲完好无任何提前火星、100% 时彻底燃尽！',
           },
         },
         {
           stepNumber: 5,
           shortLabel: '特效防坑口诀',
           tag: 'pitfall',
-          title: '固定溶解轮廓，再比较火边的线性发光强度',
+          title: '特效防坑口诀：镂空必开双面、先验轮廓再调 HDR、正反巧用 DepthFade',
           paragraphs: [
-            '先将火边强度设为 0，检查几何裁剪；再逐步增加强度。UE 中 Bloom 还受后处理和曝光影响，可在固定曝光下开关 Bloom 比较轮廓和泛光。',
-            'DepthFade 在半透明雾片靠近不透明地面时减弱覆盖；用 OneMinus 反转后，同一段深度差能给护盾与墙面的交界加亮。',
+            '记住这两条排查套路：**① 溶解先关火边、查轮廓与双面**——先把火边倍率设为 `0`，确认 `Masked` 裁切轮廓干净且破洞内壁已勾选 `Two Sided` 不会穿帮隐身，再逐步拉高线性发光倍率；注意 UE 里的 `Bloom` 泛光同时受后处理与曝光影响，建议在固定曝光下测试。',
+            '**② 同一个 `DepthFade`，正着用抹硬边、反着用生电弧**——在 10.3 雾片里直接用它让贴地处变透明，在这里加一个 `OneMinus (1 − x)` 就能把同一段深度差翻转为紧贴石柱与地面的高能交界电弧环！',
           ],
           tryItPrompt:
             '试着把护盾的 `Fresnel 边缘发光强度` 拉低再拉高，体会外轮廓 Fresnel 与碰墙 DepthFade 两圈光环是如何默契配合的！',
         },
       ],
       takeaways: [
-        '溶解消融本质是用上涨的阈值切割黑白噪波地形图：低于水位用 Masked 丢弃，高于水位窄带赋予高倍燃烧自发光',
-        '硬边溶解务必选用 Masked 混合模式而非 Translucent，零排序错乱且自动拥有随溶解收缩的精准动态阴影',
-        '提高线性发光强度可提亮火边，是否出现可见 Bloom 还取决于曝光与后处理设置。',
-        '科幻能量护盾将 Fresnel（外轮廓亮中间透）与 OneMinus(DepthFade)（碰墙交界距离趋零处爆亮）结合，实现全自动地形感应光环',
+        '溶解消融本质是用上涨的阈值切割黑白噪波地形图：低于水位用 Masked 丢弃，高于水位窄带赋予高倍燃烧自发光，并重映射进度区间避免 0% 提前冒火边',
+        '硬边溶解务必选用 Masked 并勾选 Two Sided（露出装甲内壁不穿帮），零排序错乱且自动拥有随溶解收缩的精准动态阴影',
+        '提高线性发光强度可提亮火边，是否出现可见 Bloom 还取决于曝光与后处理设置',
+        '科幻能量护盾同样勾选 Two Sided（纯光效可选 Additive，带实体遮挡选 Translucent），将 Fresnel 与 OneMinus(DepthFade) 结合实现全自动地形感应电弧环',
       ],
       schematic: {
         title: '溶解与护盾使用两个独立材质',
-        caption: '上方 Keep 同时控制裁剪与发光。L=0.46、Width=0.07 时，Noise=0.49 的像素保留并发光。下方用半透明材质绘制护盾。',
+        caption: '上方 Keep 同时控制裁剪与发光（记得勾选 Two Sided）。L=0.46、Width=0.07 时，Noise=0.49 的像素保留并发光。下方用半透明材质绘制护盾。',
         nodes: [
           {
             id: 'in',
@@ -4129,7 +4186,7 @@ export const module10: ModuleDefinition = {
           },
           {
             id: 'keep',
-            title: 'If（Equals Threshold = 0）',
+            title: 'If（比大小裁判 · Threshold=0）',
             subtitle: '大于 / 等于填 1，小于填 0',
             category: 'math',
             x: 280, y: 20, width: 215,
@@ -4157,9 +4214,9 @@ export const module10: ModuleDefinition = {
           {
             id: 'out',
             title: '溶解材质',
-            subtitle: 'Surface / Masked · Clip 0.3333',
+            subtitle: 'Surface / Masked · Two Sided · Clip 0.3333',
             category: 'output',
-            x: 1065, y: 70, width: 215,
+            x: 1065, y: 70, width: 225,
             inputs: [{ id: 'k', label: 'Opacity Mask', color: '#e5e7eb' }, { id: 'm', label: 'Front Material', color: '#a855f7' }],
           },
           {
@@ -4200,9 +4257,9 @@ export const module10: ModuleDefinition = {
           {
             id: 'shieldroot',
             title: '护盾材质',
-            subtitle: 'Surface / Translucent Grey Transmittance',
+            subtitle: 'Translucent (或 Additive) · Two Sided',
             category: 'output',
-            x: 1065, y: 355, width: 215,
+            x: 1065, y: 355, width: 225,
             inputs: [{ id: 'm', label: 'Front Material', color: '#a855f7' }],
           },
         ],
@@ -4235,7 +4292,7 @@ export const module10: ModuleDefinition = {
       title: '❄️ 世界空间自动积雪与免 UV 三平面投射',
       subtitle: '滚石不掉雪与告别贴图拉丝',
       duration: '14 分钟',
-      difficulty: '进阶',
+      difficulty: '实战',
       steps: [
         {
           stepNumber: 1,
@@ -4263,7 +4320,7 @@ export const module10: ModuleDefinition = {
           callout: {
             tone: 'tip',
             title: '为什么连岩石侧面的朝天小凹坑也能积雪？',
-            body: '如果读贴了法线贴图之后的像素级世界法线（PixelNormalWS），连石头侧面微微朝天凸起的小石棱也会精准积上一小撮白雪，真实感爆棚！',
+            body: '如果只读模型顶点法线（VertexNormalWS），大坡面能快速积雪；如果先把岩石法线贴图经 TransformVector（Tangent → World）转到世界空间再取朝天分量，连石头侧面微微朝天凸起的小石棱也会精准积上一小撮白雪！',
           },
         },
         {
@@ -4282,17 +4339,17 @@ export const module10: ModuleDefinition = {
           stepNumber: 4,
           shortLabel: 'UE5.8 节点落地',
           tag: 'ue5',
-          title: '走进 UE 5.8：PixelNormalWS.B 控雪与 WorldAlignedTexture',
+          title: '走进 UE 5.8：世界朝天法线控雪与 WorldAlignedTexture',
           paragraphs: [
-            '在 UE 5.8 材质编辑器里实现这两招干净利落：① **自动积雪 / 自动长青苔**：拖出 **`PixelNormalWS`** 节点 → 连入 **`ComponentMask (只勾 B)`** 拿到世界朝天值 → 基础做法用 `Saturate` 锁回 `0~1`；要复现网页的阈值控件，先算 t=Saturate((Z−阈值+0.14)/0.28)，再取 SmoothStep 的结果 t²(3−2t)，连入 `Lerp` 的 `Alpha` 混合岩石与白雪的漫反射色（注意白雪物理亮度填 `0.82~0.88`，别填 `1.0` 纯白过曝！）。',
-            '② **免 UV 三平面投射**：右键直接搜内置函数 **`WorldAlignedTexture`**（法线贴图用配套的 **`WorldAlignedNormal`**），注意它要求拖入 **`Texture Object`（纹理对象）** 而非普通 Texture Sample，在 `TextureSize` 填 `200`（代表世界每 200 厘米铺满一次），悬崖地形与灰盒白模当场起飞！',
+            '① **自动积雪 / 自动长青苔（编译安全正统连法）**：拖出 **`VertexNormalWS`**（模型顶点的世界空间法线，不依赖材质 `Normal` 引脚，因此可以安全地同时混合颜色、粗糙度与法线！）→ 连入 **`ComponentMask (只勾 B)`** 拿到世界朝天值 `World Z` → 直接接 UE 内置的 **`SmoothStep`** 节点（`Min = 阈值 − 0.14`、`Max = 阈值 + 0.14`，内部自动限幅并平滑输出 `0~1`，完全不用手搓公式！）→ 连入 `Lerp` 的 `Alpha`，把岩石与白雪的 **`Diffuse Albedo`**（白雪物理亮度填 `0.82~0.88`，别填 `1.0` 纯白过曝）、**`Roughness`** 和 **`Normal`**（厚雪处把岩石法线朝平坦 `(0,0,1)` 插值柔化）一起混进 `Substrate Slab BSDF` 的 **`BSDF` → `Front Material`**！如果希望积雪更细腻地卡进岩石法线贴图的凹凸石缝里，只需先把岩石法线贴图经 **`TransformVector (Tangent → World)`** 转到世界空间再取 `B` 通道驱动 `SmoothStep`，同样完全安全！',
+            '② **免 UV 三平面投射**：右键搜索内置材质函数 **`WorldAlignedTexture`**（法线贴图用配套的 **`WorldAlignedNormal`**）。注意它的纹理引脚要求接入 **`Texture Object`（纹理对象）**：右键普通贴图节点选 **`Convert to Texture Object`** 即可——因为 `WorldAlignedTexture` 内部要帮你从 X、Y、Z 三个方向各采样一次，所以必须传入未采样的纹理资产本身！在 `TextureSize` 填 `200`（代表世界每 200 厘米铺满一次），悬崖地形与灰盒白模当场起飞！',
           ],
           tryItPrompt:
-            '点击右上角「原理图」视图，查看 WorldAlignedTexture 配合 PixelNormalWS.B 组合成“免展 UV 自动覆雪悬崖母材质”的经典工业连法！',
+            '点击右上角「原理图」视图，查看 WorldAlignedTexture 配合 VertexNormalWS.B → SmoothStep 组合成“免展 UV 自动覆雪悬崖母材质”的编译安全工业连法！',
           callout: {
             tone: 'ue58',
-            title: 'VertexNormalWS vs PixelNormalWS 选哪个？',
-            body: '想省算力或做柔和过渡用 VertexNormalWS（顶点世界法线）；想要积雪卡进法线贴图的凹凸石缝里，用 PixelNormalWS（像素世界法线）！',
+            title: '⚠️ 编译避坑：为什么不能拿 PixelNormalWS 反过来驱动 Normal？',
+            body: 'PixelNormalWS 读取的是“计算完材质 Normal 引脚之后的最终世界法线”。如果你把它算出的积雪遮罩又连回同一块 Slab 的 Normal 引脚去柔化积雪法线，引擎会立刻报循环依赖（Cycle）编译错误！牢记：要同步混合 Normal 时，用 VertexNormalWS，或先对岩石法线贴图做 TransformVector(Tangent → World) 再取 B 通道！',
           },
         },
         {
@@ -4309,23 +4366,23 @@ export const module10: ModuleDefinition = {
         },
       ],
       takeaways: [
-        '读取 PixelNormalWS 的蓝通道（B / 世界 +Z 轴）即可实时获知每个像素是否朝向天空，任意旋转静态岩石积雪永远在顶面',
-        '积雪覆盖处应同步 Lerp 降低法线凹凸强度并调整粗糙度，模拟厚雪填平石缝的蓬松质感（白雪反照率约 0.85）',
-        'WorldAlignedTexture（三平面投射）按世界真实米数从 X/Y/Z 三向投影贴图，彻底解决模型非均匀缩放导致的 UV 拉丝',
+        '用 VertexNormalWS 的蓝通道（B / 世界 +Z 轴）或先将岩石法线经 TransformVector(Tangent → World) 转换再取 B 通道，配合内置 SmoothStep 即可编译安全地驱动自动积雪',
+        '严禁将 PixelNormalWS 算出的遮罩连回同一层板的 Normal 引脚（会触发循环依赖编译报错）；用安全法线遮罩即可同步 Lerp 颜色（白雪反照率 0.82~0.88）、粗糙度与法线',
+        'WorldAlignedTexture（需传入 Convert to Texture Object 转换的纹理对象）按世界真实米数从 X/Y/Z 三向投影贴图，彻底解决模型非均匀缩放导致的 UV 拉丝',
         '注意工程边界：动态翻滚道具禁用世界法线积雪（雪不会随物体转），且三平面投射消耗 3 倍纹理采样性能',
       ],
       schematic: {
         title: 'UE 5.8 免 UV 三平面岩石 + 世界空间自动积雪母材质图',
-        caption: 'WorldAlignedTexture 消除拉伸，PixelNormalWS (Mask B) 精准识别朝天面驱动 Lerp 落雪',
+        caption: 'WorldAlignedTexture 消除拉伸，VertexNormalWS (Mask B) → SmoothStep 编译安全地驱动颜色、粗糙度与法线混合',
         nodes: [
           {
             id: 'texObj',
             title: 'WorldAlignedTexture',
-            subtitle: 'X/Y/Z 三向幻灯机 (Size=200)',
+            subtitle: '接 Texture Object · 三向投射 (Size=200)',
             category: 'texture',
             x: 20,
             y: 25,
-            width: 205,
+            width: 215,
             outputs: [{ id: 'xyzCol', label: 'XYZ 岩石色', color: '#e5e7eb' }],
           },
           {
@@ -4335,28 +4392,28 @@ export const module10: ModuleDefinition = {
             category: 'param',
             x: 20,
             y: 150,
-            width: 205,
+            width: 215,
             previewColor: '#f1f5f9',
             outputs: [{ id: 'sCol', label: '白雪颜色', color: '#38bdf8' }],
           },
           {
             id: 'pixWs',
-            title: 'PixelNormalWS → Mask(B)',
-            subtitle: '提取世界 +Z 朝天分量',
+            title: 'VertexNormalWS → Mask(B)',
+            subtitle: '安全取世界 +Z（无循环依赖）',
             category: 'input',
             x: 20,
             y: 270,
-            width: 205,
+            width: 215,
             outputs: [{ id: 'zUp', label: 'World Z (-1~1)', color: '#3b82f6' }],
           },
           {
             id: 'snowBias',
-            title: 'SmoothStep（内部 Saturate）',
-            subtitle: '阈值 ± 0.14，输出 0…1',
+            title: 'SmoothStep（内置节点）',
+            subtitle: 'Min/Max = 阈值 ± 0.14，输出 0…1',
             category: 'math',
-            x: 270,
+            x: 275,
             y: 265,
-            width: 200,
+            width: 210,
             inputs: [{ id: 'z', label: 'World Z', color: '#3b82f6' }],
             outputs: [{ id: 'alpha', label: '积雪 Alpha', color: '#e5e7eb' }],
           },
@@ -4367,7 +4424,7 @@ export const module10: ModuleDefinition = {
             category: 'math',
             x: 280,
             y: 80,
-            width: 195,
+            width: 205,
             inputs: [
               { id: 'a', label: 'A (岩石)', color: '#e5e7eb' },
               { id: 'b', label: 'B (白雪)', color: '#38bdf8' },
@@ -4378,20 +4435,20 @@ export const module10: ModuleDefinition = {
           {
             id: 'snowSlab',
             title: 'Substrate Slab BSDF',
-            subtitle: '同步混合颜色/粗糙度/法线',
+            subtitle: '安全同步混合颜色/粗糙度/法线',
             category: 'substrate',
-            x: 520,
+            x: 525,
             y: 110,
-            width: 200,
+            width: 210,
             inputs: [{ id: 'diff', label: 'Diffuse Albedo', color: '#22c55e' }],
-            outputs: [{ id: 'mat', label: 'Slab Out', color: '#a855f7' }],
+            outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
           },
           {
             id: 'snowRoot',
             title: '材质根节点',
             subtitle: '悬崖/雪山万用母材质',
             category: 'output',
-            x: 760,
+            x: 775,
             y: 115,
             width: 175,
             inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
@@ -4439,11 +4496,11 @@ export const module10: ModuleDefinition = {
           tag: 'background',
           title: '光在肉里能跑几毫米（MFP），以及物理世界真正的“双层叠罗汉”',
           paragraphs: [
-            '**温润美玉与皮肤的秘密 —— 次表面散射（SSS）与平均自由程（`MFP`）**：半透明固体既不像铁块完全挡光，也不像清水一览无余，光线钻进去后会在内部微粒间弹跳几毫米再散出来。衡量它有多透的物理尺子就叫**平均自由程（Mean Free Path，简称 `MFP`）**——代表光子在里面平均能跑几毫米！所以 `1.5 毫米` 薄的玉雕龙鳍和耳廓一照就透亮，而 `13 毫米` 厚的玉佩肚子光穿不过去，自然保持沉稳浑厚！',
+            '**温润美玉与皮肤的秘密 —— 次表面散射（SSS）与平均自由程（`MFP`）**：半透明固体既不像铁块完全挡光，也不像清水一览无余，光线钻进去后会在内部微粒间弹跳几毫米再散出来。衡量它有多透的物理尺子就叫**平均自由程（Mean Free Path，简称 `MFP`）**——代表光子在里面平均能跑多远！所以 `1.5 毫米` 薄的玉雕龙鳍和耳廓一照就透亮，而 `13 毫米` 厚的玉佩肚子光穿不过去，自然保持沉稳浑厚！**（单位提前划重点：人眼直觉习惯用毫米 `mm`，但 UE 5.8 的 `SSS MFP` 引脚统一用厘米 `cm = mm ÷ 10`，例如 `6.8 mm` 填入 UE 就是 `0.68 cm`！）**',
             '**豪车烤漆的秘密 —— 物理双层涂层**：真实跑车漆本来就是两层物质叠在一起！底层是较粗糙（`Roughness ≈ 0.45`）的彩色金属闪粉底漆，头顶实打实喷涂了一层极光滑（`Roughness ≈ 0.04`）的无色透明清漆，两层各自反射各的高光！',
           ],
           tryItPrompt:
-            '在「模式 A」下把聚光灯停在 `155°` 背光位，缓缓把 `MFP 平均自由程` 从 `0 mm` 拉到 `10 mm`，看死硬绿石头如何从薄雕花边缘一点点化为冰种美玉！',
+            '在「模式 A」下把聚光灯停在 `155°` 背光位，缓缓把「自由程基准值（网页 mm，UE 引脚 cm）」从 `0 mm` 拉到 `10 mm`，看死硬绿石头如何从薄雕花边缘一点点化为冰种美玉！',
           callout: {
             tone: 'tip',
             title: '为什么耳朵背光透出的是红光而不是白光？',
@@ -4468,16 +4525,15 @@ export const module10: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：Substrate 最耀眼的主场 —— MFP 与 Vertical Layer',
           paragraphs: [
-            '先做一个能控制厚度的背光样片：桌面延迟场景放一张平面，让 Spot Light 从平面后方向镜头照。材质使用 Surface / Opaque，勾选 Two Sided 与 Is Thin Surface。选中 Slab，将 Sub-Surface Type 设为 Two-Sided Wrap，接到 Front Material。',
-            'SSS MFP 的 RGB 分量都是厘米。网页滑块 10 mm 即基准 1 cm，玉石示例乘通道系数后接 (0.28, 1.18, 0.55) cm。用线性灰度厚度图 R 作 Lerp 权重，将 0.15 cm（薄边）到 1.30 cm（厚芯）的插值接根节点 Surface Thickness。先背光查看薄处透绿，再转到正面。厚度来自你指定的尺寸图；网页用预设形状生成同一类厚度分布。',
-            '② 做**跑车漆 / 打蜡木地板 / 雨淋湿鹅卵石**：建两块 `Substrate Slab BSDF`，用一颗 **`Substrate Vertical Layer（垂直叠层）`** 把光滑透明顶层（`Top`）盖在粗糙底层（`Bottom`）之上连入 `Front Material`，界面折损与能量守恒全自动精准搞定！',
+            '① **温润玉石与角色皮肤（`SSS MFP`）分两条路线**：如果你做的是**实心 3D 玉雕、角色耳朵或皮肤**，直接在 `Substrate Slab BSDF` 使用 **`Subsurface Profile` 或 `Diffusion`** 模式，引擎会自动根据模型真实 3D 几何厚度与灯光计算散射，无需手画厚度图；如果要像本页实验台一样用一张平面快速验证**薄玉片/树叶背光透射**，则建 `Surface / Opaque` 材质，勾选 **`Two Sided`** 与 **`Is Thin Surface`**，把 Slab 的 `Sub-Surface Type` 设为 **`Two-Sided Wrap`**，`SSS MFP` 填入厘米值（网页 `10 mm = 1 cm` 乘玉石三通道系数即 `(0.28, 1.18, 0.55) cm`），再把线性灰度厚度图 `R` 经 `Lerp(0.15, 1.30)` 接入根节点 **`Surface Thickness`（单位 cm）**，放一盏背光 `Spot Light` 即可清晰看到薄边透翠、厚芯沉稳！',
+            '② **跑车双层清漆（`Substrate Vertical Layer` 垂直叠层）**：新建两块 `Substrate Slab BSDF`——底层 `Bottom` 做粗糙金属闪粉漆（有色 `F0`、`Diffuse Albedo = (0,0,0)`、`Roughness = 0.45`）；顶层 `Top` 做透明清漆：**除了 `Diffuse Albedo = (0,0,0)`、`F0 = 0.04`、`Roughness = 0.04` 之外，必须给顶层 Slab 填入高透射的 `SSS MFP`（如 `(1, 1, 1)` cm，或经 `Substrate Transmittance-To-MeanFreePath` 换算）**——否则默认的 `MFP = 0` 会让顶层变成不透光的黑漆壳，把底下的金属闪粉彻底遮死！最后用 **`Substrate Vertical Layer`**（`Top Thickness = 0.01 cm`）把 `Top` 盖在 `Bottom` 上，输出 `BSDF` 接 `Front Material`，双高光与能量守恒全自动搞定！',
           ],
           tryItPrompt:
-            '打开右上角「原理图」视图，看看两块 Substrate Slab 是如何像搭乐高积木一样通过 Substrate Vertical Layer 叠在一起的！',
+            '打开右上角「原理图」视图，重点核对顶层透明清漆 Slab 的 `SSS MFP = (1,1,1) cm` 与 `Substrate Vertical Layer` 的叠合连法！',
           callout: {
             tone: 'ue58',
             title: '雨天淋湿地面怎么用 Vertical Layer 一秒做出来？',
-            body: '底层还是原本粗糙干燥的砖石 Slab，下雨时用雨水遮罩控制顶层光滑水膜 Slab 的覆盖权重（Top Coverage），干湿过渡比传统改粗糙度真实十倍！',
+            body: '底层还是原本粗糙干燥的砖石 Slab；下雨时把顶层光滑透明水膜 Slab 先送入 Substrate Coverage Weight（用雨水遮罩连入 Weight 控制哪里湿、哪里干），再把它的输出接到 Substrate Vertical Layer 的 Top 引脚！干湿过渡的水膜包浆感比传统只改粗糙度真实十倍！',
           },
         },
         {
@@ -4539,9 +4595,9 @@ export const module10: ModuleDefinition = {
           {
             id: 'top',
             title: '透明清漆 Slab',
-            subtitle: '漫反射黑，F0 0.04，粗糙度 0.04',
+            subtitle: '漫反射黑 · F0 0.04 · 粗糙度 0.04 · SSS MFP (1,1,1) cm',
             category: 'substrate',
-            x: 20, y: 285, width: 215,
+            x: 20, y: 285, width: 235,
             outputs: [{ id: 'm', label: 'BSDF', color: '#a855f7' }],
           },
           {
@@ -4549,7 +4605,7 @@ export const module10: ModuleDefinition = {
             title: '金属底漆 Slab',
             subtitle: '有色 F0，漫反射黑，粗糙度 0.45',
             category: 'substrate',
-            x: 20, y: 405, width: 215,
+            x: 20, y: 405, width: 235,
             outputs: [{ id: 'm', label: 'BSDF', color: '#a855f7' }],
           },
           {
@@ -4557,7 +4613,7 @@ export const module10: ModuleDefinition = {
             title: 'Substrate Vertical Layer',
             subtitle: 'Top Thickness = 0.01 cm',
             category: 'substrate',
-            x: 280, y: 310, width: 215,
+            x: 300, y: 310, width: 215,
             inputs: [{ id: 't', label: 'Top', color: '#a855f7' }, { id: 'b', label: 'Bottom', color: '#a855f7' }],
             outputs: [{ id: 'm', label: 'BSDF', color: '#a855f7' }],
           },
@@ -4566,7 +4622,7 @@ export const module10: ModuleDefinition = {
             title: '车漆材质',
             subtitle: 'Surface / Opaque',
             category: 'output',
-            x: 550, y: 310, width: 215,
+            x: 560, y: 310, width: 215,
             inputs: [{ id: 'm', label: 'Front Material', color: '#a855f7' }],
           },
         ],
@@ -4600,7 +4656,7 @@ export const module10: ModuleDefinition = {
           tag: 'phenomenon',
           title: '两块纯平三角形怎么冻出三尺深冰？写实模型又怎么一秒变动漫？',
           paragraphs: [
-            '欢迎来到压轴收官课！先看第一个视觉魔术：在极地冒险游戏里低头看冰封湖面，表层结着白霜，往下半米冻着气泡，再往下两米蜿蜒着幽蓝深渊冰裂——你左右晃动视角，深处的冰裂竟然真的跟表层白霜错开滑动！可打开网格线框一看，整片冰面明明只是**两块薄如蝉翼的纯平三角形**！',
+            '欢迎来到效果实战篇的压轴课！先看第一个视觉魔术：在极地冒险游戏里低头看冰封湖面，表层结着白霜（`0m`），往下 `0.2m` 冻着浅层气泡，再往下 `0.5m` 与 `1.0m` 蜿蜒着中层冰裂与幽蓝深渊裂谷——你左右晃动视角，深处的冰裂竟然真的跟表层白霜错开滑动！可打开网格线框一看，整片冰面明明只是**两块薄如蝉翼的纯平三角形**！',
             '再看第二个魔术：同样一颗三维角色模型，写实游戏里光影柔顺过渡，而《原神》《罪恶装备》这类二次元动漫风里，亮部与暗部却像动画师拿马克笔一刀切出来一样干净利落！这两大终极幻术，背后其实都只隔着一层窗户纸。',
           ],
           tryItPrompt:
@@ -4612,15 +4668,15 @@ export const module10: ModuleDefinition = {
           tag: 'background',
           title: '坐高铁看窗外的“运动视差”，以及一刀剪断渐变的“色阶刀”',
           paragraphs: [
-            '**平面造三尺寒冰 —— 运动视差（Parallax）骗眼术**：回想你坐高铁往窗外看，铁轨边的护栏飞速往后退，远方的大山几乎不动——人脑天生靠“晃头时不同深度的东西错位速度不同”来感知立体纵深！在纯平冰面上，表层白霜钉在原位不动；对于假装在冰下 50 厘米的裂纹贴图，只要顺着你的视线斜角把它的 **`UV` 坐标偷偷往视线延长线方向挪一点点**（越深挪越多），你一晃镜头，大脑当场就被骗出了三尺厚冰的深邃景深！',
-            '**写实秒变二次元 —— 色阶剪刀（Cel-Shading）**：第 7 章学的漫反射 `Dot(N, L)` 原本是从 `1` 到 `0` 的平滑斜坡；二次元只需拿一把“色阶剪刀”卡在阈值（比如 `0.45`）一刀剪断——大于它全给干净亮色，小于它全给通透阴影色，三维体积瞬间化作手绘赛璐璐！',
+            '**平面造三尺寒冰 —— 运动视差（Parallax）骗眼术**：回想你坐高铁往窗外看，铁轨边的护栏飞速往后退，远方的大山几乎不动——人脑天生靠“晃头时不同深度的东西错位速度不同”来感知立体纵深！在纯平冰面上，表层白霜钉在原位不动；对于假装在冰下的裂纹贴图，只要顺着你的视线斜角把它的 **`UV` 坐标偷偷往视线延长线方向挪一点点**（越深挪越多），你一晃镜头，大脑当场就被骗出了三尺厚冰的深邃景深！',
+            '**写实秒变二次元 —— 色阶剪刀（Cel-Shading）**：第 7 章学的漫反射 `Dot(N, L)` 原本是连续斜坡（二次元渲染常先用 **Half-Lambert：`0.5 × N·L + 0.5`** 把 `−1~1` 映射到 `0~1`，让背光面也拥有饱满可调的层次）；我们只需拿一把“色阶剪刀”卡在阈值（比如 `0.45`）一刀剪断——大于它全给干净亮色，小于它全给通透阴影色，三维体积瞬间化作手绘赛璐璐！',
           ],
           tryItPrompt:
-            '在「模式 A」拖动视角时盯住右侧的 **视线错位剖面图**，看黄色视线穿过冰面后，是如何在浅层气泡与深渊裂谷处落到不同横向坐标上的！',
+            '在「模式 A」拖动视角时盯住右侧的 **视线错位剖面图**，看黄色视线穿过冰面后，是如何在浅层气泡（-0.2m）与深渊裂谷（-1.0m）处落到不同横向坐标上的！',
           callout: {
             tone: 'formula',
             title: 'BumpOffset 视差偏移极简原理',
-            body: 'UV 偏移 = ViewTS.xy × (Height − ReferencePlane) × HeightRatio。Height 等于参考平面时采样坐标保持原位。',
+            body: 'UV 偏移 = ViewTS.xy × (Height − ReferencePlane) × HeightRatio。Height 等于参考平面时采样坐标保持原位，越低于参考平面偏移越大。',
           },
         },
         {
@@ -4630,10 +4686,10 @@ export const module10: ModuleDefinition = {
           title: '亲手叠出三层深渊寒冰，再挥动二次元明暗二分剪刀！',
           paragraphs: [
             '在「模式 A」下，把 `视差深度叠层数` 从「单层薄冰」切到「三层深渊寒冰」，晃动视角感受表层白霜、浅层冰泡、中层青裂纹与深渊蓝裂谷四重速度差织出的震撼空间感！接着故意把 `HeightRatio` 猛拉到 `0.30` 以上——看到冰裂纹在大斜角下撕裂成双影了吗？这就是为什么实战中 `0.04 ~ 0.12` 才是黄金甜点区！',
-            '切换到「模式 B」：来回切换 `写实 PBR` 与 `UE 5.8 Toon BSDF`，拖动 `明暗色阶二分阈值` 与 `阴影边缘软硬度`（对照右侧实时跳动的粉色色阶曲线！），再点一下顶部「看踩坑现象」对比“脏黑灰阴影”与“通透冷紫暖粉动漫阴影”的天壤之别！',
+            '切换到「模式 B」：来回切换 `写实 PBR` 与 `UE 5.8 Toon BSDF`，拖动 `Diffuse Ramp 过渡位置（示意）` 与 `Diffuse Ramp 过渡宽度（示意）`（对照右侧实时跳动的粉色 Half-Lambert 色阶曲线！），再点一下顶部「看踩坑现象」对比“脏黑灰阴影”与“通透冷紫暖粉动漫阴影”的天壤之别！',
           ],
           tryItPrompt:
-            '在「模式 B」把「阴影边缘软硬度」拉到最左 `0.005` 体验硬派日漫刀切影，再拉到 `0.20` 体验柔美插画厚涂风！',
+            '在「模式 B」把「Diffuse Ramp 过渡宽度（示意）」拉到最左 `0.005` 体验硬派日漫刀切影，再拉到 `0.20` 体验柔美插画厚涂风！',
         },
         {
           stepNumber: 4,
@@ -4641,12 +4697,12 @@ export const module10: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：BumpOffset 分层技巧与全新原生 Toon BSDF',
           paragraphs: [
-            '① 冰面可用 BumpOffset：ReferencePlane=0.5，HeightRatio=0.08，浅层 Height=0.3、深层 Height=0.1。输出分别接裂纹 Texture Sample 的 UVs，将采样色混合后接冰面 Slab。转动视角观察深层裂纹产生较大的偏移。',
-            '② Toon 使用 UE 5.8 的实验性功能。在 Project Settings → Rendering 启用 Substrate，Substrate GBuffer Format (Project) 设为 Blendable GBuffer，按提示重启。内容浏览器新增资产时搜索 Toon Profile 并创建 TP_Cel。在 Diffuse Ramp 把 0.44 及以前设为冷紫系数、0.46 及以后设为白色，中间用线性过渡。需要分层高光时再改 Specular Ramp。',
-            '新建 Surface / Opaque 材质，接 Substrate Toon BSDF → Front Material。选中 Toon 节点，在 Details 的 Toon Profile 资产栏选择 TP_Cel。BaseColor 给浅色，Roughness 设 0.4；使用 Profile 图案时可将 TexCoord 接 PatternUVs。将材质赋给球，旋转白色 Directional Light，并移动曲线过渡区，观察明暗分界移动。网页的阈值与软硬度用于模拟这条曲线。',
+            '① **三尺寒冰视差（`BumpOffset` 分层采样）**：放两颗 **`BumpOffset`** 节点，把 **`ReferencePlane = 0.5`**（参考零点基准面）和 **`HeightRatio = 0.08`**（深度错位倍率，填在 `BumpOffset` 节点本身，别填错位置！）设好；浅层冰裂给 `Height = 0.3`，深层裂谷给 `Height = 0.1`（离 `0.5` 越远、视差越深）。两路偏移后的 UV 分别接入冰裂纹 `Texture Sample` 的 `UVs`，把两层采样颜色叠加混合后送入冰面 `Substrate Slab BSDF` 的 `Diffuse Albedo`（`BSDF → Front Material`），晃动视角即可看见深层裂纹产生更大错位！',
+            '② **UE 5.8 原生卡通渲染（实验性 `Substrate Toon BSDF`）**：先到 `Project Settings → Rendering` 开启 Substrate，把 `Substrate GBuffer Format (Project)` 设为 **`Blendable GBuffer`（Substrate 兼容混合 GBuffer 格式，开启实验性 Toon 着色所需）** 并重启编辑器。接着在内容浏览器新建 **`Toon Profile`** 资产并命名为 `TP_Cel`，在它的 **`Diffuse Ramp`** 曲线上把 `0.44` 及以前设为冷紫阴影系数、`0.46` 及以后设为纯白，中间拉出线性过渡（需要分层硬高光再调 `Specular Ramp`）。',
+            '③ **组装 Toon 材质球**：新建 `Surface / Opaque` 材质，放出 **`Substrate Toon BSDF`** 把 **`BSDF`** 连到 `Front Material`；选中 Toon 节点，在 Details 栏的 `Toon Profile` 指定 `TP_Cel`，给 `BaseColor` 浅色底色、`Roughness` 设 `0.4`（若使用网点/笔触图案再把 `TexCoord` 接 `PatternUVs`）。赋给测试球并旋转白色 `Directional Light`，实时修改曲线过渡区就能看到明暗交界随之移动！',
           ],
           tryItPrompt:
-            '打开右上角「原理图」视图，欣赏 BumpOffset 冰裂采样与 UE 5.8 全新 Substrate Toon BSDF 的收官节点图！',
+            '打开右上角「原理图」视图，核对 BumpOffset（含 HeightRatio = 0.08）冰裂采样与 UE 5.8 Substrate Toon BSDF 的实战节点图！',
           callout: {
             tone: 'ue58',
             title: '什么时候用 BumpOffset，什么时候上 POM？',
@@ -4655,50 +4711,50 @@ export const module10: ModuleDefinition = {
         },
         {
           stepNumber: 5,
-          shortLabel: '毕业防坑锦囊',
+          shortLabel: '实战防坑与预告',
           tag: 'pitfall',
-          title: '全课程通关总结：从光与三角形出发，你已打通材质任督二脉！',
+          title: '十章知识融会贯通：做好避坑，准备迎接第 11 模块综合验收！',
           paragraphs: [
             '收好最后两句实战锦囊：**“平面造深景 BumpOffset 别贪大（`0.05~0.12` 防撕裂），二次元暗部忌死黑、混入冷紫暖粉才通透！”**',
-            '🎉 **恭喜你圆满走完《UE 5.8 材质系统零基础交互工坊》全部 10 大模块！** 回头看，不管是深海吸收红光的水、开前向高光的玻璃、反用 `DepthFade` 的护盾、认得世界 `+Z` 轴的积雪，还是 `Substrate` 双层清漆与视差寒冰——世上从来没有死记硬背的神秘连线，有的只是**光的物理常识 + 空间几何直觉 + 显卡并行账本**。现在打开 UE 5.8，去创造属于你的惊艳世界吧！',
+            '🎉 **恭喜你圆满学完《UE 5.8 材质系统零基础交互工坊》全部 10 大知识模块！** 回头看，不管是深海吸收红光的水、开前向高光的玻璃、反用 `DepthFade` 的护盾、认得世界 `+Z` 轴的积雪，还是 `Substrate` 双层清漆与视差寒冰——世上从来没有死记硬背的神秘连线，有的只是**光的物理常识 + 空间几何直觉 + 显卡并行账本**。接下来，马上进入 **第 11 模块综合验收（11.1 漆面与金属检验板）**，亲手从空工程完整落地验收！',
           ],
           tryItPrompt:
-            '随时点击顶部导航栏前往「🩺 实战排错」、「🧪 材质实验室」或「📋 速查手册」，在自由沙盒里继续检验你的技术美术直觉！',
+            '准备好之后就点击下一课进入「11.1 漆面与金属检验板」实战总验收，也可以随时前往「🩺 实战排错」或「🧪 材质实验室」自由练手！',
         },
       ],
       takeaways: [
         'BumpOffset 利用切线空间视线斜角偏移深层贴图 UV，无需增加任何几何顶点即可在纯平网格上骗出多层冰封景深',
-        'BumpOffset 是轻量单步近似，HeightRatio 宜控制在 0.04~0.12 黄金区间，过大在大斜角下会产生重影断层',
-        '二次元卡通着色核心是用阶跃阈值（Step / SmoothStep）剪断连续的 N·L 光照斜坡，实现干净利落的明暗二分',
-        'UE 5.8 的实验性 Toon 配合 Blendable GBuffer。Toon Profile 资产定义 Diffuse Ramp、Specular Ramp，材质节点提供 BaseColor、Roughness 与可选 PatternUVs。',
+        'BumpOffset 是轻量单步近似，HeightRatio（设在 BumpOffset 节点上）宜控制在 0.04~0.12 黄金区间，过大在大斜角下会产生重影断层',
+        '二次元卡通着色核心是用阶跃阈值（Step / SmoothStep）剪断连续的 Half-Lambert / N·L 光照斜坡，并给暗部混入通透冷暖环境色',
+        'UE 5.8 的实验性 Toon 需配合 Blendable GBuffer（Substrate 兼容 GBuffer 格式）；Toon Profile 资产定义 Diffuse Ramp 与 Specular Ramp，材质节点提供 BaseColor、Roughness 与可选 PatternUVs',
       ],
       schematic: {
         title: '分层视差冰面与 Toon Profile 明暗曲线',
-        caption: '两路分别建材质。Toon Profile 在 Toon 节点 Details 中指定，明暗与高光来自资产曲线。',
+        caption: '两路分别建材质。HeightRatio 填在 BumpOffset 上；Toon Profile 在 Toon 节点 Details 中指定，明暗与高光来自资产曲线。',
         nodes: [
           {
             id: 'bump',
-            title: 'BumpOffset',
-            subtitle: 'Height = 0.2，ReferencePlane = 0.5',
+            title: 'BumpOffset（浅/深两路）',
+            subtitle: 'HeightRatio = 0.08 · RefPlane = 0.5 · Height 0.3 / 0.1',
             category: 'math',
-            x: 20, y: 20, width: 215,
-            outputs: [{ id: 'uv', label: '偏移 UV', color: '#38bdf8' }],
+            x: 20, y: 20, width: 245,
+            outputs: [{ id: 'uv', label: '浅/深偏移 UV', color: '#38bdf8' }],
           },
           {
             id: 'ice',
             title: '冰裂纹 Texture Sample',
-            subtitle: '冰面材质；HeightRatio = 0.08',
+            subtitle: '浅层与深层分别采样并叠加混合',
             category: 'texture',
-            x: 280, y: 20, width: 215,
+            x: 300, y: 20, width: 215,
             inputs: [{ id: 'uv', label: 'UVs', color: '#38bdf8' }],
-            outputs: [{ id: 'c', label: 'RGB', color: '#22c55e' }],
+            outputs: [{ id: 'c', label: '混合冰裂 RGB', color: '#22c55e' }],
           },
           {
             id: 'slab',
             title: 'Substrate Slab BSDF',
             subtitle: '冰面表层',
             category: 'substrate',
-            x: 540, y: 20, width: 215,
+            x: 550, y: 20, width: 215,
             inputs: [{ id: 'c', label: 'Diffuse Albedo', color: '#22c55e' }],
             outputs: [{ id: 'm', label: 'BSDF', color: '#a855f7' }],
           },

@@ -15,6 +15,7 @@ import {
   acesTonemap,
   valueNoise,
   fbm,
+  sampleEnvMap,
   shadePbrPixel,
 } from '../lib/graphics';
 import {
@@ -148,7 +149,9 @@ const Stage7_1_DiffuseLambert: React.FC<LessonStageProps> = ({
     ) * 100
   );
 
-  const spreadRatio = rawDotP > 0.08 ? (1 / rawDotP).toFixed(2) + '×' : '背光未照到';
+  const isBacklit = rawDotP <= 0.08;
+  const spreadRatioNum = !isBacklit ? 1 / rawDotP : null;
+  const spreadRatio = spreadRatioNum !== null ? spreadRatioNum.toFixed(2) + '×' : '背光未照到';
 
   useEffect(() => {
     const modeLabel = halfLambert
@@ -331,14 +334,15 @@ const Stage7_1_DiffuseLambert: React.FC<LessonStageProps> = ({
     ctx.restore();
   }, [sunDeg, camDeg, clampNeg, halfLambert, isDark, sunRad, pLumaPct]);
 
-  // 左侧 SVG 几何参数：手电筒光束摊薄 + 表皮色素弹珠均匀散射
+  // 左侧 SVG 几何参数：手电筒光束摊薄 + 表皮色素弹珠均匀散射（太阳在右侧 +X，与右图 3D 球严格同侧）
   const beamHalfW = 20;
-  const isBacklit = sunDeg >= 88;
   const clampedSunRad = (Math.min(82, sunDeg) * Math.PI) / 180;
   const footprintHalf = isBacklit ? 0 : Math.min(92, beamHalfW / Math.max(0.16, Math.cos(clampedSunRad)));
   const srcDist = 86;
-  const srcX = 135 - Math.sin(sunRad) * srcDist;
+  const srcX = 135 + Math.sin(sunRad) * srcDist;
   const srcY = 108 - Math.cos(sunRad) * srcDist;
+  const beamSrcX = 135 + Math.sin(clampedSunRad) * srcDist;
+  const beamSrcY = 108 - Math.cos(clampedSunRad) * srcDist;
 
   const camArcRad = (camDeg * Math.PI) / 180;
   const eyeX = 135 + Math.sin(camArcRad) * 74;
@@ -428,7 +432,7 @@ const Stage7_1_DiffuseLambert: React.FC<LessonStageProps> = ({
             {!isBacklit ? (
               <>
                 <polygon
-                  points={`${srcX - Math.cos(clampedSunRad) * beamHalfW},${srcY + Math.sin(clampedSunRad) * beamHalfW} ${srcX + Math.cos(clampedSunRad) * beamHalfW},${srcY - Math.sin(clampedSunRad) * beamHalfW} ${135 + footprintHalf},108 ${135 - footprintHalf},108`}
+                  points={`${beamSrcX - Math.cos(clampedSunRad) * beamHalfW},${beamSrcY - Math.sin(clampedSunRad) * beamHalfW} ${beamSrcX + Math.cos(clampedSunRad) * beamHalfW},${beamSrcY + Math.sin(clampedSunRad) * beamHalfW} ${135 + footprintHalf},108 ${135 - footprintHalf},108`}
                   fill="rgba(250, 204, 21, 0.24)"
                   stroke="rgba(234, 179, 8, 0.65)"
                   strokeWidth="1"
@@ -499,8 +503,8 @@ const Stage7_1_DiffuseLambert: React.FC<LessonStageProps> = ({
               光子钻进颜料颗粒乱撞 → 朝 180° 均匀喷洒
             </text>
             <text x="10" y="184" fill={isDark ? '#d6c7b8' : '#6e473b'} fontSize="10">
-              {!isBacklit
-                ? `当前光斑被拉宽到 ${(footprintHalf / beamHalfW).toFixed(2)} 倍，越斜光越稀薄`
+              {spreadRatioNum !== null
+                ? `当前光斑被拉宽到 ${spreadRatioNum.toFixed(2)} 倍，越斜光越稀薄`
                 : '背光侧正面无直射光，必须截断负数防吸光'}
             </text>
           </svg>
@@ -809,8 +813,9 @@ const Stage7_2_SpecularIblAniso: React.FC<LessonStageProps> = ({
 
         let tangent: Vec3 = [1, 0, 0];
         if (brushStyle === 'radial') {
+          // 锅底同心圆划痕沿圆周方向光滑、沿径向粗糙：T 取径向切线，B 为圆周方向，使高光沿径向拉成辐射状蝴蝶结光带
           const r2d = Math.hypot(nx, ny);
-          tangent = r2d > 0.015 ? [-ny / r2d, nx / r2d, 0] : [1, 0, 0];
+          tangent = r2d > 0.015 ? norm3([(nx * nz) / r2d, (ny * nz) / r2d, -r2d]) : [1, 0, 0];
         } else {
           // 横向拉丝切线正交化（使高光竖向拉长，或切线竖向使高光横向拉长）
           tangent = norm3([-nx * ny, 1 - ny * ny, -nz * ny]);
@@ -1172,7 +1177,7 @@ const schematic7_2: SchematicDiagram = {
         { id: 'rough', label: 'Roughness', color: '#22c55e' },
         { id: 'aniso', label: 'Anisotropy', color: '#f59e0b' },
       ],
-      outputs: [{ id: 'bsdf', label: 'BSDF 层板流', color: '#a855f7' }],
+      outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
       note: '将 Diffuse Albedo 设为黑色 (0,0,0)',
     },
     {
@@ -1329,7 +1334,7 @@ const Stage7_3_EnergyViolation: React.FC<LessonStageProps> = ({
         const specular = specularAmplitude * Math.pow(Math.max(0, dot3(reflected, V)), exponent);
         const intensity = isDesert ? 3 : 0.35;
         const col = baseLinear.map(channel =>
-          linearToSrgb(saturate((channel * diffuseWeight / Math.PI + specular) * ndotl * intensity))
+          linearToSrgb(acesTonemap((channel * diffuseWeight / Math.PI + specular) * ndotl * intensity))
         ) as Vec3;
 
         data[idx] = Math.round(lerp(bg[0], col[0], cov) * 255);
@@ -1538,19 +1543,27 @@ const Stage7_3_EnergyViolation: React.FC<LessonStageProps> = ({
             formatValue={(v) => `${Math.round(v * 100)}%`}
             onChange={setDiffSlider}
           />
-          <StageSlider
-            label={
-              modelMode === 'legacy'
-                ? '💡 传统高光峰值亮度 (独立滑块)'
-                : '💡 归一化模式固定镜面积分 4%'
-            }
-            value={specPower}
-            min={0.05}
-            max={1.4}
-            step={0.05}
-            formatValue={(v) => (modelMode === 'pbr' ? '自动归一化' : `${Math.round(v * 100)}%`)}
-            onChange={setSpecPower}
-          />
+          <div
+            style={{
+              opacity: modelMode === 'pbr' ? 0.48 : 1,
+              pointerEvents: modelMode === 'pbr' ? 'none' : 'auto',
+            }}
+            aria-disabled={modelMode === 'pbr'}
+          >
+            <StageSlider
+              label={
+                modelMode === 'legacy'
+                  ? '💡 传统高光峰值亮度 (独立滑块)'
+                  : '💡 镜面峰值（归一化模式由引擎自动反算锁定）'
+              }
+              value={specPower}
+              min={0.05}
+              max={1.4}
+              step={0.05}
+              formatValue={(v) => (modelMode === 'pbr' ? '自动归一化' : `${Math.round(v * 100)}%`)}
+              onChange={setSpecPower}
+            />
+          </div>
           <StageSlider
             label="🔆 光斑散开度 (Gloss 散宽 / Roughness)"
             value={specWidth}
@@ -1688,10 +1701,44 @@ const Stage7_4_AmbientOcclusion: React.FC<LessonStageProps> = ({
 
   const spotInfo =
     probeSpot === 'flat'
-      ? { name: '平坦表面', deg: 180, aoPct: 100, px: 46, py: 96, leftDeg: -88, rightDeg: 88 }
+      ? { name: '平坦表面', deg: 180, aoPct: 100, px: 46, py: 96 }
       : probeSpot === 'step'
-        ? { name: '台阶内折角', deg: 96, aoPct: 54, px: 122, py: 128, leftDeg: -8, rightDeg: 88 }
-        : { name: '深衣褶/雕花缝底', deg: 36, aoPct: 22, px: 205, py: 162, leftDeg: -18, rightDeg: 18 };
+        ? { name: '台阶内折角', deg: 84, aoPct: 54, px: 94, py: 128 }
+        : { name: '深衣褶/雕花缝底', deg: 32, aoPct: 22, px: 205, py: 162 };
+
+  // 与岩石剖面折线做真实 2D 射线求交，确保绿线绝不穿墙、红线精准止步于挡光岩壁
+  const terrainTopPoly: ReadonlyArray<readonly [number, number]> = [
+    [0, 96],
+    [86, 96],
+    [86, 128],
+    [168, 128],
+    [186, 94],
+    [205, 162],
+    [224, 94],
+    [264, 94],
+  ];
+  const castSkyRay = (ox: number, oy: number, rad: number, maxLen: number) => {
+    const dx = Math.sin(rad);
+    const dy = -Math.cos(rad);
+    let minHit = Infinity;
+    for (let i = 0; i < terrainTopPoly.length - 1; i++) {
+      const [ax, ay] = terrainTopPoly[i];
+      const [bx, by] = terrainTopPoly[i + 1];
+      const sx = bx - ax;
+      const sy = by - ay;
+      const denom = dx * sy - dy * sx;
+      if (Math.abs(denom) < 1e-6) continue;
+      const qx = ax - ox;
+      const qy = ay - oy;
+      const t = (qx * sy - qy * sx) / denom;
+      const u = (qx * dy - qy * dx) / denom;
+      if (t > 0.8 && u >= 0 && u <= 1 && t < minHit) {
+        minHit = t;
+      }
+    }
+    const blocked = minHit < Infinity;
+    return { ok: !blocked, len: blocked ? Math.min(minHit, maxLen) : maxLen };
+  };
 
   useEffect(() => {
     onKpiUpdate([
@@ -1922,24 +1969,24 @@ const Stage7_4_AmbientOcclusion: React.FC<LessonStageProps> = ({
               ☁️ 180° 阴天穹顶无影漫射光
             </text>
 
-            {/* 从探针向上发射 15 道天空采样射线：未挡住画绿，被两侧凸起挡住画红 */}
+            {/* 从探针向上发射 15 道天空采样射线：与岩石地形真实求交，未挡住画绿，撞上岩壁画红 */}
             {[-80, -68, -56, -44, -32, -20, -10, 0, 10, 20, 32, 44, 56, 68, 80].map((deg) => {
-              const ok = deg >= spotInfo.leftDeg && deg <= spotInfo.rightDeg;
               const rad = (deg * Math.PI) / 180;
-              const len = ok ? 76 : 34;
+              const oy = spotInfo.py - 1.5;
+              const { ok, len } = castSkyRay(spotInfo.px, oy, rad, 76);
               const tx = spotInfo.px + Math.sin(rad) * len;
-              const ty = spotInfo.py - Math.cos(rad) * len;
+              const ty = oy - Math.cos(rad) * len;
               return (
                 <line
                   key={deg}
                   x1={spotInfo.px}
-                  y1={spotInfo.py}
+                  y1={oy}
                   x2={tx}
                   y2={ty}
                   stroke={ok ? '#22c55e' : '#ef4444'}
                   strokeWidth={ok ? '2' : '1.4'}
                   strokeDasharray={ok ? undefined : '3 2'}
-                  opacity={ok ? 0.9 : 0.65}
+                  opacity={ok ? 0.9 : 0.72}
                 />
               );
             })}
@@ -1955,7 +2002,7 @@ const Stage7_4_AmbientOcclusion: React.FC<LessonStageProps> = ({
             {/* 三个可点击测点圆钮 */}
             {[
               { id: 'flat' as const, x: 46, y: 96, txt: '平面' },
-              { id: 'step' as const, x: 122, y: 128, txt: '折角' },
+              { id: 'step' as const, x: 94, y: 128, txt: '折角' },
               { id: 'crevice' as const, x: 205, y: 162, txt: '深缝' },
             ].map((pt) => (
               <g
@@ -2096,14 +2143,14 @@ const schematic7_4: SchematicDiagram = {
     },
     {
       id: 'n_bridge',
-      title: 'Metalness-To-Diffuse-F0',
+      title: 'Substrate Metalness-To-DiffuseAlbedo-F0',
       subtitle: '传统贴图转物理属性',
       category: 'substrate',
-      x: 245,
+      x: 235,
       y: 42,
-      width: 195,
+      width: 225,
       inputs: [
-        { id: 'albedo', label: 'Albedo', color: '#f59e0b' },
+        { id: 'albedo', label: 'Base Color', color: '#f59e0b' },
         { id: 'metal', label: 'Metallic', color: '#3b82f6' },
       ],
       outputs: [
@@ -2116,7 +2163,7 @@ const schematic7_4: SchematicDiagram = {
       title: 'Substrate Slab BSDF',
       subtitle: '石雕表面材质层板',
       category: 'substrate',
-      x: 480,
+      x: 495,
       y: 56,
       width: 185,
       inputs: [
@@ -2124,14 +2171,14 @@ const schematic7_4: SchematicDiagram = {
         { id: 'f0', label: 'F0', color: '#e5e7eb' },
         { id: 'rough', label: 'Roughness', color: '#22c55e' },
       ],
-      outputs: [{ id: 'mat', label: 'Front BSDF', color: '#a855f7' }],
+      outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
     },
     {
       id: 'n_root',
       title: '材质根节点 (UE 5.8)',
       subtitle: 'AO 走独立专用通道',
       category: 'output',
-      x: 705,
+      x: 715,
       y: 105,
       width: 195,
       inputs: [
@@ -2189,7 +2236,7 @@ const Stage7_5_ShadowsVsmColored: React.FC<LessonStageProps> = ({
 
   useEffect(() => {
     if (stepIndex === 4) {
-      setLeafMode('opaque');
+      setLeafMode('masked');
       setWindMode('active');
       setVsmViewOn(true);
     } else if (stepIndex === 3) {
@@ -2362,23 +2409,23 @@ const Stage7_5_ShadowsVsmColored: React.FC<LessonStageProps> = ({
             if (spoke || ringLead || diamondLead || Math.abs(gu) > 0.88 || gv > 0.89) {
               glassFrameShadow = 0.82; // 铅条不透光黑影
             } else if (roseR < 0.25) {
-              lightTint = [1.25, 0.88, 0.15]; // 琥珀金芯
+              lightTint = [0.95, 0.68, 0.12]; // 琥珀金芯（透射率 ≤ 1 守恒）
             } else if (roseR < 0.62) {
               const sector = Math.floor(((roseAng + Math.PI) / (Math.PI * 2)) * 6) % 3;
               lightTint =
                 sector === 0
-                  ? [1.28, 0.16, 0.26] // 玫瑰红宝石
+                  ? [0.95, 0.14, 0.22] // 玫瑰红宝石
                   : sector === 1
-                    ? [0.16, 0.62, 1.32] // 钴蓝彩玻
-                    : [0.18, 1.15, 0.56]; // 翡翠绿彩玻
+                    ? [0.14, 0.50, 0.96] // 钴蓝彩玻
+                    : [0.16, 0.92, 0.46]; // 翡翠绿彩玻
             } else {
               const cell = (Math.floor((gu + 2) * 3) + Math.floor((gv + 2) * 4)) % 3;
               lightTint =
                 cell === 0
-                  ? [0.22, 0.72, 1.28]
+                  ? [0.18, 0.56, 0.95]
                   : cell === 1
-                    ? [1.22, 0.35, 0.18]
-                    : [0.95, 0.25, 1.18];
+                    ? [0.94, 0.28, 0.14]
+                    : [0.78, 0.20, 0.92];
             }
           }
         }
@@ -2575,8 +2622,8 @@ const Stage7_5_ShadowsVsmColored: React.FC<LessonStageProps> = ({
 };
 
 const schematic7_5: SchematicDiagram = {
-  title: 'UE 5.8 树叶镂空投影（Masked）与保护 VSM 虚拟阴影缓存的远景冻结连法',
-  caption: 'Alpha 接 Opacity Mask。距离遮罩可平滑风力；在组件上设置 WPO Disable Distance 才能代表远处停用 WPO，另用 VSM Cached Page 查缓存。',
+  title: 'UE 5.8 树叶镂空投影（Masked）、材质平滑停风与组件 VSM 缓存保护分工',
+  caption: 'Alpha 接 Opacity Mask 抠出叶影；材质里的距离衰减负责在 35m 处平滑停风防突变，真正让 VSM 停止缓存失效的是组件上的 WPO Disable Distance！',
   nodes: [
     {
       id: 'n_tex',
@@ -2604,13 +2651,13 @@ const schematic7_5: SchematicDiagram = {
     },
     {
       id: 'n_fade',
-      title: '远景距离衰减遮罩',
-      subtitle: '近处=1 · 超过35米归 0',
+      title: '材质距离衰减遮罩',
+      subtitle: '防 35m 处风力瞬间卡停',
       category: 'input',
       x: 20,
       y: 262,
       width: 180,
-      outputs: [{ id: 'mask', label: '0 ~ 1 衰减系数', color: '#f59e0b' }],
+      outputs: [{ id: 'mask', label: '0 ~ 1 平滑过渡', color: '#f59e0b' }],
     },
     {
       id: 'n_slab',
@@ -2621,36 +2668,36 @@ const schematic7_5: SchematicDiagram = {
       y: 28,
       width: 185,
       inputs: [{ id: 'diff', label: 'Diffuse Albedo', color: '#22c55e' }],
-      outputs: [{ id: 'mat', label: 'Front BSDF', color: '#a855f7' }],
+      outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
     },
     {
       id: 'n_mul',
-      title: 'Multiply（平滑风力）',
-      subtitle: '材质位移幅度渐变',
+      title: 'Multiply（仅平滑风幅）',
+      subtitle: '乘 0 防跳变，但仍算启用 WPO',
       category: 'math',
       x: 260,
       y: 192,
-      width: 185,
+      width: 195,
       inputs: [
         { id: 'a', label: '风力偏移', color: '#38bdf8' },
         { id: 'b', label: '距离遮罩', color: '#f59e0b' },
       ],
-      outputs: [{ id: 'wpo', label: '风力位移', color: '#22c55e' }],
+      outputs: [{ id: 'wpo', label: '平滑风力位移', color: '#22c55e' }],
     },
     {
       id: 'n_root',
       title: '材质根节点 (Blend: Masked)',
       subtitle: '同步驱动画面与 VSM 太阳测距图',
       category: 'output',
-      x: 510,
+      x: 515,
       y: 96,
-      width: 215,
+      width: 225,
       inputs: [
         { id: 'front', label: 'Front Material', color: '#a855f7' },
         { id: 'mask', label: 'Opacity Mask', color: '#e5e7eb' },
         { id: 'wpo', label: 'World Position Offset', color: '#22c55e' },
       ],
-      note: 'WPO Disable Distance 是组件属性',
+      note: '停用 VSM 失效靠组件属性 WPO Disable Distance',
     },
   ],
   edges: [
@@ -2680,7 +2727,7 @@ const module07: ModuleDefinition = {
       title: '漫反射（Diffuse）从零讲透 —— 钻进表皮乱撞的光、手电筒斜照投影与视角无关性',
       subtitle: '为什么歪着头看红苹果亮度丝毫不变？用一把手电筒看懂点乘 Dot(N, L) 与兰伯特漫反射',
       duration: '12 分钟',
-      difficulty: '零基础',
+      difficulty: '进阶',
       StageComponent: Stage7_1_DiffuseLambert,
       schematic: schematic7_1,
       takeaways: [
@@ -2718,8 +2765,8 @@ const module07: ModuleDefinition = {
           tryItPrompt: '慢慢把「太阳倾斜角 θ」从 0° 拖到 75°，观察左图黄色光斑是如何在表面被越拉越宽、越摊越薄的。',
           callout: {
             tone: 'formula',
-            title: '不用量角器！点乘 Dot(N, L) 天生就是摊薄比例',
-            body: '只要表面法线小牙签 N 和指向太阳的箭头 L 长度都是 1，它们做点乘 Dot(N, L) 算出来的数字刚好等于 cos θ：正对 0° 得 1.0（最亮），斜照 60° 得 0.5（减半），擦边 90° 得 0.0！',
+            title: '不用量角器！点乘 Dot(N, L) 与归一化 Normalize',
+            body: '把点乘 Dot(N, L) 当成两根长度为 1 的箭头“对齐度打分器”：完全同向（0°）= +1、垂直（90°）= 0、完全反向（180°）= -1，几何上刚好等于夹角余弦 cos θ（斜照 60° 正好 0.5）！如果手填的方向箭头长度不是 1，只需先过一颗 Normalize（归一化）节点把箭头缩回长度 1。',
           },
         },
         {
@@ -2739,14 +2786,14 @@ const module07: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：引擎替你算好了常规漫反射，什么时候需要自己连 Dot？',
           paragraphs: [
-            '好消息是：在 UE 5.8 日常做写实材质时，你只需把木头或陶土的颜色送进 **`Substrate Slab BSDF`** 的 **`Diffuse Albedo`（漫反射反照率）** 插槽，引擎底层会自动帮你对关卡里成百上千盏灯跑完 `Max(0, Dot(N, L))`！',
-            '在传统根节点选择 Surface / Unlit。将 `PixelNormalWS` 与 `Vector Parameter` 的 RGB 接 Dot。参数填从表面指向光源的世界空间单位方向（例如 0,0,1）。把 Saturate(Dot) 乘陶土色接 Emissive Color。改变方向参数可转动明暗分界。普通 Surface 材质不能用 LightVector 读取场景太阳方向。',
+            '好消息是：在 UE 5.8 日常做写实材质时，你只需把木头或陶土的颜色送进 **`Substrate Slab BSDF`** 的 **`Diffuse Albedo`（漫反射反照率）** 插槽（我们会在第 8.4 课正式解锁它；传统默认材质上则叫 `Base Color`），引擎底层会自动帮你对关卡里成百上千盏灯跑完 `Max(0, Dot(N, L))`！',
+            '但做风格化卡通或手写自定义光照时，就需要自己连这组节点了：新建一个 `Surface / Unlit` 材质，把 `PixelNormalWS`（像素表面法线）与自定义光照方向 `Vector Parameter`（先接 `Normalize` 缩成长度 1，代表由表面指向光源的世界空间方向，例如 `(0, 0, 1)`）一起送进 `DotProduct`，出口套上 `Saturate` 乘以陶土色，再连入 `Emissive Color`。改动方向参数即可自由转动明暗分界（注：普通 Surface 材质无法用 `LightVector` 直接读取场景太阳方向）。',
           ],
           tryItPrompt: '点击舞台右上角的「原理图」切换按钮，对照查看 PixelNormalWS → Dot → Saturate → Multiply 的完整无视角连线。',
           callout: {
             tone: 'ue58',
             title: 'UE 5.8 快捷键小贴士',
-            body: '在材质画布里无需去列表翻找，直接搜 Dot 或 VectorNoise 旁边的 Dot Product 即可；想把结果安全锁在 0~1，搜 Saturate 节点（显卡跑它完全免费，0 额外指令开销！）。',
+            body: '在材质画布里右键直接搜 Dot 或在 Math → Vector 下找到 DotProduct 即可；想把结果安全锁在 0~1，搜 Saturate 节点（开销极低，现代 GPU 编译器常将其直接合并进指令修饰符）。',
           },
         },
         {
@@ -2758,7 +2805,7 @@ const module07: ModuleDefinition = {
             '手连 `Dot(N, L)` 时，十个新手九个会踩同一个坑：当太阳转到球体背面（夹角超过 `90°`）时，`Dot` 算出来的不是 `0`，而是 **`-0.1` 到 `-1.0` 的负数**！',
             '如果你忘了套一层 `Max(0, Dot)` 或 `Saturate` 就拿去跟环境补光相加，可怕的事情发生了——背光面的 **`-0.8` 负漫反射会像黑洞一样，把原本打在背面的柔和蓝天补光（`+0.2`）活活吞噬扣成负数死黑**！记住口诀：**“点乘算光先截零，背光负数会吃灯”**。',
           ],
-          tryItPrompt: '点击顶部红色踩坑对比条的「看踩坑现象」（或取消勾选下方 Max(0, Dot)），看看陶土球右侧背光面原本漂亮的淡蓝色环境补光是如何瞬间被吸成死黑的！',
+          tryItPrompt: '点击顶部红色踩坑对比条的「看踩坑现象」（或取消勾选下方 Max(0, Dot)），看看陶土球左侧背光面原本漂亮的淡蓝色环境补光是如何瞬间被吸成死黑的！',
           callout: {
             tone: 'warn',
             title: '一句话防坑口诀',
@@ -2775,7 +2822,7 @@ const module07: ModuleDefinition = {
       title: '镜面反射（Specular）从零讲透 —— 表皮直接弹走的光、角平分线与“金属其实靠照镜子”',
       subtitle: '震撼的“暗室黑银球实验”：关掉周围环境倒影，100% 纯银电镀球为什么瞬间变成大黑球？',
       duration: '14 分钟',
-      difficulty: '零基础',
+      difficulty: '进阶',
       StageComponent: Stage7_2_SpecularIblAniso,
       schematic: schematic7_2,
       takeaways: [
@@ -2802,8 +2849,8 @@ const module07: ModuleDefinition = {
           tag: 'background',
           title: '显卡找高光的聪明捷径：角平分线 H；以及金属闪亮的真正秘密',
           paragraphs: [
-            '看右侧几何瞄准仪：怎么判断眼睛有没有堵在反射路线上？显卡用了一个绝妙的初中几何偷懒法——把太阳箭头 `L` 和眼睛箭头 `V` 加在一起求正中间的 **角平分线 `H`（半程向量 Halfway Vector）**！只要表面小牙签 `N` 刚好和粉色的 `H` 重合（`Dot(N, H) ≈ 1`），高光必中靶心！',
-            '但更重要的常识在这里：**镜面反射绝不止头顶灯泡那一个小白点！周围的蓝天、白云、街道楼房，全都在光滑表皮上发生镜面反射！** 尤其是纯银、黄金这类金属，它们内部没有一丁点漫反射，全身上下 **能映出周围世界的亮暗和色彩**！',
+            '看右侧几何瞄准仪：怎么判断眼睛有没有堵在反射路线上？显卡用了一个绝妙的初中几何偷懒法——把长度都是 `1` 的太阳箭头 `L` 和眼睛箭头 `V` 相加再归一（`Normalize(L + V)`），刚好得到它们正中间的 **角平分线 `H`（半程向量 Halfway Vector）**！只要表面小牙签 `N` 刚好和粉色的 `H` 重合（`Dot(N, H) ≈ 1`），高光必中靶心！',
+            '但更重要的常识在这里：**镜面反射绝不止头顶灯泡那一个小白点！周围的蓝天、白云、街道楼房，全都在光滑表皮上发生镜面反射！** 尤其是纯银、黄金这类金属，它们内部没有一丁点漫反射，全身上下 **全靠映出周围世界的亮暗和色彩**！',
           ],
           tryItPrompt: '拖动太阳角 L 和眼睛角 V，试着让粉色的「角平分线 H」正好与蓝色「法线 N」重合（比如 L=+30°、V=-30°），点亮高光命中提示！',
           callout: {
@@ -2819,7 +2866,7 @@ const module07: ModuleDefinition = {
           title: '亲手做一次震撼的“暗室黑银球实验”与不锈钢拉丝实验',
           paragraphs: [
             '百闻不如一见！现在左侧是一颗 `100%` 纯银电镀球，映着蓝天和大地闪闪发光。请你点击球上方的 **「🌞 环境反射：开」按钮把它关掉**（模拟关进四壁漆黑、只有头顶一盏小灯的暗室）——看！整颗纯银球瞬间塌缩成了一颗**漆黑如墨的煤球，只剩针尖大一个白点**！',
-            '再点开环境反射，试着拖动右下角的 **「各向异性 Anisotropy」** 滑块，并切换「横向拉丝 / 锅底圆环纹」：家里不锈钢炒锅底那圈细密的同心圆微划痕，会把原本圆溜溜的高光硬生生拉成炫酷的十字金属光带！',
+            '再点开环境反射，试着拖动右下角的 **「各向异性 Anisotropy」** 滑块，并切换「横向拉丝 / 锅底圆环纹」：家里不锈钢炒锅底那圈细密的同心圆微划痕，会把原本圆溜溜的高光硬生生拉成炫酷的**辐射状蝴蝶结金属光带**！',
           ],
           tryItPrompt: '先点击球顶按钮开关「环境反射」感受纯银球秒变黑球的视觉冲击，再把「各向异性」拉到 0.80 并切到「锅底同心圆环纹」欣赏拉丝光带！',
         },
@@ -2829,14 +2876,14 @@ const module07: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：Lumen 环境反射与 Substrate 各向异性引脚',
           paragraphs: [
-            '在关卡用 Sky Light 或其他照明提供入射光。项目支持且启用 Lumen Reflections 时，环境几何可出现在反射中。材质预览的天空光实验在 Preview Scene Settings 中单独进行。',
-            '而在材质编辑器里，只需在 **`Substrate Slab BSDF`** 节点上找到 **`Anisotropy`（各向异性，`-1 ~ +1`）** 引脚连入数值或拉丝方向图，无需切换任何特殊着色模型，就能直接做出拉丝铝合金、丝绸和黑胶唱片！',
+            '在关卡里通常用 `Sky Light` 搭配天空或场景照明提供周围环境光；项目支持并启用 `Lumen Reflections` 时，周围建筑与物件都会实时映入金属镜面。想在材质预览窗里复现“关灯进暗室”实验，可以在 `Preview Scene Settings` 中单独开关天空光。',
+            '而在材质编辑器里，只需在 **`Substrate Slab BSDF`** 节点上用 **`Anisotropy`（`-1 ~ +1` 标量）** 控制高光拉长程度与方向切换，若需要自定义拉丝纹路走向（`Flow / Tangent Map`），则连入专门的 **`Tangent`** 引脚！无需切换任何特殊着色模型，就能做出拉丝铝合金、丝绸和黑胶唱片（原理图中的镜面 `F0` 与 `Substrate Slab` 我们会在第 8.2 / 8.4 课详讲）。',
           ],
           tryItPrompt: '把「材质表面类型」在「纯银电镀球」与「光滑红漆塑料球」之间来回切换，对比金属全身染色反光与非金属红底配白高光的区别。',
           callout: {
             tone: 'ue58',
             title: 'UE 5.8 预览窗快捷键',
-            body: '打开 Preview Scene Settings，保持同一 HDRI、方向光和曝光，在当前配置关闭 Use Sky Lighting 或将 Sky Light Intensity 设 0，然后恢复原值。Show Environment 控制背景球是否可见，与 Use Sky Lighting 是不同设置。保留方向光时金属上仍可能看到直接高光。',
+            body: '打开 Preview Scene Settings，保持同一 HDRI（高动态范围全景环境图）、方向光和曝光，关闭 Use Sky Lighting 或将 Sky Light Intensity 设 0，然后恢复原值即可亲眼复现黑银球。注意 Show Environment 只控制背景球显示与否，与 Use Sky Lighting 是不同开关；保留方向光时金属上仍会看到直接高光。',
           },
         },
         {
@@ -2852,7 +2899,7 @@ const module07: ModuleDefinition = {
           callout: {
             tone: 'warn',
             title: '排查金属发黑三步法',
-            body: '遇到金属死黑别乱改材质！先查关卡：① 有没有放 SkyLight 并勾选 Real Time Capture？② 有没有放 SkyAtmosphere 或 HDRI 天空球？③ 金属贴图是不是填得太暗了？',
+            body: '遇到金属死黑别乱改材质！先查关卡：① 有没有放 SkyLight 并勾选 Real Time Capture？② 有没有放 SkyAtmosphere 或 HDRI（全景环境图）天空球？③ 金属对应的固有色（BaseColor / F0）贴图是不是画得太暗了？',
           },
         },
       ],
@@ -2865,14 +2912,14 @@ const module07: ModuleDefinition = {
       title: '为什么老游戏材质换个地图就假得发光？—— 经验模型的“能量失恒”困局',
       subtitle: '漫反射和高光各算各的账：在山洞里调好看的盔甲，走到正午沙漠为什么瞬间惨白报废？',
       duration: '11 分钟',
-      difficulty: '零基础',
+      difficulty: '进阶',
       StageComponent: Stage7_3_EnergyViolation,
       schematic: schematic7_3,
       takeaways: [
         '物理世界铁律（能量守恒）：物体反弹出去的“漫反射光 + 镜面反射光”总和，永远不可能超过照进来的 100% 入射光（自发光除外）。',
         '早期经验模型（Lambert + Phong）把漫反射和高光做成两个互不通气的独立滑块，高光光斑调宽时不会自动压暗峰值。',
-        '用同一蓝色球比较两种 Phong 公式。直接调峰值和宽度可能使积分超过 1；反射率必须通过对半球积分判定。',
-        '现代 PBR 在底层自动实现了“镜面多抢一分、漫反射就少吃一分，光斑摊宽一倍、峰值自动暗一半”，一套材质全地图通用！',
+        '判断材质有没有“凭空造光”，要看整个半球方向的反射积分是否 ≤ 100%，不能只凭山洞弱光下好不好看就下结论。',
+        '现代 PBR 在底层自动实现了“镜面多抢一分、漫反射就少吃一分，光斑摊宽一倍、峰值自动暗下来”，一套材质全地图通用！',
       ],
       steps: [
         {
@@ -2881,10 +2928,10 @@ const module07: ModuleDefinition = {
           tag: 'phenomenon',
           title: '十年前美术师的噩梦：山洞里帅气的蓝盔甲，一出门变成惨白灯泡！',
           paragraphs: [
-            '在模拟器里切换弱光与强光，注意到高光附近的像素会随光强变亮。',
-            '再看天平的蓝通道正入射半球反射率。它由同一材料的公式积分得到，换灯后保持不变。',
+            '十年前做游戏材质时有个让无数美术师崩溃的怪事：你在幽暗的火把山洞里花了一下午，把骑士的皇家蓝盔甲调得油光水滑、质感炸裂；结果把同一个角色拖到阳光灿烂的正午沙漠地图里一看——**盔甲居然白得像根自己通电的日光灯管，连原本的蓝色都快洗没了！**',
+            '在左侧模拟器里把场景从「🕯️ 幽暗山洞」切到「☀️ 正午沙漠」试试，同时瞄一眼右侧的**能量收支天平**：换地图只改变了外部光照强度，而天平测量的**材质自身反射率**其实早就超出了 100% 红线，只是山洞里的弱光把它藏住了！',
           ],
-          tryItPrompt: '选定一个着色模式，切换山洞和沙漠，分别记录球面颜色和右侧读数。',
+          tryItPrompt: '先保持老式经验模型不变，把场景从「🕯️ 幽暗山洞」切到「☀️ 正午沙漠」，对比左球暴走发白与右侧天平的反射率读数！',
         },
         {
           stepNumber: 2,
@@ -2892,26 +2939,31 @@ const module07: ModuleDefinition = {
           tag: 'background',
           title: '抓出真凶：漫反射和高光“各花各的钱”，花超了太阳总预算！',
           paragraphs: [
-            '这里给定单位白光正入射，选取漆面反射最强的蓝通道，将 BRDF 乘出射方向的余弦后在半球积分。蓝漆蓝通道的反照率是 0.78 × 漫反射滑块。',
-            '镜面瓣写作 k·cosⁿθ，积分为 2πk/(n+2)。未归一化时保持 k 不变，拉宽光斑会减小 n，提高镜面反射总量。',
+            '物理学里有一份专门管“光照到表面后往各个方向反弹多少能量”的反光分布规则，行话叫 **`BRDF`（双向反射分布函数）**。无论规则怎么写，总反光预算都像一盆固定水量：照进来 `100%` 的光，**漫反射和镜面反射加起来绝对不能超过 `100%`**！',
+            '可老式 `Lambert + Phong` 偏偏把漫反射和高光做成了两本互不通气的糊涂账：漫反射自己先花掉一大半预算，高光不仅不扣漫反射的钱，把光斑拉宽时峰值高度还不肯降下来——结果总反射率轻轻松松突破 `100%`，等于这块盔甲自己在**凭空造光**！',
           ],
-          tryItPrompt: '在老式模式下调高下方的「传统高光峰值亮度」和「光斑散开度」，看着右侧天平红盘一路沉底报警，再切回幽暗山洞看看为什么暗光会骗过美术的眼睛。',
+          tryItPrompt: '在老式模式下调高下方的「传统高光峰值亮度」和「光斑散开度」，看着右侧天平红盘一路沉底报警，再切回幽暗山洞看看弱光是如何掩盖破绽的。',
           callout: {
-            tone: 'tip',
-            title: '为什么在山洞里看不出破绽？',
-            body: '两种模式使用相同光源和显示截断。弱光和曝光会改变画面，不能单靠一个亮像素判断半球反射率。',
+            tone: 'formula',
+            title: '严谨账本：蓝通道正入射半球积分怎么算？',
+            body: '给定单位白光正入射，取蓝漆最强的蓝通道对 BRDF 做余弦加权半球积分：漫反射占 0.78 × 漫反射滑块；未归一化 Phong 镜面项 k·cosⁿθ 的积分为 2πk/(n+2)。保持峰值 k 不变而把光斑拉宽（指数 n 变小）时，镜面积分会迅速暴涨并让总反射率突破 100%！（注意：强光下画面发白也受光源与曝光影响，是否违背能量守恒必须以半球反射积分判定。）',
           },
         },
         {
           stepNumber: 3,
           shortLabel: '归一化高光',
           tag: 'experiment',
-          title: '让镜面积分固定，观察高光峰值如何随宽度改变',
+          title: '总水量固定：光斑摊宽一倍，峰值就必须自动降下来！',
           paragraphs: [
-            '切换归一化 Phong 教学模型。把 k 设为 0.04×(n+2)/(2π)，让正入射的镜面积分固定为 0.04。',
-            '漫反射再乘剩余的 0.96。保持其他设置并改变光斑宽度，比较峰值与积分。这是可解析的 Phong 例子；UE Slab 的实际镜面使用微表面模型。',
+            '想治好“凭空造光”的顽疾，道理朴素极了：**把总反光预算锁死！** 镜面高光就像手头那一小盆固定的水——你想把光斑摊得又宽又柔和，峰值高度就必须自动矮下去；反过来光斑收得像针尖一样窄，峰值才能冲得又尖又亮！',
+            '点击按钮切换到 **「归一化 Phong」** 教学模型试试：现在无论你怎么拖动「光斑散开度」，引擎都会在幕后自动压低或抬高峰值，并从漫反射里扣出对应的份额，右侧天平稳稳守在 `≤ 100%` 绿区！（注：这里用可解析的归一化 Phong 演示原理，UE 5.8 的 `Substrate Slab` 底层则使用更真实的 GGX 微表面模型。）',
           ],
-          tryItPrompt: '保持在「☀️ 正午沙漠」场景，来回点击切换「老式经验模型」与「归一化 Phong」，并拖动光斑散开度观察天平读数的巨大反差！',
+          tryItPrompt: '保持在「☀️ 正午沙漠」场景，来回点击切换「老式经验模型」与「归一化 Phong」，并拖动光斑散开度观察天平读数与球面亮度的反差！',
+          callout: {
+            tone: 'formula',
+            title: '归一化系数从哪来？',
+            body: '为了把正入射镜面积分 2πk/(n+2) 严格锁死在 4%（0.04），归一化模型自动令峰值 k = 0.04 × (n + 2) / (2π)，同时把剩余的 96%（0.96）份额交给漫反射，从数学上保证两者之和永不越界。',
+          },
         },
         {
           stepNumber: 4,
@@ -2919,7 +2971,7 @@ const module07: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：为什么你在材质面板里再也找不到“高光亮度”滑块了？',
           paragraphs: [
-            '在 Slab 中，Roughness 调节微表面分布，F0 设置正入射的镜面反射率。光源角度、光强和曝光共同决定显示亮度。',
+            '在 UE 5.8 的 `Substrate Slab` 里，你只需要提供 `Roughness`（控制微表面光滑度）和 `F0`（正入射镜面反射率），再也没有老引擎里那个随便乱拉的“高光强度”滑块——光源角度、光强和摄像机曝光共同决定最终画面有多亮。',
             '把 `Roughness` 调小（光滑），小镜子排齐，高光就自动变得**又小又刺眼**；把 `Roughness` 调大（粗糙），光散开摊薄，高光就自动变得**又宽又柔和**。引擎在 `Substrate Slab` 内部用 `1 - F` 自动从漫反射里扣掉了被高光抢走的光能，从根源上杜绝了材质“自己发电”。',
           ],
           tryItPrompt: '切到顶部的「原理图」标签，看看 OneMinus (1 - F) 是如何在进入漫反射之前先一步扣掉镜面反射光能的。',
@@ -2935,10 +2987,10 @@ const module07: ModuleDefinition = {
           tag: 'pitfall',
           title: '实战避坑：别为了“在暗处显眼”去给 BaseColor 乘超过 1 的倍数！',
           paragraphs: [
-            '如果角色在阴影里显得太暗，先固定材质，检查关卡入射光与曝光。',
-            '随意放大 BaseColor 会改变材料的反照率。表面过曝可以来自照明或显示设置，不能由此推断材质在发光。',
+            '有些同学发现角色在阴影里不够亮，就手痒给 `BaseColor` 乘上 `2.5` 想“强行提亮”——这等于在现代 PBR 里手动重演了老式模型的能量超标，一走到强光下就会严重失真。',
+            '如果角色在暗处显得太黑，**先固定材质不动，去检查关卡入射光、天光补光和摄像机曝光**。同时也要分清：仅凭屏幕上一个过曝发白的像素不能直接断定材质违背能量守恒（强光和曝光也会压爆显示范围），但反射率超过 `100%` 的老式超界模型一旦遇上强光，就一定会把能量失恒的恶果彻底放大出来！',
           ],
-          tryItPrompt: '用顶部的对比开关最后再看一眼「沙漠过曝翻车」与「归一化模型」的对比，养成敬畏能量守恒的直觉。',
+          tryItPrompt: '用顶部的对比开关最后再看一眼「未归一化超界 + 沙漠强光」与「归一化守恒模型」的对比，养成敬畏能量守恒的直觉。',
           callout: {
             tone: 'warn',
             title: '一句话防坑口诀',
@@ -2999,7 +3051,7 @@ const module07: ModuleDefinition = {
           title: '拿起强光手电筒直照暗缝：环境光进不去，直射光可进得去！',
           paragraphs: [
             '现在做个极其关键的思维实验：墙角因为头顶被挡所以平时很暗；可如果我拿一把 **强光手电筒笔直往墙角深缝里怼脸照过去**，深缝底部该不该亮起来？**当然该亮！而且应该把缝底的石纹照得一清二楚！**',
-            '把鼠标移到右侧石雕画布上左右横扫（或拖动下方滑块经过 `50%` 中央深缝）：在正确模式下，手电筒没照到的暗缝依然深邃幽暗，而手电筒光斑扫过的地方，深谷底部的砂岩颗粒立刻金灿灿地亮了起来！顺手开关下方三个 AO 复选框，还能看清微刻痕、浮雕槽与大裂谷三层遮蔽是怎么叠出丰富层次的。',
+            '把鼠标移到右侧石雕画布上左右横扫（或拖动下方滑块经过 `50%` 中央深缝）：在正确模式下，手电筒没照到的暗缝依然深邃幽暗，而手电筒光斑扫过的地方，深谷底部的砂岩颗粒立刻金灿灿地亮了起来！顺手开关下方三个 AO 复选框（贴图微缝、`SSAO` 屏幕空间环境光遮蔽、以及 `Lumen` 短距遮蔽），还能看清微刻痕、浮雕槽与大裂谷三层遮蔽是怎么叠出丰富层次的。',
           ],
           tryItPrompt: '在右侧石雕上移动鼠标用手电筒扫过正中央的深裂谷，然后再依次开关下方「贴图微缝 AO / SSAO / Lumen」三个开关观察细节层次！',
         },
@@ -3009,7 +3061,7 @@ const module07: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：把 ORM 红通道请进根节点的 Ambient Occlusion 贵宾席',
           paragraphs: [
-            '在启用 Lumen GI 的工程测试 Material AO 时，先关闭 Project Settings → Rendering → Allow Static Lighting，按提示重启并完成着色器编译。将线性 ORM.R 接根节点 Ambient Occlusion，固定镜头、曝光与灯光，在间接光照到的区域对比常量 1 与贴图。',
+            '在启用 `Lumen GI`（UE5 实时全局光照）的工程里测试 Material AO 时，需先在 `Project Settings → Rendering` 中关闭 **`Allow Static Lighting`**，按提示重启并完成着色器编译——关掉它是为了腾出 GBuffer 通道给动态 Material AO 使用，代价是该项目不再支持静态烘焙光照（下一节 7.5 做彩绘玻璃静态烘焙时则恰好相反，需要保持它开启）。随后把线性 `ORM.R` 接根节点 `Ambient Occlusion`，在间接光照到的区域就能清楚看出对比。',
             '看「原理图」标签：在 UE 5.8 默认启用 `Substrate` 后，虽然颜色和粗糙度都连进了 `Substrate Slab`，但 **`Ambient Occlusion`（环境光遮蔽）依然作为独立专用引脚坐在最终材质根节点上**！把 `ORM` 的 `R` 通道单独连给它，引擎就只用它去压暗阴天环境光，对太阳和手电筒直射光一路绿灯放行！',
           ],
           tryItPrompt: '切换到「原理图」视图，看清 T_Stone_ORM 的红色 R 通道是如何绕开颜色节点、直奔根节点 Ambient Occlusion 专用口的。',
@@ -3051,7 +3103,7 @@ const module07: ModuleDefinition = {
       takeaways: [
         '太阳是有宽度的圆盘而非针尖点光源：贴地根部影子像刀切（本影 Umbra），离地面越远的树梢影子边缘越柔（半影 Penumbra）。',
         '树叶平面插片必须切到 Masked（遮罩镂空）模式，太阳测距图才会放阳光穿过叶缝，否则会投出整块假黑纸板影！',
-        'VSM 缓存能复用未失效的阴影页。光源移动、primitive 变化、WPO 或新可见区域都会影响缓存。舞台以 48 格示意页状态。',
+        'VSM 缓存能复用未失效的阴影页；光源移动、模型组件（Primitive）变化、顶点风力偏移 WPO（World Position Offset）或新可见区域都会触发缓存刷新。舞台以 48 格示意页状态。',
         '透射材质可给地板留下彩影，但需选择支持彩色透射阴影的光照路径。这里示意静态 Lightmass 的效果。',
       ],
       steps: [
@@ -3089,9 +3141,9 @@ const module07: ModuleDefinition = {
           title: '亲手切换镂空叶影、彩绘花窗与风吹动态阴影！',
           paragraphs: [
             '游戏里的树叶为了省三角形，其实是在一张正方形透明卡片上画一片枫叶。如果材质选默认 `Opaque（不透明）`，太阳测距眼看不到贴图透明区，就会老老实实在地上投出**两块丑陋的大黑方块纸板影**！一旦切回 **`Masked（遮罩镂空）`**，阳光立刻穿过叶缝洒下斑驳碎金！',
-            '再看右侧③号区域：勾选 **「🌈 显示静态烘焙彩窗示意」**，阳光穿过玫瑰红、钴蓝与琥珀金玻璃薄片，把绚丽的彩色图案直接染在了石板地上！接着勾选 **「🌬️ 风力生效」**，整片树影立刻随微风鲜活摇曳起来。',
+            '再看右侧③号区域：勾选 **「🌈 显示静态烘焙彩窗示意」**，阳光穿过玫瑰红、钴蓝与琥珀金玻璃薄片，把绚丽的彩色图案直接染在了石板地上！接着把下方 **「组件与材质 WPO 对照」** 切换到 **「风力生效」**（`WPO`，即 `World Position Offset` 世界位置偏移，是让材质直接推动树叶顶点随风摇摆的引脚，详见第 9.2 课），整片树影立刻随微风鲜活摇曳起来。',
           ],
-          tryItPrompt: '先对比树叶的 Masked 与 Opaque 投影天壤之别，再打开「🌬️ 风力生效」与「🔍 VSM 缓存页示意」准备迎接性能真相！',
+          tryItPrompt: '先对比树叶的 Masked 与 Opaque 投影天壤之别，再把「组件与材质 WPO 对照」切到「风力生效」并打开「🔍 VSM 缓存页示意」准备迎接性能真相！',
         },
         {
           stepNumber: 4,
@@ -3099,14 +3151,14 @@ const module07: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：看懂虚拟阴影贴图（VSM）的“绿格缓存”与“红格失效”',
           paragraphs: [
-            '以前老引擎远处影子锯齿严重、近处又模糊。**UE 5.8 默认启用了王牌技术 `Virtual Shadow Maps（虚拟阴影贴图 · VSM）`**（配合 `MegaLights` 支持海量动态投影灯）：它像手机电子地图一样把全院子切成无数小方格分页，镜头凑近哪格就自动把哪格阴影放大到极致清晰！',
-            '网页把 12×4 个方格中的一片树冠标成可失效区域，用于观察 WPO 与缓存的关系。引擎中用视口 Virtual Shadow Map → Cached Page，固定灯和镜头，以实际可视化检查命中与失效。',
+            '以前老引擎远处影子锯齿严重、近处又模糊。**UE 5.8 默认启用了王牌技术 `Virtual Shadow Maps（虚拟阴影贴图 · VSM）`**（配合 `MegaLights`——UE 5.5+ 引入的海量实时动态投影光源系统）：它像手机电子地图一样把全院子切成无数小方格分页，镜头凑近哪格就自动把哪格阴影放大到极致清晰！',
+            '为了省算力，只要东西不动，VSM 就会把算好的阴影页标绿缓存直接复用。网页把 12×4 个方格中的一片树冠标成可失效区域，方便你直观对比 `WPO` 与缓存的关系；在引擎里可通过视口 `Virtual Shadow Map → Cached Page` 可视化（固定灯与镜头）检查真实命中与失效。',
           ],
-          tryItPrompt: '保持缓存示意开启，切换 WPO。红格是示意场景中预设的树冠区域，不能换算为项目 GPU 耗时。',
+          tryItPrompt: '保持「🔍 VSM 缓存页示意」开启，依次切换「风力生效 / 材质位移乘零 / 组件距离停用 WPO」，观察红绿分页的切换规律！（红格是示意区域，不可直接换算为项目 GPU 耗时）',
           callout: {
             tone: 'ue58',
-            title: 'UE 5.8 彩绘玻璃投影怎么做？',
-            body: '重现地板彩影可在允许静态光照的关卡将 GI 设为 None，使用 Static 定向光、静态窗和带可用 lightmap UV 的地板。给窗赋传统 Default Lit / Translucent 材质，Lighting Mode 选 Surface Translucency Volume，彩纹接 Base Color，Opacity 设 0.5。开启 Two Sided 和 Cast Shadow，让灯照过窗投向地板，再执行 Build Lighting Only。默认 Lumen GI 不支持这种透射彩影；另一条路径是 Path Tracer 配合 Thin Translucent。',
+            title: 'UE 5.8 彩绘玻璃投影怎么做？（两种路径）',
+            body: '路径① 静态烘焙（Lightmass）：需确保项目开启 Allow Static Lighting（与 7.4 测动态 Material AO 恰好相反），将 GI 设为 None，使用 Static 定向光、静态花窗与带 lightmap UV 的地板；花窗用 Default Lit / Translucent（Lighting Mode 选 Surface Translucency Volume，彩纹接 Base Color、Opacity 设 0.5，开 Two Sided 与 Cast Shadow）后执行 Build Lighting Only。路径② 离线/高质量实时：用 Path Tracer 配合 Thin Translucent（默认 Lumen GI 不支持此透射彩影）。',
           },
         },
         {
@@ -3185,17 +3237,22 @@ const Stage8_1_MicrofacetEnergy: React.FC<LessonStageProps> = ({
     const xHit = 22 + i * 19.5;
     // 微小平面法线倾角随 Roughness 增大而剧烈起伏
     const tiltRad = jit * Math.pow(roughness, 1.05) * 0.92;
-    const yHit = 128 + (i % 2 === 0 ? -1 : 1) * roughness * 16;
+    const isValley = i % 2 === 1;
+    const yHit = 128 + (isValley ? 1 : -1) * roughness * 16;
     const Nf: Vec3 = [Math.sin(tiltRad), Math.cos(tiltRad), 0];
     const Rdir = reflect3([-L2[0], -L2[1], 0], Nf);
-    // 若反射方向朝下或极低掠角撞上隔壁陡峭山坡，则发生微山谷几何自遮挡 (Smith G 损耗)
-    const trapped = Rdir[1] < 0.08 + roughness * 0.16 && Math.abs(jit) > 0.62;
+    // 仅山谷底部的低掠射反射（或朝下钻入表面的射线）会被隔壁陡峭山坡自遮挡，山峰顶点的向上反射不会被误标为遮挡
+    const trapped =
+      Rdir[1] < 0 ||
+      (isValley && Rdir[1] < 0.14 + roughness * 0.32 && roughness > 0.22);
     return { xHit, yHit, Nf, Rdir, trapped };
   });
 
   const trappedCount = rayStats.filter((r) => r.trapped).length;
   const alpha = roughness ** 2;
   const ggxPeak = 1 / (Math.PI * alpha ** 2);
+  const formatGgxPeak = (v: number) =>
+    v >= 100 ? Math.round(v).toLocaleString('en-US') : v >= 10 ? v.toFixed(1) : v.toFixed(2);
 
   useEffect(() => {
     onKpiUpdate([
@@ -3206,15 +3263,15 @@ const Stage8_1_MicrofacetEnergy: React.FC<LessonStageProps> = ({
         tone: 'accent',
       },
       {
-        label: 'GGX 法线分布峰值 D(0)',
-        value: `${ggxPeak.toPrecision(3)} sr⁻¹`,
-        sub: roughness < 0.25 ? '光束集中 · 小而刺眼' : '四散摊薄 · 宽而柔和',
+        label: '微面峰值集中度 D(0)',
+        value: formatGgxPeak(ggxPeak),
+        sub: roughness < 0.25 ? '光束高度集中 · 小而刺眼' : '四散摊薄 · 宽而柔和',
         tone: roughness < 0.25 ? 'good' : 'neutral',
       },
       {
         label: '剖面示意中低角度出射',
         value: `${trappedCount} / 22 束被挡`,
-        sub: '按图中反射方向标记的射线；不是 Smith G 的测量',
+        sub: '按图中山谷反射方向标记；非 Smith G 精确值',
         tone: trappedCount > 4 ? 'warn' : 'good',
       },
     ]);
@@ -3293,16 +3350,18 @@ const Stage8_1_MicrofacetEnergy: React.FC<LessonStageProps> = ({
     '450,170',
   ].join(' ');
 
-  // GGX 钟形分布曲线路径 (用于右下角直观展示光斑越宽峰值越低)
+  // GGX 钟形分布曲线路径（采用平滑对数纵轴，让 0.05 ~ 0.90 全区间都能清晰看到峰高剧烈升降，不再平顶截断）
   const ndfCurvePoints: string[] = [];
-  for (let i = 0; i <= 40; i++) {
-    const t = (i / 40) * 2 - 1; // -1..1
+  const logNormDenom = Math.log1p(55000 * 3);
+  for (let i = 0; i <= 80; i++) {
+    const t = (i / 80) * 2 - 1; // -1..1
     const cosH = Math.cos(t * 1.15);
     const a2 = alpha ** 2;
     const denom = cosH * cosH * (a2 - 1) + 1;
     const dVal = a2 / (Math.PI * denom * denom);
-    const yPlot = 78 - Math.min(64, dVal * 22);
-    const xPlot = 14 + (i / 40) * 192;
+    const hNorm = Math.min(1, Math.log1p(dVal * 3) / logNormDenom);
+    const yPlot = 78 - hNorm * 64;
+    const xPlot = 14 + (i / 80) * 192;
     ndfCurvePoints.push(`${xPlot.toFixed(1)},${yPlot.toFixed(1)}`);
   }
 
@@ -3440,9 +3499,9 @@ const Stage8_1_MicrofacetEnergy: React.FC<LessonStageProps> = ({
         >
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700 }}>
-              <span>GGX 法线分布 D 随半角的变化（纵轴截顶）</span>
+              <span>GGX 微面朝向分布曲线 D（对数纵轴展示峰高变化）</span>
               <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                D(0) = {ggxPeak.toPrecision(3)}
+                D(0) ≈ {formatGgxPeak(ggxPeak)}
               </span>
             </div>
             <svg viewBox="0 0 220 88" style={{ width: '100%', height: 82, marginTop: 4 }}>
@@ -3457,7 +3516,9 @@ const Stage8_1_MicrofacetEnergy: React.FC<LessonStageProps> = ({
             </svg>
           </div>
 
-          <p>曲线显示法线分布密度 D。正对微表面的峰值为 1/(π·α²)，其中 α=Roughness²。半球上的投影面积归一化为 1；这张二维截面曲线的面积不是反射能量。</p>
+          <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.45, margin: 0 }}>
+            越光滑，小镜子越齐刷刷挤在正中（峰值飙升）；越粗糙，朝向摊平散开（峰值骤降）。注：峰值 D(0) = 1/(π·α²) 属立体角密度（单位 sr⁻¹），真实能量守恒由整个半球积分保证。
+          </p>
         </div>
       </div>
 
@@ -3641,10 +3702,13 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
   }, [shieldMode]);
 
   const matInfo = FRESNEL_MATS[matKey];
+  const shieldBaseF0 = 0.02;
   const cosTheta = Math.cos((viewDeg * Math.PI) / 180);
-  const schlickF = isFixedPitfall
-    ? 0.48 // 错误踩坑：把水面反射死板写成常数 48%
-    : matInfo.f0 + (1 - matInfo.f0) * Math.pow(1 - cosTheta, 5);
+  const schlickF = shieldMode
+    ? shieldBaseF0 + (1 - shieldBaseF0) * Math.pow(1 - cosTheta, fresnelExp)
+    : isFixedPitfall
+      ? 0.48 // 错误踩坑：把水面反射死板写成常数 48%
+      : matInfo.f0 + (1 - matInfo.f0) * Math.pow(1 - cosTheta, 5);
   const reflPct = Math.round(schlickF * 100);
   const unreflectedPct = 100 - reflPct;
 
@@ -3657,15 +3721,23 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
         tone: 'accent',
       },
       {
-        label: '当前镜面反射率 F(θ)',
+        label: shieldMode ? '护盾菲涅尔强度' : '当前镜面反射率 F(θ)',
         value: `${reflPct}%`,
-        sub: `正视底数 F0 = ${(matInfo.f0 * 100).toFixed(0)}%`,
+        sub: shieldMode
+          ? `中心底亮 BaseReflect = 2% · Exp = ${fresnelExp.toFixed(1)}`
+          : `正视底数 F0 = ${(matInfo.f0 * 100).toFixed(0)}%`,
         tone: reflPct > 75 ? 'warn' : 'good',
       },
       {
         label: '界面未反射份额 1−F',
         value: `${unreflectedPct}%`,
-        sub: matKey === 'gold' ? '实心金属中的该份额被吸收' : matKey === 'plastic' ? '不透明物体内部吸收、散射' : '背景可见度另受吸收、散射与路程影响',
+        sub: shieldMode
+          ? '球心正对镜头高透，轮廓擦边处强发光'
+          : matKey === 'gold'
+            ? '实心金属中的该份额被吸收'
+            : matKey === 'plastic'
+              ? '不透明物体内部吸收、散射'
+              : '背景可见度另受吸收、散射与路程影响',
         tone: 'neutral',
       },
       {
@@ -3699,12 +3771,16 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
       for (let py = 0; py < H; py++) {
         for (let px = 0; px < W; px++) {
           const idx = (py * W + px) * 4;
-          // 深空科幻网格背景，方便看清中心高透与边缘高亮
-          const grid =
-            px % 22 === 0 || py % 22 === 0 ? 0.16 : 0.07 + 0.03 * (1 - py / H);
-          let rOut = grid * 0.8;
-          let gOut = grid * 1.0;
-          let bOut = grid * 1.35;
+          // 深空科幻网格背景（与球内共用线性空间 + ACES + sRGB 转换，消除中心灰阶跳变）
+          const gridLin =
+            px % 22 === 0 || py % 22 === 0 ? 0.022 : 0.005 + 0.004 * (1 - py / H);
+          const bgLinR = gridLin * 0.78;
+          const bgLinG = gridLin * 1.0;
+          const bgLinB = gridLin * 1.42;
+
+          let rOut = linearToSrgb(acesTonemap(bgLinR));
+          let gOut = linearToSrgb(acesTonemap(bgLinG));
+          let bOut = linearToSrgb(acesTonemap(bgLinB));
 
           const dx = px + 0.5 - cx;
           const dy = cy - (py + 0.5);
@@ -3718,15 +3794,15 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
             const ny = (dy / R) * scaleXY;
             const nz = Math.sqrt(Math.max(0.001, 1 - nx * nx - ny * ny)); // N · V 正好就是 nz！
 
-            // UE 5.8 Fresnel 节点精确公式：BaseReflect + (1 - BaseReflect) * (1 - N·V)^ExponentIn
-            const fres = matInfo.f0 + (1 - matInfo.f0) * Math.pow(1 - nz, fresnelExp);
+            // 护盾模式使用独立的透明底数 shieldBaseF0 = 0.02，避免被金属预设 F0 污染成实心球
+            const fres = shieldBaseF0 + (1 - shieldBaseF0) * Math.pow(1 - nz, fresnelExp);
             // 六边形蜂巢能量纹理感
             const hexWave = 0.85 + 0.15 * Math.sin(nx * 26) * Math.cos(ny * 26);
             const glow = fres * hexWave * 2.4;
 
-            const sr = linearToSrgb(acesTonemap(rOut + glow * 0.16));
-            const sg = linearToSrgb(acesTonemap(gOut + glow * 0.82));
-            const sb = linearToSrgb(acesTonemap(bOut + glow * 1.35));
+            const sr = linearToSrgb(acesTonemap(bgLinR + glow * 0.16));
+            const sg = linearToSrgb(acesTonemap(bgLinG + glow * 0.82));
+            const sb = linearToSrgb(acesTonemap(bgLinB + glow * 1.35));
 
             rOut = lerp(rOut, sr, cov);
             gOut = lerp(gOut, sg, cov);
@@ -3927,15 +4003,20 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
     ctx.restore();
   }, [viewDeg, matKey, shieldMode, fresnelExp, isFixedPitfall, swimTime, matInfo.f0, schlickF, reflPct, unreflectedPct]);
 
-  // 生成右侧 Schlick 菲涅尔曲线 SVG 折线
+  // 生成右侧 Schlick / 护盾 Fresnel 曲线 SVG 折线
   const curvePts: string[] = [];
   for (let d = 0; d <= 90; d += 3) {
     const c = Math.cos((d * Math.PI) / 180);
-    const f = isFixedPitfall ? 0.48 : matInfo.f0 + (1 - matInfo.f0) * Math.pow(1 - c, 5);
+    const f = shieldMode
+      ? shieldBaseF0 + (1 - shieldBaseF0) * Math.pow(1 - c, fresnelExp)
+      : isFixedPitfall
+        ? 0.48
+        : matInfo.f0 + (1 - matInfo.f0) * Math.pow(1 - c, 5);
     const x = 30 + (d / 90) * 196;
     const y = 152 - f * 124;
     curvePts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
   }
+  const activeStartF0 = shieldMode ? shieldBaseF0 : matInfo.f0;
   const dotX = 30 + (viewDeg / 90) * 196;
   const dotY = 152 - schlickF * 124;
 
@@ -4023,9 +4104,13 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700 }}>
-            <span>📈 菲涅尔曲线 F(θ) = F0 + (1-F0)(1-cosθ)⁵</span>
+            <span>
+              {shieldMode
+                ? `📈 护盾菲涅尔曲线 0.02 + 0.98(1-cosθ)^${fresnelExp.toFixed(1)}`
+                : '📈 菲涅尔曲线 F(θ) = F0 + (1-F0)(1-cosθ)⁵'}
+            </span>
             <span style={{ fontFamily: 'var(--font-mono)', color: '#2563eb' }}>
-              F({viewDeg}°) = {reflPct}%
+              {shieldMode ? `Exp = ${fresnelExp.toFixed(1)}` : `F(${viewDeg}°) = ${reflPct}%`}
             </span>
           </div>
 
@@ -4042,15 +4127,15 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
             <text x="166" y="168" fill="#64748b" fontSize="9.5">90°平视擦边</text>
 
             {/* F0 起点标注 */}
-            <text x="35" y={clamp(148 - matInfo.f0 * 124, 42, 146)} fill="#16a34a" fontSize="9.5" fontWeight="bold">
-              起点 F0 = {(matInfo.f0 * 100).toFixed(0)}%
+            <text x="35" y={clamp(148 - activeStartF0 * 124, 42, 146)} fill="#16a34a" fontSize="9.5" fontWeight="bold">
+              {shieldMode ? '起点 Base = 2%' : `起点 F0 = ${(matInfo.f0 * 100).toFixed(0)}%`}
             </text>
 
             {/* 曲线主体 */}
             <polyline
               points={curvePts.join(' ')}
               fill="none"
-              stroke={isFixedPitfall ? '#ef4444' : '#3b82f6'}
+              stroke={!shieldMode && isFixedPitfall ? '#ef4444' : '#3b82f6'}
               strokeWidth="2.8"
             />
 
@@ -4109,17 +4194,17 @@ const Stage8_2_FresnelLakeside: React.FC<LessonStageProps> = ({
 };
 
 const schematic8_2: SchematicDiagram = {
-  title: 'UE 5.8 Fresnel（菲涅尔）节点实现角色轮廓光与能量护盾标准连线',
-  caption: '写实表面的菲涅尔反射已由 Substrate Slab 自动内置；而做边缘发光护盾、毒圈高亮时，直接调出 Fresnel 节点即可！',
+  title: 'UE 5.8 Fresnel（菲涅尔）节点实现半透明能量护盾标准连线',
+  caption: '写实表面的菲涅尔反射已由 Substrate Slab 自动内置；做半透明能量护盾时，材质必须设为 Blend Mode: Translucent 或 Additive，并将 Fresnel 同时驱动 Emissive 与 Opacity / Coverage！',
   nodes: [
     {
       id: 'n_exp',
       title: 'Scalar: ExponentIn (4.2)',
       subtitle: '数值越大，亮边越窄越锐利',
       category: 'param',
-      x: 20,
-      y: 36,
-      width: 185,
+      x: 15,
+      y: 34,
+      width: 175,
       outputs: [{ id: 'val', label: '4.2', color: '#22c55e' }],
     },
     {
@@ -4127,19 +4212,19 @@ const schematic8_2: SchematicDiagram = {
       title: 'BaseReflectFraction (0.02)',
       subtitle: '正对中心保留多少微光',
       category: 'param',
-      x: 20,
-      y: 138,
-      width: 185,
+      x: 15,
+      y: 136,
+      width: 175,
       outputs: [{ id: 'val', label: '0.02', color: '#e5e7eb' }],
     },
     {
       id: 'n_fres',
       title: 'Fresnel (菲涅尔节点)',
-      subtitle: '内部计算 (1 - Dot(N,V))^Exp',
+      subtitle: 'BaseReflect+(1-BaseReflect)(1-N·V)^Exp',
       category: 'math',
-      x: 250,
-      y: 74,
-      width: 195,
+      x: 220,
+      y: 72,
+      width: 215,
       inputs: [
         { id: 'exp', label: 'ExponentIn', color: '#22c55e' },
         { id: 'base', label: 'BaseReflectFractionIn', color: '#e5e7eb' },
@@ -4152,9 +4237,9 @@ const schematic8_2: SchematicDiagram = {
       title: '护盾霓虹色 (HDR × 8)',
       subtitle: '冰晶蓝发光颜色向量',
       category: 'param',
-      x: 250,
-      y: 212,
-      width: 195,
+      x: 220,
+      y: 214,
+      width: 215,
       previewColor: '#0ea5e9',
       outputs: [{ id: 'rgb', label: 'HDR RGB', color: '#38bdf8' }],
     },
@@ -4163,9 +4248,9 @@ const schematic8_2: SchematicDiagram = {
       title: 'Multiply (点亮轮廓环)',
       subtitle: '中心黑=0 · 外圈亮=8',
       category: 'math',
-      x: 485,
-      y: 132,
-      width: 170,
+      x: 465,
+      y: 142,
+      width: 165,
       inputs: [
         { id: 'a', label: 'Fresnel', color: '#38bdf8' },
         { id: 'b', label: '发光色', color: '#38bdf8' },
@@ -4174,22 +4259,38 @@ const schematic8_2: SchematicDiagram = {
     },
     {
       id: 'n_slab',
-      title: 'Substrate Slab → 根节点',
-      subtitle: '连入 Emissive Color 自发光',
+      title: 'Substrate Slab BSDF',
+      subtitle: 'Blend: Translucent / Additive',
       category: 'substrate',
-      x: 690,
-      y: 132,
-      width: 185,
-      inputs: [{ id: 'emissive', label: 'Emissive Color', color: '#38bdf8' }],
-      outputs: [{ id: 'bsdf', label: 'Front Material', color: '#a855f7' }],
+      x: 660,
+      y: 88,
+      width: 195,
+      inputs: [
+        { id: 'cov', label: 'Opacity / Coverage', color: '#e5e7eb' },
+        { id: 'emissive', label: 'Emissive Color', color: '#38bdf8' },
+      ],
+      outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+      note: '未切 Translucent/Additive 会变实心灰球！',
+    },
+    {
+      id: 'n_root',
+      title: '材质根节点 (UE 5.8)',
+      subtitle: '半透明/叠加混合模式',
+      category: 'output',
+      x: 885,
+      y: 112,
+      width: 160,
+      inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
     },
   ],
   edges: [
     { fromNode: 'n_exp', fromPin: 'val', toNode: 'n_fres', toPin: 'exp', color: '#22c55e' },
     { fromNode: 'n_base', fromPin: 'val', toNode: 'n_fres', toPin: 'base', color: '#e5e7eb' },
     { fromNode: 'n_fres', fromPin: 'out', toNode: 'n_mul', toPin: 'a', color: '#38bdf8' },
+    { fromNode: 'n_fres', fromPin: 'out', toNode: 'n_slab', toPin: 'cov', color: '#e5e7eb' },
     { fromNode: 'n_col', fromPin: 'rgb', toNode: 'n_mul', toPin: 'b', color: '#38bdf8' },
     { fromNode: 'n_mul', fromPin: 'emit', toNode: 'n_slab', toPin: 'emissive', color: '#38bdf8' },
+    { fromNode: 'n_slab', fromPin: 'bsdf', toNode: 'n_root', toPin: 'front', color: '#a855f7' },
   ],
 };
 
@@ -4197,7 +4298,7 @@ const schematic8_2: SchematicDiagram = {
  * 8.3 金属度工作流铁律 —— 金属与非金属的光学鸿沟、“混合覆盖率”与 Specular 迷思
  * ============================================================================ */
 
-type MetalPreset = 'gold' | 'plastic' | 'rust_shield' | 'half_pitfall';
+type MetalPreset = 'gold' | 'plastic' | 'rust_shield' | 'half_pitfall' | 'custom';
 
 const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
   stepIndex,
@@ -4287,9 +4388,20 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
   const diffAvgPct = Math.round(((diffAlbedoLin[0] + diffAlbedoLin[1] + diffAlbedoLin[2]) / 3) * 100);
   const f0AvgPct = Math.round(((f0Lin[0] + f0Lin[1] + f0Lin[2]) / 3) * 1000) / 10;
 
-  // 三大物理合法性温柔体检提示
+  // 三大物理合法性温柔体检提示（含真实 BaseColor 极暗/极亮检测）
   const inGrayMetalZone = !useRustMask && metallic > 0.12 && metallic < 0.88;
-  const specTouchedOnMetal = metallic === 1 && Math.abs(legacySpec - 0.5) > 0.08;
+  const specTouchedOnMetal = !useRustMask && metallic === 1 && Math.abs(legacySpec - 0.5) > 0.08;
+  const tooDarkDielectric = !useRustMask && metallic < 0.5 && albedoLum < 0.06;
+  const tooBrightDielectric = !useRustMask && metallic < 0.5 && albedoLum > 0.90;
+  const tooDarkMetal = !useRustMask && metallic >= 0.5 && albedoLum < 0.45;
+  const tooBrightMetal = !useRustMask && metallic >= 0.5 && albedoLum > 0.96;
+  const hasHealthWarn =
+    inGrayMetalZone ||
+    specTouchedOnMetal ||
+    tooDarkDielectric ||
+    tooBrightDielectric ||
+    tooDarkMetal ||
+    tooBrightMetal;
 
   useEffect(() => {
     onKpiUpdate([
@@ -4308,7 +4420,7 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
       {
         label: '底层正视镜面 F0',
         value: useRustMask ? `铁区 RGB 均值 66% · 锈区 ${(dielectricF0 * 100).toFixed(1)}%` : `${f0Hex} (${f0AvgPct}%)`,
-        sub: metallic < 0.1 ? `由 Specular(${legacySpec.toFixed(2)}) 控无色白光` : '由 BaseColor 给镜面染金色！',
+        sub: metallic < 0.1 ? `由 Specular(${legacySpec.toFixed(2)}) 控无色白光` : '由 BaseColor 给镜面染上金属本色！',
         tone: 'good',
       },
       {
@@ -4366,19 +4478,18 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
         let pxMetal = metallic;
         let pxRough = roughness;
 
-        // 若处于“斑驳生锈铁盾”预设，演示好铁(Metallic=1)与铁锈(Metallic=0)通过黑白锐利遮罩共存！
+        // 若处于“斑驳生锈铁盾”预设，演示好铁(Metallic=1)与铁锈(Metallic=0)通过黑白锐利遮罩共存，且精钢区响应粗糙度滑块！
         if (useRustMask) {
           const nVal = fbm(nx * 3.8 + 4.2, ny * 3.8 + 1.7, 4);
-          const isRust = nVal > 0.52;
-          if (isRust) {
+          const rustMask = nVal > 0.52 ? 1 : 0;
+          if (rustMask > 0.5) {
             pxBase = [0.36, 0.09, 0.025]; // 氧化铁锈红棕（绝缘体！）
             pxMetal = 0.0;
-            pxRough = 0.86;
           } else {
             pxBase = [0.64, 0.66, 0.69]; // 裸露精钢（纯导体！）
             pxMetal = 1.0;
-            pxRough = 0.22;
           }
+          pxRough = lerp(roughness, 0.86, rustMask);
         }
 
         const col = shadePbrPixel({
@@ -4457,6 +4568,7 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
             step={0.01}
             onChange={(v) => {
               setUseRustMask(false);
+              if (preset === 'rust_shield') setPreset('custom');
               setMetallic(v);
             }}
           />
@@ -4470,6 +4582,7 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
               unit="°"
               onChange={(v) => {
                 setUseRustMask(false);
+                if (preset === 'rust_shield') setPreset('custom');
                 setHue(v);
               }}
             />
@@ -4481,6 +4594,7 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
               step={0.01}
               onChange={(v) => {
                 setUseRustMask(false);
+                if (preset === 'rust_shield') setPreset('custom');
                 setAlbedoLum(v);
               }}
             />
@@ -4589,7 +4703,7 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               {metallic === 1 && !useRustMask
-                ? '🌟 金属接管 BaseColor，给高光和环境倒影染上金黄色！'
+                ? '🌟 金属接管 BaseColor，给高光和环境倒影染上金属自身颜色！'
                 : `非金属端 F0 = 0.08 × Specular = ${dielectricF0.toFixed(3)}`}
             </div>
           </div>
@@ -4602,22 +4716,25 @@ const Stage8_3_MetallicThreeLaws: React.FC<LessonStageProps> = ({
           padding: '7px 11px',
           borderRadius: 9,
           border: '1.5px solid var(--border-strong)',
-          background:
-            inGrayMetalZone || specTouchedOnMetal
-              ? 'var(--accent-amber)'
-              : 'var(--accent-sage)',
-          color:
-            inGrayMetalZone || specTouchedOnMetal
-              ? 'var(--accent-amber-deep)'
-              : 'var(--accent-sage-deep)',
+          background: hasHealthWarn ? 'var(--accent-amber)' : 'var(--accent-sage)',
+          color: hasHealthWarn ? 'var(--accent-amber-deep)' : 'var(--accent-sage-deep)',
           fontSize: 12,
           fontWeight: 600,
         }}
       >
         {inGrayMetalZone
-          ? '均匀裸金属通常用 1，均匀绝缘体用 0。混合覆盖、过滤和过渡可产生中间值。'
-          : specTouchedOnMetal ? '纯金属 F0 由 BaseColor 给出。'
-          : '线性参考：木炭漫反射率 0.02，新雪 0.81。黄金的镜面 F0 为 (1.000, 0.766, 0.336)。'}
+          ? '⚠️ 金属度落入中间灰区：均匀裸金属应取 1、均匀绝缘体取 0，仅在锈蚀/灰尘覆盖过渡边缘才出现中间值。'
+          : tooDarkDielectric
+            ? '⚠️ 非金属 BaseColor 过暗（低于木炭约 0.02 线性下限）：现实中极少有绝对吸光的 0.00 纯黑表面，极黑底色会吞掉所有暗部细节！'
+            : tooBrightDielectric
+              ? '⚠️ 非金属 BaseColor 过亮（高于新雪约 0.81 线性上限）：连白雪都反射不到 100%，1.00 纯白在强光下极易过曝发白！'
+              : tooDarkMetal
+                ? '⚠️ 裸金属 BaseColor（F0）过暗：真实金属正视反射率多在 50%~98%，画太黑只会像怪异暗漆；想做暗钢请调高 Roughness！'
+                : tooBrightMetal
+                  ? '⚠️ BaseColor 明度已到 1.00 满值：即使是纯银（0.97）也不会三通道全满 1.00，留一点余量更符合真实物理！'
+                  : specTouchedOnMetal
+                    ? '⚠️ 纯金属会无视旧版 Specular 滑块：它的正视镜面反射 F0 完全由 BaseColor 决定。'
+                    : '✅ 物理范围健康！线性参考：木炭漫反射约 0.02，新雪约 0.81；黄金正视镜面 F0 为 (1.000, 0.766, 0.336)。'}
       </div>
     </div>
   );
@@ -4699,7 +4816,8 @@ const schematic8_3: SchematicDiagram = {
         { id: 'diff', label: 'Diffuse Albedo', color: '#ef4444' },
         { id: 'f0', label: 'F0 镜面色', color: '#38bdf8' },
       ],
-      outputs: [{ id: 'bsdf', label: 'Front Material', color: '#a855f7' }],
+      outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+      note: '连入材质根节点 Front Material',
     },
   ],
   edges: [
@@ -4762,7 +4880,8 @@ const Stage8_4_SubstrateBridge: React.FC<LessonStageProps> = ({
 
   useEffect(() => {
     if (stepIndex === 4) {
-      selectSubPreset('ceramic');
+      selectSubPreset('copper');
+      setCoatLayerOn(false);
       setWrongDirectWire(true);
     } else if (stepIndex === 2) {
       setWrongDirectWire(false);
@@ -4840,8 +4959,13 @@ const Stage8_4_SubstrateBridge: React.FC<LessonStageProps> = ({
     const L: Vec3 = norm3([0.38, 0.56, 0.73]);
     const V: Vec3 = [0, 0, 1];
     const halfVector = norm3(add3(L, V));
-    const alphaSquared = Math.max(0.0025, roughness ** 2) ** 2;
-    const grazingWeight = (1 - saturate(dot3(V, halfVector))) ** 5;
+    const roughClamped = clamp(roughness, 0.045, 1.0);
+    const alpha = roughClamped * roughClamped;
+    const alphaSquared = alpha * alpha;
+    const vh = saturate(dot3(V, halfVector));
+    const fDirectPow = Math.pow(1 - vh, 5);
+    const ccRough = 0.04;
+    const ccA2 = Math.pow(ccRough, 4);
 
     for (let py = 0; py < H; py++) {
       for (let px = 0; px < W; px++) {
@@ -4867,21 +4991,42 @@ const Stage8_4_SubstrateBridge: React.FC<LessonStageProps> = ({
         const ny = (dy / R) * scaleXY;
         const nz = Math.sqrt(Math.max(0.0004, 1 - nx * nx - ny * ny));
 
-        // Both wiring configurations use the same linear diffuse + GGX preview.
+        // 完整 PBR（直接 GGX 镜面 + 漫反射 + 逐像素 NdotV 菲涅尔环境 IBL + 可选清漆薄层）
         const N: Vec3 = [nx, ny, nz];
         const nl = saturate(dot3(N, L));
         const nv = Math.max(0.001, dot3(N, V));
         const nh = saturate(dot3(N, halfVector));
+        const fViewPow = Math.pow(1 - nv, 5);
+
         const denominator = nh * nh * (alphaSquared - 1) + 1;
-        const d = alphaSquared / (Math.PI * denominator ** 2);
-        const visibility = 0.5 / Math.max(0.001,
-          nl * Math.sqrt(nv * nv * (1 - alphaSquared) + alphaSquared) +
-          nv * Math.sqrt(nl * nl * (1 - alphaSquared) + alphaSquared));
+        const d = alphaSquared / (Math.PI * denominator * denominator + 1e-6);
+        const visibility =
+          0.5 /
+          Math.max(
+            0.001,
+            nl * Math.sqrt(nv * nv * (1 - alphaSquared) + alphaSquared) +
+              nv * Math.sqrt(nl * nl * (1 - alphaSquared) + alphaSquared)
+          );
+
+        const Rdir = reflect3([-V[0], -V[1], -V[2]], N);
+        const envSpec = sampleEnvMap(Rdir, roughClamped, 'sunny');
+        const envDiff = sampleEnvMap(N, 0.95, 'sunny');
+        const ccEnv = coatLayerOn ? sampleEnvMap(Rdir, ccRough, 'sunny') : null;
+        const ccDenom = nh * nh * (ccA2 - 1) + 1;
+        const ccD = ccA2 / (Math.PI * ccDenom * ccDenom + 1e-6);
+        const ccF = 0.04 + 0.96 * fViewPow;
+
         const col = slabDiffLin.map((diffuse, c) => {
-          const f = slabF0Lin[c] + (1 - slabF0Lin[c]) * grazingWeight;
-          const direct = nl * 3 * ((1 - f) * diffuse / Math.PI + d * visibility * f);
-          const base = direct + 0.10 * diffuse;
-          const coated = coatLayerOn ? base * 0.96 + 0.8 * Math.pow(nh, 180) * nl : base;
+          const f0 = slabF0Lin[c];
+          const fDirect = f0 + (1 - f0) * fDirectPow;
+          const fIbl = f0 + (Math.max(1 - roughClamped, f0) - f0) * fViewPow;
+          const direct = nl * 2.6 * (((1 - fDirect) * diffuse) / Math.PI + d * visibility * fDirect);
+          const indirect = (1 - fIbl) * diffuse * envDiff[c] * 0.55 + envSpec[c] * fIbl;
+          const base = direct + indirect;
+          const coated =
+            coatLayerOn && ccEnv
+              ? base * (1 - ccF * 0.85) + (ccD * 0.25 * nl * 2.6 + ccEnv[c] * ccF)
+              : base;
           return linearToSrgb(acesTonemap(coated));
         }) as Vec3;
 
@@ -4909,11 +5054,11 @@ const Stage8_4_SubstrateBridge: React.FC<LessonStageProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <PitfallCompareBar
         isPitfall={wrongDirectWire}
-        pitfallLabel="误连：把同一张 BaseColor 接入 Diffuse Albedo 和 F0。观察铜球额外出现的漫反射，并核对瓷器的高光颜色。"
-        correctLabel="UE 5.8 标准桥接：串入官方翻译官节点 Metalness-To-DiffuseAlbedo-F0，传统三张贴图 1 秒精准译成物理层板参数"
+        pitfallLabel="误连：把同一张 BaseColor 同时硬插进 Diffuse Albedo 和 F0 —— 铜球混进多余漫反射发灰失真，青花瓷变成诡异蓝铬镜！"
+        correctLabel="UE 5.8 标准桥接：串入官方翻译官节点 Substrate Metalness-To-DiffuseAlbedo-F0，传统三张贴图 1 秒精准译成物理层板参数"
         onToggle={setWrongDirectWire}
       />
-      <small>浏览器使用简化的漫反射与 GGX 镜面单次着色。两个配置共用光照、粗糙度、曝光和清漆设置；切换仅改变 Diffuse Albedo 和 F0。</small>
+      <small>浏览器使用线性漫反射、GGX 直接高光与环境倒影（IBL）着色。两个配置共用光照、粗糙度、曝光和清漆设置；切换仅改变 Diffuse Albedo 和 F0。</small>
       {/* 顶部预设与叠层体验开关 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
         <StageSegmented
@@ -4986,7 +5131,7 @@ const Stage8_4_SubstrateBridge: React.FC<LessonStageProps> = ({
             <div style={{ fontWeight: 800, color: wrongDirectWire ? '#dc2626' : '#2563eb' }}>
               {wrongDirectWire ? '❌ 跳过翻译官 (误连!)' : '② 翻译官 Helper 节点'}
             </div>
-            <div style={{ fontWeight: 700, fontSize: 10.5 }}>Metalness-To-DiffuseAlbedo-F0</div>
+            <div style={{ fontWeight: 700, fontSize: 10.5 }}>Substrate Metalness-To-DiffuseAlbedo-F0</div>
             <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.35 }}>
               {wrongDirectWire ? 'Diff = Base，F0 = Base' : <>Diff = Base × (1 - M)<br />F0 = Lerp(0.04, Base, M)</>}
             </div>
@@ -5167,12 +5312,12 @@ const schematic8_4: SchematicDiagram = {
     },
     {
       id: 'n_trans',
-      title: 'Metalness-To-DiffuseAlbedo-F0',
+      title: 'Substrate Metalness-To-DiffuseAlbedo-F0',
       subtitle: '官方内置翻译官节点',
       category: 'substrate',
-      x: 230,
+      x: 222,
       y: 38,
-      width: 215,
+      width: 230,
       inputs: [
         { id: 'albedo', label: 'Base Color', color: '#f59e0b' },
         { id: 'metal', label: 'Metallic (接 ORM.B)', color: '#3b82f6' },
@@ -5196,7 +5341,7 @@ const schematic8_4: SchematicDiagram = {
         { id: 'rough', label: 'Roughness', color: '#22c55e' },
         { id: 'norm', label: 'Normal', color: '#60a5fa' },
       ],
-      outputs: [{ id: 'bsdf', label: 'Substrate BSDF', color: '#a855f7' }],
+      outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
       note: '可继续用 Vertical Layer 叠清漆/积水！',
     },
     {
@@ -5242,7 +5387,7 @@ const module08: ModuleDefinition = {
       title: '微表面理论与能量守恒 —— 放大一万倍看粗糙表面，光斑越散为什么越暗？',
       subtitle: '钻进 10000 倍电子显微镜看微型 V 字山谷：22 道激光亲证 GGX 法线分布 D 与几何自遮挡 G',
       duration: '13 分钟',
-      difficulty: '零基础',
+      difficulty: '进阶',
       StageComponent: Stage8_1_MicrofacetEnergy,
       schematic: schematic8_1,
       takeaways: [
@@ -5283,12 +5428,17 @@ const module08: ModuleDefinition = {
           stepNumber: 3,
           shortLabel: '能量守恒',
           tag: 'experiment',
-          title: '调宽高光，检查 GGX 分布的峰值',
+          title: '光斑越散为什么越暗？紧盯 GGX 峰值的能量守恒联动！',
           paragraphs: [
-            '拖动粗糙度。右侧的橙线是 GGX 法线分布的角度截面，峰值 D(0) 有 sr⁻¹ 单位，可以大于 1。球面高光还取决于光源、视角、几何遮蔽与菲涅尔项。',
-            '试着转动光源，再切换纯金属。相同粗糙度下，球体高光会变，但法线分布曲线与 D(0) 保持一致。示意图中被标红的光线数量不等于材料吸收的光能。',
+            '把粗糙度从 `0.05` 慢慢拖到 `0.90`，紧盯右侧的橙色钟形曲线和左侧材质球：**微面朝向越集中，镜面高光越亮越尖；朝向越分散，同一份总光能就被摊成一大片柔光，所以看起来变暗变哑！**',
+            '再试着转动「入射阳光倾角」或勾选「切换为纯金属表面（钛金）」：金属的镜面反射整体更强，但在相同粗糙度下，小镜子朝向的整齐度（`D` 曲线）只听 `Roughness` 的话。记住，显微镜里标红的射线是用来直观理解山谷自遮挡现象的，并不直接等同于材料吸收的全部能量。',
           ],
           tryItPrompt: '勾选下方「切换为纯金属表面 (钛金)」，再从 0.05 到 0.90 拉动粗糙度，欣赏纯金属从镜面镀铬丝滑变成磨砂喷砂金属的全过程！',
+          callout: {
+            tone: 'formula',
+            title: '严谨数学备注：为什么峰值 D(0) 会远大于 1？',
+            body: 'GGX 法线分布正对峰值为 D(0) = 1 / (π·α²)（其中 α = Roughness²），它的单位是立体角密度 sr⁻¹（每球面度内的微面占比），因此极光滑时峰值可达数万并不违背物理！真正的被动表面能量守恒由整个半球上的方向反射积分决定，不能用二维曲线截面面积或单个像素亮度代替。',
+          },
         },
         {
           stepNumber: 4,
@@ -5303,7 +5453,7 @@ const module08: ModuleDefinition = {
           callout: {
             tone: 'ue58',
             title: '为什么拉到 Roughness = 0.0 时高光也没变成无限亮？',
-            body: '细心的你可能发现了，引擎底层会把极小粗糙度安全钳制在约 0.045 左右，防止除以零产生闪烁白噪点，并匹配真实太阳圆盘角半径。',
+            body: '细心的你可能发现了，引擎底层会把极小粗糙度安全钳制在约 0.045 左右，防止公式除以零并抑制边缘闪烁白噪点（Firefly / 镜面锯齿）；至于太阳本身发光圆盘的视觉大小，则由定向光上的 Source Angle 参数单独控制。',
           },
         },
         {
@@ -5332,7 +5482,7 @@ const module08: ModuleDefinition = {
       title: '菲涅尔效应（Fresnel） —— 低头看湖水清澈见鱼，抬头看远方湖面全成镜子',
       subtitle: '万物皆有“擦边变镜子”定律：从 正入射 F0 到掠射角的界面反射，顺手学会边缘光护盾',
       duration: '13 分钟',
-      difficulty: '零基础',
+      difficulty: '进阶',
       StageComponent: Stage8_2_FresnelLakeside,
       schematic: schematic8_2,
       takeaways: [
@@ -5357,7 +5507,7 @@ const module08: ModuleDefinition = {
           stepNumber: 2,
           shortLabel: 'F0与掠射',
           tag: 'background',
-          title: '法国物理学家菲涅尔的发现：正看守底数 F0，擦边统统变 100% 镜子！',
+          title: '法国物理学家菲涅尔的发现：正看守底数 F0，光滑表面擦边反射趋近 100%！',
           paragraphs: [
             '两百年前物理学家菲涅尔算出了光的通行证规律（看右侧蓝色 **Schlick 菲涅尔曲线**）：当光或视线**垂直正对表面（`0°`）**时，只有极少一部分光在表皮弹走，这个起点叫 **基础反射率 `F0`**——清水只有 **`2%`（`0.02`）**，而木头、石头、塑料、玻璃、人类皮肤惊人地团结，全都在 **`4%`（`0.04`）** 左右！',
             '对于光滑界面，越接近 90° 时反射越强。粗糙表面仍有宽反射瓣。清水里剩余光继续传播，塑料和石头中则可能被吸收或散射。',
@@ -5393,7 +5543,7 @@ const module08: ModuleDefinition = {
           callout: {
             tone: 'ue58',
             title: '想让法线凹凸细节也带出边缘发光怎么办？',
-            body: 'UE 5.8 的 Fresnel 节点上还有第三个插口 Normal！不连时默认只看平滑模型轮廓；如果把法线贴图转到世界空间（TransformVector Tangent→World）连进去，连盔甲上的雕花凸起都会泛起流光！',
+            body: 'UE 5.8 的 Fresnel 节点上还有第三个插口 Normal！不连时默认只看平滑模型轮廓；如果把法线贴图转到世界空间（右键搜 TransformVector，设为 Tangent → World）连进去，连盔甲上的雕花凸起都会泛起流光！',
           },
         },
         {
@@ -5426,10 +5576,10 @@ const module08: ModuleDefinition = {
       StageComponent: Stage8_3_MetallicThreeLaws,
       schematic: schematic8_3,
       takeaways: [
-        '在本工作流中，均匀绝缘体取 Metallic=0，均匀裸金属取 1。金属的颜色进入正入射镜面 F0，绝缘体的颜色主要影响漫反射。',
-        '分开描述裸铁和氧化物。混合覆盖率与纹理过滤可以产生中间金属度；整块写 0.5 不能描述各处不同的锈蚀分布。',
-        '非金属漫反射强度与金属镜面 RGB 要分别查表。线性木炭约 0.02、新雪约 0.81，黄金的红通道可达 1.0。',
-        '家规三（别乱动 Specular）：传统面板的 Specular 默认 0.5 就精准代表非金属 4% 反射率（且对纯金属完全无效），99% 情况下保持默认不动！',
+        '家规一（非黑即白）：均匀绝缘体取 Metallic = 0，均匀裸金属取 1；裸铁与铁锈等混合材质靠黑白遮罩分开区域，仅在覆盖边缘与过滤过渡处出现中间值，别把整块材质糊成 0.5！',
+        '家规二（按物理范围填色）：非金属漫反射与金属镜面 F0 各自有真实区间——线性木炭约 0.02、新雪约 0.81，裸金属 F0 多在 0.50~0.98（黄金红通道可达 1.0），别填死黑 0.00 或过曝纯白 1.00。',
+        '家规三（别乱动 Specular）：传统面板的 Specular（0~1）只覆盖非金属 0%~8% 正入射反射率（默认 0.5 精准对应 4%），对纯金属完全无效，99% 情况下保持默认不动！',
+        '一张 BaseColor 靠 Metallic 分饰两角：Metallic = 0 时它当漫反射颜料；Metallic = 1 时漫反射归零，它转行去当带色的正入射镜面反射率 F0。',
       ],
       steps: [
         {
@@ -5474,15 +5624,15 @@ const module08: ModuleDefinition = {
           stepNumber: 4,
           shortLabel: 'UE5落地',
           tag: 'ue5',
-          title: '走进 UE 5.8：查表填色不靠猜，彻底告别 Specular 手痒症',
+          title: '走进 UE 5.8：牢记三条物理家规，查表填色告别 Specular 手痒症',
           paragraphs: [
-            '用线性数值核对参考：非金属木炭 0.02、新雪 0.81 是漫反射强度。金属铁 (0.560, 0.570, 0.580)、金 (1.000, 0.766, 0.336) 是 RGB 镜面颜色。比较截图时先确认显示编码与曝光。',
-            '③ 除非你在做罕见的宝石水晶（如钻石 `F0=0.17`）或深邃裂缝微遮蔽，否则传统材质上的 `Specular` 插口**空着不连（保持默认 `0.5`）就是最标准的物理 `4%` 反射率**！',
+            '**① 金属度非 0 即 1**：均匀绝缘体填 `0`、均匀裸金属填 `1`，生锈/掉漆表面用黑白遮罩贴图区分区域；**② 查物理表填 BaseColor**：用线性数值核对参考——非金属木炭约 `0.02`、新雪约 `0.81` 是漫反射强度；金属铁 `(0.560, 0.570, 0.580)`、金 `(1.000, 0.766, 0.336)` 是 RGB 镜面反射色（比较截图时先确认显示编码与曝光）。',
+            '**③ 别手痒乱调旧版 Specular**：传统材质上的 `Specular`（`0 ~ 1`）只覆盖非金属 **`0% ~ 8%`** 的正入射反射率（`0.08 × Specular`），普通非金属**空着不连（保持默认 `0.5` = `4%`）**最标准；如果真的要做钻石（`F0 = 0.17`）这类超过 `8%` 上限的高折射率宝石，请直接交给 UE 5.8 **`Substrate Slab BSDF` 的 `F0`** 引脚来表达！',
           ],
           tryItPrompt: '点开右上角「原理图」标签，看清 OneMinus(1-M) 与 Lerp(0.04, BaseColor, M) 这两条算式是如何完美解释刚才两张 X 光卡的变化的。',
           callout: {
             tone: 'ue58',
-          title: '常见金属线性 RGB 参考',
+            title: '常见金属线性 RGB 参考',
             body: '金 (1.000, 0.766, 0.336)，铜 (0.955, 0.637, 0.538)，银 (0.972, 0.960, 0.915)。',
           },
         },
@@ -5495,11 +5645,11 @@ const module08: ModuleDefinition = {
             '用均匀 Metallic=0.5 与生锈铁盾预设比较。均匀中间值展示插值过程，铁盾则按覆盖位置取裸铁或铁锈。',
             '制作发蓝钢、氧化层或涂漆表面时，先确定实际表层材质。裸铁的金属 RGB 参考只适用于裸露区域。粗糙度改变反射分布，不能替代氧化层的吸收与着色。',
           ],
-          tryItPrompt: '点击「🪙 24K 纯金」，把色相无视、饱和度降低或看「生锈铁盾」的精钢部分，调高 Roughness 到 0.45 体验深沉厚重暗钢的正确调法！',
+          tryItPrompt: '点击「🛡️ 生锈铁盾」或「🪙 24K 纯金」，把「✨ 粗糙度 Roughness」拖到 0.45，体验在保持 Metallic = 1 的前提下调出深沉厚重暗钢的正确方法！',
           callout: {
             tone: 'warn',
             title: '三句保命家规口诀',
-            body: '查清材质类别与颜色空间，再核对 BaseColor 的物理意义。默认传统 Specular=0.5 对应常见非金属正入射 F0=0.04。',
+            body: '① 金属度非 0 即 1（生锈掉漆靠遮罩）；② 颜色按物理范围查表（远离死黑 0.00 与纯白 1.00）；③ 传统 Specular 留默认 0.5（4% F0，高折射宝石交给 Substrate F0）！',
           },
         },
       ],
@@ -5512,14 +5662,14 @@ const module08: ModuleDefinition = {
       title: '拥抱 UE 5.8 默认新主角 Substrate（材质层板） —— 看懂 Front Material 与传统贴图无缝桥接',
       subtitle: '告别死板着色模型下拉菜单：一颗翻译官节点打通传统三张贴图与 Substrate Slab 物理积木',
       duration: '13 分钟',
-      difficulty: '实战',
+      difficulty: '进阶',
       StageComponent: Stage8_4_SubstrateBridge,
       schematic: schematic8_4,
       takeaways: [
-        'UE 5.7 起新项目默认启用 Substrate。升级已有工程时应检查项目设置；5.8.1 的空白新材质仍可从传统根节点开始。',
-        '右键材质根节点选择 Convert to Substrate。检查转换生成的节点，再让所需 Slab 的输出连接 Front Material。',
+        'UE 5.7 起新项目默认启用 Substrate。升级已有工程时应检查项目设置；UE 5.8 的空白新材质仍可从传统根节点开始。',
+        '右键材质根节点选择 Convert to Substrate。检查转换生成的节点，再让所需 Slab 的 BSDF 输出连接 Front Material。',
         'Substrate Slab 直接暴露上一节刚学透的物理真名：Diffuse Albedo（漫反射色）与 F0（正视镜面反射色）！',
-        '手里传统的 BaseColor + Metallic 贴图无需重画！串一颗官方翻译官节点 Metalness-To-DiffuseAlbedo-F0 即可一秒无缝桥接，还能随时像乐高一样往上叠透明清漆薄片！',
+        '手里传统的 BaseColor + Metallic 贴图无需重画！串一颗官方翻译官节点 Substrate Metalness-To-DiffuseAlbedo-F0 即可一秒无缝桥接，还能随时像乐高一样往上叠透明清漆薄片！',
       ],
       steps: [
         {
@@ -5528,7 +5678,7 @@ const module08: ModuleDefinition = {
           tag: 'phenomenon',
           title: '创建空白材质，再切换到显式 Substrate 工作流',
           paragraphs: [
-            '在启用 Substrate 的 UE 5.8.1 项目中新建 Material 并打开。空白材质会显示传统输入，初始表达式数为 0，Front Material 未连接。右键根节点选择 **Convert to Substrate**，再观察生成的节点。',
+            '在启用 Substrate 的 UE 5.8 项目中新建 Material 并打开。空白材质会显示传统输入，初始表达式数为 0，Front Material 未连接。右键根节点选择 **Convert to Substrate**，再观察生成的节点。',
             '工程是否启用 Substrate、材质是否采用显式 Front Material 图，这两个状态可以分别检查。升级的工程可能保留原项目设置。',
           ],
           tryItPrompt: '观察舞台中央的四站式节点流水线，依次点击上方「🔶 紫铜」、「🏺 青花瓷」、「🛞 黑橡胶」三个预设，看参数是如何一路流进右侧紫色根节点的！',
@@ -5553,10 +5703,10 @@ const module08: ModuleDefinition = {
           stepNumber: 3,
           shortLabel: '翻译官桥接',
           tag: 'experiment',
-          title: '传统贴图怎么接？请出官方翻译官节点 Metalness-To-DiffuseAlbedo-F0！',
+          title: '传统贴图怎么接？请出官方翻译官节点 Substrate Metalness-To-DiffuseAlbedo-F0！',
           paragraphs: [
             '这时候你肯定会问：“那我在 Substance Painter 或贴图库里导出的全还是传统的 `BaseColor + Metallic + Roughness` 三张图，怎么插进 `Diffuse Albedo` 和 `F0` 里呀？”',
-            '看舞台中央第 **② 号蓝色卡片**——Epic 官方早就贴心地内置了一颗“翻译官”辅助节点，名字直白得可爱，就叫 **`Metalness-To-DiffuseAlbedo-F0`**！你把传统 `BaseColor` 和 `Metallic` 从左边喂给它，它肚子里的两行算式瞬间帮你翻译出精准的 `Diffuse Albedo` 与 `F0` 送进右边的 `Substrate Slab`！试着拖动下方滑块，看整条桥上的数字实时跳动！',
+            '看舞台中央第 **② 号蓝色卡片**——Epic 官方早就贴心地内置了一颗“翻译官”辅助节点，全名叫 **`Substrate Metalness-To-DiffuseAlbedo-F0`**！你把传统 `BaseColor` 和 `Metallic` 从左边喂给它，它肚子里的两行算式瞬间帮你翻译出精准的 `Diffuse Albedo` 与 `F0` 送进右边的 `Substrate Slab`！试着拖动下方滑块，看整条桥上的数字实时跳动！',
           ],
           tryItPrompt: '把「传统 Metallic 贴图值」从 0 拖到 1，实时紧盯②号翻译官节点是如何把③号 Slab 的 Diffuse 归零并把颜色转移进 F0 的！',
         },
@@ -5566,14 +5716,14 @@ const module08: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8 实操：记住这套开箱即用的标准四步连法',
           paragraphs: [
-            '先转换材质，再拖入 BaseColor、ORM 和 Normal 贴图。搜 `Substrate Metalness-To-DiffuseAlbedo-F0`：BaseColor.RGB 接 Base Color，ORM.B 接 Metallic，Specular 保留默认 0.5。',
-            '③ 把翻译出来的 `Diffuse Albedo` 和 `F0` 连同 `ORM` 绿通道（`Roughness`）、法线一起插进 **`Substrate Slab BSDF`**；④ 把层板输出连进根节点紫色的 **`Front Material`**，再把 `ORM` 红通道单独连进根节点的 **`Ambient Occlusion`**——大功告成！',
+            '**①** 右键材质根节点选择 **Convert to Substrate**，再拖入 `BaseColor`、`ORM` 和 `Normal` 贴图；**②** 搜索并放入 **`Substrate Metalness-To-DiffuseAlbedo-F0`**，把 `BaseColor.RGB` 接进 `Base Color`，`ORM.B` 接进 `Metallic`，`Specular` 保留默认 `0.5`。',
+            '**③** 把翻译出来的 `Diffuse Albedo` 和 `F0` 连同 `ORM` 绿通道（`Roughness`）、法线一起插进 **`Substrate Slab BSDF`**；**④** 把层板的 **`BSDF`** 输出连进根节点紫色的 **`Front Material`**，再把 `ORM` 红通道单独连进根节点的 **`Ambient Occlusion`**——大功告成！',
           ],
           tryItPrompt: '点击舞台右上角的「原理图」按钮，完整浏览一遍这套 UE 5.8 最核心的工业级母材质标准连线图！',
           callout: {
             tone: 'tip',
             title: '第 10 章高阶效果提前剧透',
-            body: '到了第 10 章做翡翠玉石透光时，我们只需调节同一块 Substrate Slab 上的 MFP（平均自由程）引脚；做二次元卡通只需换一块 Substrate Toon BSDF 积木——学会这一块积木，后面一通百通！',
+            body: '到了第 10 章做翡翠玉石透光时，我们只需调节同一块 Substrate Slab 上的 MFP（平均自由程）引脚；做二次元卡通还可以尝试 UE 5.8 的实验性节点 Substrate Toon BSDF 积木——学会这一块积木，后面一通百通！',
           },
         },
         {

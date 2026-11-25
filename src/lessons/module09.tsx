@@ -23,12 +23,13 @@ import {
   StageToggle,
   PitfallCompareBar,
 } from '../components/ui/StageWidgets';
+import { module09PerfLessons } from './module09Perf';
 
 // ============================================================================
 // Shared Heatmaps & Procedural Helpers
 // ============================================================================
 
-/** UE 5.8 Quad Overdraw / Shader Complexity ramp: Emerald Green -> Red -> Pink/White */
+/** UE 5.8 Shader Complexity / Overdraw ramp: Emerald Green -> Red -> Pink/White */
 function sampleComplexityRamp(level: number): [number, number, number] {
   if (level <= 0) return [14, 18, 24];
   if (level <= 1) return [22, 132, 64]; // 1x 翠绿
@@ -185,7 +186,7 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
     if (prevResetRef.current === resetSignal) return;
     prevResetRef.current = resetSignal;
     setBufferMode('lit');
-    setBlendMode('masked');
+    setBlendMode(prevStepRef.current === 0 ? 'opaque' : 'masked');
     setClipValue(0.33);
   }, [resetSignal]);
 
@@ -196,9 +197,14 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
       depth: '测距底片 (SceneDepth)',
       normal: '法线底片 (Normal)',
       roughness: '粗糙度底片 (Roughness)',
-      overdraw: '过绘制 (Quad Overdraw)',
+      overdraw: '着色复杂度 (Shader Complexity)',
     };
-    const layerCost = blendMode === 'translucent' ? '多层混合' : blendMode === 'masked' ? '保留片段写深度' : '整张卡片写深度';
+    const layerCost =
+      blendMode === 'translucent'
+        ? '多层半透明叠加爆红'
+        : blendMode === 'masked'
+        ? '写深度防叠层（clip 略贵于 Opaque）'
+        : '最快 Early-Z（但黑框穿帮）';
     const gbufferWrite =
       blendMode === 'translucent' ? '不进底片室 / 不写深度' : '完整写入 GBuffer + 深度';
     const tone =
@@ -218,9 +224,9 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
       },
       { label: 'GBuffer 与深度写入', value: gbufferWrite, tone },
       {
-        label: '热图表示的处理方式',
+        label: '管线绘制开销特性',
         value: layerCost,
-        tone: blendMode === 'translucent' ? 'bad' : 'good',
+        tone: blendMode === 'translucent' ? 'bad' : blendMode === 'masked' ? 'good' : 'warn',
       },
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -610,14 +616,14 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
     // Top-left UE 5.8 Viewport Pill
     const titleMap: Record<BufferViewMode, string> = {
       lit: '🎥 视口模式：最终彩色画面 (Lit)',
-      depth: '📡 视口模式：摄像机测距雷达图 (SceneDepth · 近黑远白)',
+      depth: '📡 视口模式：摄像机测距底片 (SceneDepth · cm · 近黑远白)',
       normal: '🧭 视口模式：GBuffer 法线底片 (World Normal)',
       roughness: '🪞 视口模式：GBuffer 粗糙度底片 (Roughness · 黑滑白糙)',
-      overdraw: '🔥 教学热图 · 片元覆盖与混合累加示意',
+      overdraw: '🔥 视口模式：着色复杂度热图 (Shader Complexity · Alt+8)',
     };
     ctx.fillStyle = 'rgba(18, 16, 15, 0.82)';
     ctx.beginPath();
-    ctx.roundRect(12, 10, 412, 28, 7);
+    ctx.roundRect(12, 10, 446, 28, 7);
     ctx.fill();
     ctx.fillStyle = '#f8f5ee';
     ctx.font = '700 12.5px "Noto Sans SC", sans-serif';
@@ -642,7 +648,7 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
       if (blendMode === 'opaque') {
         drawCalloutTag(295, 225, '⚠️ Opaque 把透明空白全涂成了死黑方框！', 'rgba(168, 36, 26, 0.9)');
       } else if (blendMode === 'translucent') {
-        drawCalloutTag(295, 225, '⚠️ Translucent 不写深度，前后叶片乱穿发灰！', 'rgba(176, 52, 22, 0.9)');
+        drawCalloutTag(295, 225, '⚠️ Translucent 按中心点排序不写深度，前后叶片乱穿发灰！', 'rgba(176, 52, 22, 0.9)');
       } else {
         drawCalloutTag(295, 225, '✅ Masked 利落抠出叶缝，前后遮挡严丝合缝', 'rgba(38, 102, 42, 0.9)');
       }
@@ -650,15 +656,19 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
     } else if (bufferMode === 'depth' || bufferMode === 'normal' || bufferMode === 'roughness') {
       if (blendMode === 'translucent') {
         drawCalloutTag(295, 195, '👻 整丛半透明灌木在底片室里直接隐形消失了！', 'rgba(155, 32, 92, 0.92)');
+      } else if (blendMode === 'opaque') {
+        drawCalloutTag(295, 195, '⚠️ Opaque 整张黑方框卡片直接写入底片室！', 'rgba(180, 83, 9, 0.92)');
       } else {
-        drawCalloutTag(295, 195, '✅ 镂空叶片完整写入底片室，后续 DepthFade 全靠它', 'rgba(38, 102, 42, 0.9)');
+        drawCalloutTag(295, 195, '✅ Masked 镂空叶片精准写入底片室，供深度测距使用', 'rgba(38, 102, 42, 0.9)');
       }
       drawCalloutTag(532, 148, '视线直接穿透玻璃看到后方石柱！', 'rgba(22, 74, 110, 0.88)');
     } else if (bufferMode === 'overdraw') {
       if (blendMode === 'translucent') {
-        drawCalloutTag(295, 188, '💥 5 张半透明卡片重叠，示意色加深', 'rgba(182, 22, 48, 0.94)');
+        drawCalloutTag(295, 188, '💥 5 张半透明卡片重叠，Shader Complexity 烧成粉红/粉白！', 'rgba(182, 22, 48, 0.94)');
+      } else if (blendMode === 'opaque') {
+        drawCalloutTag(295, 188, '🟦 Opaque 整块方框挡住后方（最快，但叶片黑板穿帮）', 'rgba(180, 83, 9, 0.92)');
       } else {
-        drawCalloutTag(295, 188, '🌿 Masked 提前剔除遮挡，整片树丛保持翠绿低耗!', 'rgba(32, 98, 44, 0.92)');
+        drawCalloutTag(295, 188, '🌿 Masked 写深度防多层重绘（clip 略贵于 Opaque，远省于半透明）', 'rgba(32, 98, 44, 0.92)');
       }
     }
 
@@ -680,20 +690,20 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
       ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
       ctx.fillText('翠绿1x(极省)  →  暗红  →  粉白12x+(爆表)', lx + 10, ly + 28);
     } else if (bufferMode === 'depth') {
-      const lx = 450;
+      const lx = 398;
       const ly = 318;
       ctx.fillStyle = 'rgba(16, 15, 14, 0.84)';
       ctx.beginPath();
-      ctx.roundRect(lx, ly, 218, 32, 7);
+      ctx.roundRect(lx, ly, 270, 32, 7);
       ctx.fill();
-      const grad = ctx.createLinearGradient(lx + 10, 0, lx + 206, 0);
+      const grad = ctx.createLinearGradient(lx + 10, 0, lx + 258, 0);
       grad.addColorStop(0, '#101216');
       grad.addColorStop(1, '#ffffff');
       ctx.fillStyle = grad;
-      ctx.fillRect(lx + 10, ly + 7, 196, 9);
+      ctx.fillRect(lx + 10, ly + 7, 248, 9);
       ctx.fillStyle = '#e8e2d8';
       ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-      ctx.fillText('近处 4m (纯黑) ──────► 远处 25m+ (纯白)', lx + 10, ly + 28);
+      ctx.fillText('近处 400 cm (4m·黑) ───► 远处 2500 cm+ (25m+·白)', lx + 10, ly + 28);
     }
 
     // Hover crosshair
@@ -715,7 +725,14 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
     const bx = clamp(Math.floor((cx / canvas.width) * renderedBuffers.W), 0, renderedBuffers.W - 1);
     const by = clamp(Math.floor((cy / canvas.height) * renderedBuffers.H), 0, renderedBuffers.H - 1);
     const idx = by * renderedBuffers.W + bx;
-    const tagNames = ['远景天空', '石砖地面', '雕花石柱', '多层灌木丛', '玻璃铜框', '半透明玻璃窗'];
+    const tagNames = [
+      '远景天空',
+      '石砖地面',
+      '雕花石柱',
+      '多层灌木丛',
+      '玻璃铜框',
+      '半透明玻璃窗（底片读数来自背后不透明石柱）',
+    ];
     setHoverInfo({
       x: cx,
       y: cy,
@@ -730,9 +747,13 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {stepIndex === 4 && (
         <PitfallCompareBar
-          isPitfall={blendMode === 'translucent'}
-          pitfallLabel="树丛误用 Translucent 半透明（不进底片室乱穿 + 过绘制粉白爆表）"
-          correctLabel="树丛使用 Masked 遮罩镂空（利落写深度进 GBuffer + 翠绿超省电）"
+          isPitfall={blendMode !== 'masked'}
+          pitfallLabel={
+            blendMode === 'opaque'
+              ? '树丛误用 Opaque 不透明（透明空白区全变死黑方框穿帮）'
+              : '树丛误用 Translucent 半透明（不进底片室乱穿 + Shader Complexity 粉白爆表）'
+          }
+          correctLabel="树丛使用 Masked 遮罩镂空（利落写深度进 GBuffer + 翠绿可控低耗）"
           onToggle={(pit) => {
             setBlendMode(pit ? 'translucent' : 'masked');
             setBufferMode('overdraw');
@@ -781,9 +802,11 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
             <span>
               SceneDepth:{' '}
               <strong>
-                {hoverInfo.depth > 100 ? '∞ (天空)' : `${hoverInfo.depth.toFixed(1)} m`}
+                {hoverInfo.depth > 100
+                  ? '∞ (天空)'
+                  : `${Math.round(hoverInfo.depth * 100)} cm (${hoverInfo.depth.toFixed(1)} m)`}
               </strong>{' '}
-              | Roughness: <strong>{hoverInfo.rough.toFixed(2)}</strong> | 重绘层数:{' '}
+              | Roughness: <strong>{hoverInfo.rough.toFixed(2)}</strong> | 叠加层数:{' '}
               <strong style={{ color: hoverInfo.overdraw >= 8 ? '#d92d20' : '#2f7a24' }}>
                 {hoverInfo.overdraw}x
               </strong>
@@ -799,10 +822,10 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
           onChange={setBufferMode}
           options={[
             { value: 'lit', label: '最终彩色画面 (Lit)' },
-            { value: 'depth', label: '摄像机测距雷达图 (SceneDepth)' },
+            { value: 'depth', label: '摄像机测距底片 (SceneDepth)' },
             { value: 'normal', label: '法线底片 (World Normal)' },
             { value: 'roughness', label: '粗糙度底片 (Roughness)' },
-            { value: 'overdraw', label: '过绘制热力图 (Quad Overdraw)' },
+            { value: 'overdraw', label: '着色复杂度热图 (Shader Complexity)' },
           ]}
         />
 
@@ -845,7 +868,7 @@ const Stage9_1_GBufferBlend: React.FC<LessonStageProps> = ({
             >
               {blendMode === 'opaque'
                 ? '💡 Opaque 完全无视透明通道，把整张长方形面片连同黑底一起画了出来！'
-                : '💡 切到 SceneDepth 或 Overdraw 看看：半透明树叶既没写深度，又把热力图烧成了粉白色！'}
+                : '💡 切到 SceneDepth 或 Shader Complexity 看看：半透明树叶既没写深度，又把热图烧成了粉白色！'}
             </div>
           )}
         </div>
@@ -902,25 +925,33 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
 
   // Update KPI strip (depend ONLY on primitives)
   useEffect(() => {
+    const activeDisp = windSpeed <= 0.05 ? 0 : windAmp;
+    const recMaxWpo = Math.ceil(activeDisp * 1.25);
     onKpiUpdate([
       {
-        label: '两侧中央草片的顶点',
-        value: '4 + 16 = 20 个',
+        label: '当前 WPO 峰值位移',
+        value:
+          activeDisp === 0
+            ? '0 cm (风已静止)'
+            : `±${activeDisp} cm · ${windSpeed.toFixed(1)}x 频速`,
+        tone: activeDisp > 48 ? 'warn' : 'accent',
+      },
+      {
+        label: '单株顶点 : 像素规模比',
+        value: '16 顶点 vs 42,000 像素 (1:2625)',
         tone: 'good',
       },
       {
-        label: '假设单次绘制覆盖',
-        value: '42,000 个像素',
-        tone: 'accent',
-      },
-      {
-        label: 'GPU 耗时',
-        value: '须在目标机测量',
-        tone: 'good',
+        label: '建议 Max WPO 位移上限',
+        value:
+          activeDisp === 0
+            ? '0 cm (无位移)'
+            : `${recMaxWpo} cm (${activeDisp > 45 ? '需调大防闪灭' : '安全'})`,
+        tone: activeDisp > 45 ? 'warn' : 'good',
       },
       {
         label: '草根 (1-V) 钉死状态',
-        value: pinRoot ? '✅ 草根稳扎泥土' : '⚠️ 未钉死 · 连根滑冰!',
+        value: pinRoot ? '✅ 草根乘 0 稳扎泥土' : '⚠️ 未钉死 · 连根滑冰!',
         tone: pinRoot ? 'good' : 'bad',
       },
     ]);
@@ -1386,7 +1417,7 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
       setSwitchCount(3);
     } else if (stepIndex === 4) {
       setTabMode('switches');
-      setSwitchCount(4);
+      setSwitchCount(2);
     }
   }, [stepIndex]);
 
@@ -1709,9 +1740,10 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     ctx.fillRect(0, 0, W, H);
 
     const permutations = Math.pow(2, switchCount);
+    const usedCombinations = new Set([0, 0, switchCount > 0 && !shareStaticSettings ? 1 : 0]).size;
     const visualDepth = Math.min(switchCount, 5); // Draw exact binary nodes up to depth 5 (32 nodes), then fan burst for 6..10!
     const leftX = 68;
-    const rightX = switchCount > 5 ? W - 185 : W - 95;
+    const rightX = switchCount > 5 ? W - 210 : W - 155;
     const topPad = 46;
     const botPad = 24;
     const usableH = H - topPad - botPad;
@@ -1740,7 +1772,9 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
             : '#b91c1c';
     ctx.font = '700 12px "JetBrains Mono", "Noto Sans SC", sans-serif';
     ctx.fillText(
-      `独立静态开关的组合上限：2^${switchCount} = ${permutations.toLocaleString()} 种取值`,
+      `组合上限 2^${switchCount} = ${permutations.toLocaleString()} 种  |  3 个示例实例实际使用：${usedCombinations} 种组合 ${
+        shareStaticSettings ? '(已合并共享 ✅)' : '(分叉独立)'
+      }`,
       22,
       26
     );
@@ -1766,11 +1800,21 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
       ctx.fillStyle = isDark ? '#f8fafc' : '#1e293b';
       ctx.font = '700 12.5px "Noto Sans SC", sans-serif';
       ctx.fillText('M_Master 母材质', leftX - 42, midY + 26);
-      ctx.fillText('2⁰ = 1 种开关组合', W - 240, midY + 26);
+      ctx.fillText('2⁰ = 1 种开关组合 (3 个实例共享)', W - 260, midY + 26);
       return;
     }
 
     // Draw binary tree levels 0 .. visualDepth
+    // Active path A (all False -> top branch k=0 at every level) is always used by MI_Barrel + MI_Relic.
+    // Active path B (first switch True -> k=1 at lv=1 then all False, i.e. leaf index 1<<(visualDepth-1)) is used by MI_Shield when !shareStaticSettings.
+    const pathBLeaf = 1 << (visualDepth - 1);
+    const isEdgeOnPathA = (lv: number, k: number, isTrueBranch: boolean) => k === 0 && !isTrueBranch && lv >= 0;
+    const isEdgeOnPathB = (lv: number, k: number, isTrueBranch: boolean) => {
+      if (shareStaticSettings) return false;
+      if (lv === 0) return k === 0 && isTrueBranch;
+      return k === (1 << (lv - 1)) && !isTrueBranch;
+    };
+
     for (let lv = 0; lv < visualDepth; lv++) {
       const count = 1 << lv;
       const x0 = lerp(leftX, rightX, lv / visualDepth);
@@ -1778,44 +1822,52 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
 
       for (let k = 0; k < count; k++) {
         const y0 = topPad + ((k + 0.5) / count) * usableH;
-        const yTrue = topPad + ((2 * k + 0.5) / (count * 2)) * usableH;
-        const yFalse = topPad + ((2 * k + 1.5) / (count * 2)) * usableH;
+        const yFalse = topPad + ((2 * k + 0.5) / (count * 2)) * usableH;
+        const yTrue = topPad + ((2 * k + 1.5) / (count * 2)) * usableH;
 
-        // True branch
-        ctx.strokeStyle =
-          switchCount <= 3
-            ? isDark
-              ? 'rgba(74, 222, 128, 0.85)'
-              : 'rgba(22, 163, 74, 0.85)'
-            : switchCount <= 6
+        // False branch (top child)
+        const activeAF = isEdgeOnPathA(lv, k, false);
+        const activeBF = isEdgeOnPathB(lv, k, false);
+        ctx.strokeStyle = activeAF
+          ? '#22c55e'
+          : activeBF
+            ? '#38bdf8'
+            : switchCount <= 3
               ? isDark
-                ? 'rgba(250, 204, 21, 0.8)'
-                : 'rgba(217, 119, 6, 0.85)'
-              : isDark
-                ? 'rgba(248, 113, 113, 0.8)'
-                : 'rgba(220, 38, 38, 0.8)';
-        ctx.lineWidth = Math.max(1.0, 2.6 - lv * 0.35);
-        ctx.beginPath();
-        ctx.moveTo(x0, y0);
-        ctx.bezierCurveTo((x0 + x1) * 0.5, y0, (x0 + x1) * 0.5, yTrue, x1, yTrue);
-        ctx.stroke();
-
-        // False branch
-        ctx.strokeStyle =
-          switchCount <= 3
-            ? isDark
-              ? 'rgba(96, 165, 250, 0.78)'
-              : 'rgba(37, 99, 235, 0.8)'
-            : switchCount <= 6
-              ? isDark
-                ? 'rgba(251, 146, 60, 0.78)'
-                : 'rgba(234, 88, 12, 0.8)'
-              : isDark
-                ? 'rgba(232, 121, 249, 0.75)'
-                : 'rgba(168, 85, 247, 0.78)';
+                ? 'rgba(74, 222, 128, 0.34)'
+                : 'rgba(22, 163, 74, 0.34)'
+              : switchCount <= 6
+                ? isDark
+                  ? 'rgba(250, 204, 21, 0.36)'
+                  : 'rgba(217, 119, 6, 0.36)'
+                : isDark
+                  ? 'rgba(248, 113, 113, 0.38)'
+                  : 'rgba(220, 38, 38, 0.38)';
+        ctx.lineWidth = activeAF || activeBF ? 3.2 : Math.max(1.0, 2.2 - lv * 0.3);
         ctx.beginPath();
         ctx.moveTo(x0, y0);
         ctx.bezierCurveTo((x0 + x1) * 0.5, y0, (x0 + x1) * 0.5, yFalse, x1, yFalse);
+        ctx.stroke();
+
+        // True branch (bottom child)
+        const activeBT = isEdgeOnPathB(lv, k, true);
+        ctx.strokeStyle = activeBT
+          ? '#38bdf8'
+          : switchCount <= 3
+            ? isDark
+              ? 'rgba(96, 165, 250, 0.32)'
+              : 'rgba(37, 99, 235, 0.32)'
+            : switchCount <= 6
+              ? isDark
+                ? 'rgba(251, 146, 60, 0.34)'
+                : 'rgba(234, 88, 12, 0.34)'
+              : isDark
+                ? 'rgba(232, 121, 249, 0.34)'
+                : 'rgba(168, 85, 247, 0.34)';
+        ctx.lineWidth = activeBT ? 3.2 : Math.max(1.0, 2.2 - lv * 0.3);
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.bezierCurveTo((x0 + x1) * 0.5, y0, (x0 + x1) * 0.5, yTrue, x1, yTrue);
         ctx.stroke();
 
         ctx.fillStyle = isDark ? '#f8fafc' : '#1e293b';
@@ -1829,26 +1881,83 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     const leafVisCount = 1 << visualDepth;
     for (let k = 0; k < leafVisCount; k++) {
       const y = topPad + ((k + 0.5) / leafVisCount) * usableH;
-      ctx.fillStyle =
-        switchCount <= 3
-          ? isDark
-            ? '#4ade80'
-            : '#16a34a'
-          : switchCount <= 6
+      const isA = k === 0;
+      const isB = !shareStaticSettings && k === pathBLeaf;
+      ctx.fillStyle = isA
+        ? '#22c55e'
+        : isB
+          ? '#38bdf8'
+          : switchCount <= 3
             ? isDark
-              ? '#facc15'
-              : '#d97706'
-            : isDark
-              ? '#f87171'
-              : '#dc2626';
+              ? 'rgba(74, 222, 128, 0.45)'
+              : 'rgba(22, 163, 74, 0.45)'
+            : switchCount <= 6
+              ? isDark
+                ? 'rgba(250, 204, 21, 0.55)'
+                : 'rgba(217, 119, 6, 0.55)'
+              : isDark
+                ? 'rgba(248, 113, 113, 0.65)'
+                : 'rgba(220, 38, 38, 0.65)';
       ctx.beginPath();
-      ctx.arc(rightX, y, visualDepth >= 5 ? 2.4 : 4, 0, Math.PI * 2);
+      ctx.arc(rightX, y, isA || isB ? 5.2 : visualDepth >= 5 ? 2.4 : 3.6, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // Instance path badges on the right for clear shareStaticSettings visual feedback
+    const yLeafA = topPad + (0.5 / leafVisCount) * usableH;
+    const yLeafB = topPad + ((pathBLeaf + 0.5) / leafVisCount) * usableH;
+    const drawBranchPill = (bx: number, by: number, text: string, bg: string, border: string) => {
+      ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
+      const w = ctx.measureText(text).width + 14;
+      const clampedY = clamp(by, topPad + 12, H - 22);
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.roundRect(bx, clampedY - 11, w, 22, 6);
+      ctx.fill();
+      ctx.strokeStyle = border;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(text, bx + 7, clampedY + 3.5);
+    };
+
+    if (switchCount <= 5) {
+      if (shareStaticSettings) {
+        drawBranchPill(
+          rightX + 10,
+          yLeafA,
+          '✅ 3 个实例合并共享 1 路',
+          'rgba(21, 128, 61, 0.92)',
+          '#86efac'
+        );
+        drawBranchPill(
+          rightX + 10,
+          yLeafB,
+          '○ 重复分支已归零省编',
+          isDark ? 'rgba(51, 65, 85, 0.72)' : 'rgba(100, 116, 139, 0.72)',
+          'rgba(148, 163, 184, 0.6)'
+        );
+      } else {
+        drawBranchPill(
+          rightX + 10,
+          yLeafA,
+          '🌿 组合 A：酒桶 + 宝珠',
+          'rgba(21, 128, 61, 0.92)',
+          '#86efac'
+        );
+        drawBranchPill(
+          rightX + 10,
+          yLeafB,
+          '🛡️ 组合 B：圆盾独立分叉',
+          'rgba(3, 105, 161, 0.92)',
+          '#7dd3fc'
+        );
+      }
     }
 
     // If switchCount > 5 (64 .. 1,024), draw high-density fan burst to right edge!
     if (switchCount > 5) {
-      const farRightX = W - 26;
+      const farRightX = W - 18;
       const fanLines = Math.min(permutations, 192);
       for (let f = 0; f < fanLines; f++) {
         const srcIdx = Math.floor((f / fanLines) * leafVisCount);
@@ -1869,20 +1978,30 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
         ctx.stroke();
       }
 
-      ctx.fillStyle = 'rgba(153, 27, 27, 0.92)';
+      const boxW = 188;
+      const boxX = W - boxW - 12;
+      const boxY = H / 2 - 26;
+      ctx.fillStyle = 'rgba(153, 27, 27, 0.94)';
       ctx.beginPath();
-      ctx.roundRect(W - 166, H / 2 - 22, 148, 44, 8);
+      ctx.roundRect(boxX, boxY, boxW, 52, 8);
       ctx.fill();
       ctx.strokeStyle = '#fca5a5';
       ctx.lineWidth = 1.4;
       ctx.stroke();
       ctx.fillStyle = '#ffffff';
-      ctx.font = '800 13px "JetBrains Mono", monospace';
-      ctx.fillText(`${permutations.toLocaleString()} 种可能组合!`, W - 154, H / 2 - 3);
+      ctx.textAlign = 'center';
+      ctx.font = '800 13px "JetBrains Mono", "Noto Sans SC", sans-serif';
+      ctx.fillText(`${permutations.toLocaleString()} 种可能组合!`, boxX + boxW / 2, boxY + 21);
       ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-      ctx.fillText('项目可仅使用其中少数组合', W - 154, H / 2 + 14);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillText(
+        shareStaticSettings ? '当前 3 实例已合并为 1 种组合' : '当前 3 实例已分叉出 2 种组合',
+        boxX + boxW / 2,
+        boxY + 40
+      );
+      ctx.textAlign = 'start';
     }
-  }, [tabMode, switchCount, isDark]);
+  }, [tabMode, switchCount, shareStaticSettings, isDark]);
 
   const handlePropCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = propsCanvasRef.current;
@@ -1898,9 +2017,17 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {stepIndex === 4 && (
         <PitfallCompareBar
-          isPitfall={switchCount >= 8}
-          pitfallLabel="10 个开关，最多 1,024 种组合"
-          correctLabel="2 个开关，最多 4 种组合"
+          isPitfall={switchCount >= 7}
+          pitfallLabel={
+            switchCount >= 7
+              ? `${switchCount} 个开关，理论组合上限飙升至 ${Math.pow(2, switchCount).toLocaleString()} 种`
+              : '10 个开关，最多 1,024 种组合'
+          }
+          correctLabel={
+            switchCount < 7
+              ? `${switchCount} 个开关，最多 ${Math.pow(2, switchCount).toLocaleString()} 种组合（精简可控）`
+              : '2 个精简开关，最多 4 种组合'
+          }
           onToggle={(pit) => {
             setTabMode('switches');
             setSwitchCount(pit ? 10 : 2);
@@ -1958,16 +2085,17 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
                     border: '2px solid #f59e0b',
                     borderRadius: 11,
                     padding: '14px 22px',
-                    minWidth: 310,
+                    minWidth: 320,
                     boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
                     color: '#fef3c7',
                   }}
                 >
                   <div style={{ fontWeight: 800, fontSize: 14, fontFamily: 'var(--font-mono)' }}>
-                    编译等待动画 · {Math.round((1 - compileRemaining / 1420) * 100)}%
+                    Compiling Shaders ({compileRemaining})... ·{' '}
+                    {Math.round((1 - compileRemaining / 1420) * 100)}%
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.88, marginTop: 4 }}>
-                    UE 的实际任务量和等待时间取决于材质、平台和缓存。
+                    演示重编阻塞：UE 实际任务数与耗时取决于材质复杂度、平台与缓存。
                   </div>
                   <div
                     style={{
@@ -2188,13 +2316,15 @@ function countBits(mask: number): number {
   return c;
 }
 
+const ENGINE_RESERVED_SAMPLERS = 3; // Lightmap / Shadows / Landscape Weightmap
+
 const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
 }) => {
-  // Default: all 6 layers enabled (6 * 3 = 18 / 16 samplers -> classic [SM5] compile error!)
-  const [layerMask, setLayerMask] = useState<number>(0b111111);
+  // Default: 5 layers enabled (3 engine-reserved + 5*3 = 18 / 16 samplers -> classic [SM5] compile error!)
+  const [layerMask, setLayerMask] = useState<number>(0b011111);
   const [samplerSource, setSamplerSource] = useState<SamplerSourceMode>('asset');
   const [viewMode, setViewMode] = useState<LandscapeViewMode>('lit');
   const [multiSlabSlowPath, setMultiSlabSlowPath] = useState<boolean>(false);
@@ -2207,17 +2337,16 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
     if (prevStepRef.current === stepIndex) return;
     prevStepRef.current = stepIndex;
     if (stepIndex === 0) {
-      setLayerMask(0b111111); // 6 layers => 18/16 error!
+      setLayerMask(0b011111); // 5 layers => 3 + 15 = 18/16 error!
       setSamplerSource('asset');
       setViewMode('lit');
       setMultiSlabSlowPath(false);
     } else if (stepIndex === 1) {
-      setLayerMask(0b111111); // Keep the six-layer example for the budget explanation.
-      setSamplerSource('asset');
+      // Preserve user's layer exploration in Step 2; only make sure we're in Lit view
       setViewMode('lit');
     } else if (stepIndex === 2) {
-      setLayerMask(0b111111); // 6 layers => let user flip Shared: Wrap!
-      setSamplerSource('asset');
+      // Step 3: ensure at least 5 layers so user can rescue the 18/16 compile error with Shared: Wrap
+      setLayerMask((prev) => (countBits(prev) < 5 ? 0b011111 : prev));
       setViewMode('lit');
     } else if (stepIndex === 3) {
       setLayerMask(0b111111);
@@ -2235,20 +2364,20 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
   useEffect(() => {
     if (prevResetRef.current === resetSignal) return;
     prevResetRef.current = resetSignal;
-    setLayerMask(0b111111);
-    setSamplerSource('shared_wrap');
+    setLayerMask(prevStepRef.current === 0 ? 0b011111 : 0b111111);
+    setSamplerSource(prevStepRef.current <= 2 ? 'asset' : 'shared_wrap');
     setViewMode('lit');
     setMultiSlabSlowPath(false);
   }, [resetSignal]);
 
   const activeLayerCount = countBits(layerMask);
   const totalTextures = activeLayerCount * 3;
-  const usedSamplers = samplerSource === 'shared_wrap' ? 1 : totalTextures;
+  const usedSamplers =
+    ENGINE_RESERVED_SAMPLERS + (samplerSource === 'shared_wrap' ? 1 : totalTextures);
   const isCompileError = usedSamplers > 16;
 
   // Update KPI cards (primitive dependencies ONLY)
   useEffect(() => {
-
     onKpiUpdate([
       {
         label: '已启用地形层数',
@@ -2256,23 +2385,30 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
         tone: 'neutral',
       },
       {
-        label: '样例采样器槽位',
-        value: `${usedSamplers} / 16`,
+        label: '已占采样器槽位 (含引擎 3 槽)',
+        value:
+          samplerSource === 'shared_wrap'
+            ? `${usedSamplers} / 16 (Shared: Wrap 共享 ✅)`
+            : `${usedSamplers} / 16 (引擎 3 + 独立 ${totalTextures})`,
         tone: isCompileError ? 'bad' : usedSamplers >= 14 ? 'warn' : 'good',
       },
       {
-        label: '示例预算检查',
-        value: isCompileError ? '超出假定的 16 槽' : '在假定的预算内',
-        tone: isCompileError ? 'bad' : 'good',
+        label: 'UE 5.8 编译与层板状态',
+        value: isCompileError
+          ? '❌ 超过 16 槽报错罢工'
+          : multiSlabSlowPath
+          ? '⚠️ 多层板慢道 (高耗红/品红)'
+          : '✅ 单层板合并快道 (青绿低耗)',
+        tone: isCompileError || multiSlabSlowPath ? 'bad' : 'good',
       },
       {
-        label: '示例纹理读取 / 像素',
-        value: `${totalTextures} 次（每图一次）`,
-        tone: 'neutral',
+        label: '每像素纹理读取 (Lookups)',
+        value: `${totalTextures} 次 (共享不减读取次数)`,
+        tone: 'accent',
       },
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLayerCount, totalTextures, usedSamplers, isCompileError]);
+  }, [activeLayerCount, totalTextures, usedSamplers, isCompileError, samplerSource, multiSlabSlowPath]);
 
   const toggleLayerBit = (bit: number) => {
     setLayerMask((prev) => {
@@ -2356,8 +2492,9 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
         const hFwd = sampleTerrainHeight(wx, wz + eps);
         const N: Vec3 = norm3([(hCenter - hRight) / eps, 1.0, (hCenter - hFwd) / eps]);
 
-        // If [SM5] Exceeded 16 samplers compile failure -> UE Default WorldGrid Gray Checkerboard!
-        if (isCompileError) {
+        // In Lit view, [SM5] Exceeded 16 samplers compile failure falls back to UE Default WorldGrid Gray Checkerboard!
+        // In complexity/substrate views, keep showing the heatmap/classification so slow-path cost remains clearly visible!
+        if (isCompileError && viewMode === 'lit') {
           const g1 = (Math.floor(wx * 1.6) + Math.floor(wz * 1.6)) & 1;
           const subG = (Math.floor(wx * 6.4) + Math.floor(wz * 6.4)) & 1;
           const checkerVal = g1 ? (subG ? 0.42 : 0.36) : subG ? 0.22 : 0.18;
@@ -2428,7 +2565,7 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
           img[p4 + 2] = Math.round(litCol[2] * 255);
         } else if (viewMode === 'complexity') {
           // Shader Complexity Heatmap: Fast-path blended single slab stays emerald/lime (2~4);
-          // Multi-slab slow-path evaluates 6 full BSDF closures -> explodes into red/magenta (8~11)!
+          // Multi-slab slow-path evaluates multiple full BSDF slabs -> explodes into red/magenta (8~11)!
           const costLevel = multiSlabSlowPath
             ? 4.2 + activeLayerCount * 0.95 + overlappingLayersHere * 0.85
             : 1.1 + activeLayerCount * 0.32 + overlappingLayersHere * 0.25;
@@ -2439,8 +2576,8 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
           img[p4 + 2] = Math.round(cb * shadeHint);
         } else {
           // UE 5.8 Substrate Material Classification Debug View!
-          // Cyan-Green = Single Simple/Standard Slab (Fast Path, 1 Closure/pixel)
-          // Amber/Magenta = Multi-Slab Complex Closure (Slow Path, multiple BSDF evaluations)
+          // Cyan-Green = Single Simple/Standard Slab (Fast Path)
+          // Amber/Magenta = Multi-Slab Complex Path (Slow Path)
           const shadeHint = 0.75 + 0.25 * Math.max(0.2, N[0] * sunDir[0] + N[1] * sunDir[1] + N[2] * sunDir[2]);
           if (!multiSlabSlowPath) {
             img[p4] = Math.round(34 * shadeHint);
@@ -2468,9 +2605,9 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
     ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
 
     // Top-left UE 5.8 Viewport & Sampler Meter Badge
-    ctx.fillStyle = 'rgba(16, 16, 18, 0.85)';
+    ctx.fillStyle = 'rgba(16, 16, 18, 0.86)';
     ctx.beginPath();
-    ctx.roundRect(12, 10, 456, 28, 7);
+    ctx.roundRect(12, 10, 520, 28, 7);
     ctx.fill();
     ctx.fillStyle = isCompileError ? '#fca5a5' : '#86efac';
     ctx.font = '700 12px "JetBrains Mono", "Noto Sans SC", sans-serif';
@@ -2478,18 +2615,18 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
       viewMode === 'lit'
         ? '地形彩色成片 (Lit)'
         : viewMode === 'complexity'
-        ? 'Shader Complexity（教学热图）'
-        : 'UE 5.8 Substrate 层板分类体检视图';
+        ? 'Shader Complexity (Alt+8)'
+        : 'UE 5.8 Substrate 层板分类视图';
     ctx.fillText(
-      `${modeTitle}  |  独立采样器: ${usedSamplers} / 16 ${
-        samplerSource === 'shared_wrap' ? '(Shared: Wrap 共享 ✅)' : ''
+      `${modeTitle}  |  已占采样器槽位: ${usedSamplers} / 16 ${
+        samplerSource === 'shared_wrap' ? '(Shared: Wrap 共享 ✅)' : '(引擎3+独立)'
       }`,
       22,
       28
     );
 
     // Classic UE [SM5] Exceeded 16 Samplers Compile Failure Banner!
-    if (isCompileError) {
+    if (isCompileError && viewMode === 'lit') {
       ctx.fillStyle = 'rgba(127, 29, 29, 0.94)';
       ctx.beginPath();
       ctx.roundRect(22, 232, 636, 68, 10);
@@ -2501,7 +2638,7 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
       ctx.fillStyle = '#fef2f2';
       ctx.font = '800 13.5px "JetBrains Mono", monospace';
       ctx.fillText(
-        `❌ [SM5] Error: Exceeded 16 samplers! (${usedSamplers} / 16 独立硬件采样器超限)`,
+        `❌ [SM5] Error: Exceeded 16 samplers! (引擎3 + 贴图${totalTextures} = ${usedSamplers} / 16 槽位超限)`,
         38,
         256
       );
@@ -2512,39 +2649,41 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
         38,
         282
       );
-    } else if (viewMode === 'substrate') {
+    } else if (viewMode === 'substrate' || viewMode === 'complexity') {
       ctx.fillStyle = 'rgba(18, 20, 24, 0.88)';
       ctx.beginPath();
       ctx.roundRect(22, 266, 636, 36, 8);
       ctx.fill();
       ctx.fillStyle = multiSlabSlowPath ? '#f9a8d4' : '#5eead4';
       ctx.font = '700 12px "Noto Sans SC", sans-serif';
+      const errPrefix = isCompileError ? '⚠️ [采样器超16槽] ' : '';
       ctx.fillText(
         multiSlabSlowPath
-          ? '多层板示意。实际闭包数由项目 GBuffer 格式与编译结果决定。'
-          : `先混合 ${totalTextures} 张纹理的属性，再送入一个 Slab。`,
+          ? `${errPrefix}多层板慢道：每层独立进 Slab 再强行混合，层板合并复杂度飙升变红/品红！`
+          : `${errPrefix}单层板快道：先混合 ${totalTextures} 张贴图属性，再统一送入 1 个 Substrate Slab！`,
         34,
         289
       );
     }
-  }, [layerMask, samplerSource, viewMode, multiSlabSlowPath, isCompileError, activeLayerCount, usedSamplers]);
+  }, [layerMask, samplerSource, viewMode, multiSlabSlowPath, isCompileError, activeLayerCount, totalTextures, usedSamplers]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {stepIndex === 4 && (
         <PitfallCompareBar
           isPitfall={isCompileError || multiSlabSlowPath}
-          pitfallLabel="默认独立采样器爆表报错 (18/16) 或堆叠多个 Substrate 层板慢道"
-          correctLabel="开启 Shared: Wrap (仅占 1/16 采样器) + 先混贴图再进单个层板快道"
+          pitfallLabel={
+            isCompileError
+              ? `采样器超限报错 (${usedSamplers}/16) 或多层板慢道飙红`
+              : '反面教材：每层各建一个 Substrate Slab 再混合（层板复杂度飙红/品红）'
+          }
+          correctLabel="正确优化：Shared: Wrap (占 4/16 槽) + 先混贴图再进单个层板快道"
           onToggle={(pit) => {
             setLayerMask(0b111111);
-            if (pit) {
-              setSamplerSource('asset');
-              setMultiSlabSlowPath(true);
-            } else {
-              setSamplerSource('shared_wrap');
-              setMultiSlabSlowPath(false);
-            }
+            // Keep Shared: Wrap enabled during fast-path vs slow-path visual compare so slow-path red/magenta is never hidden!
+            setSamplerSource('shared_wrap');
+            setMultiSlabSlowPath(pit);
+            if (viewMode === 'lit') setViewMode('substrate');
           }}
         />
       )}
@@ -2568,12 +2707,12 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 700 }}>
-              ① 点击增减地形图层（每层含颜色+法线+ORM 共 3 张贴图，超过 5 层即达 18 张）：
+              ① 点击增减地形图层（引擎预留 3 槽 + 每层 3 张贴图；第 5 层起即 18/16 超限）：
             </span>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
                 type="button"
-                onClick={() => setLayerMask(0b011111)}
+                onClick={() => setLayerMask(0b001111)}
                 style={{
                   padding: '2px 8px',
                   fontSize: 11,
@@ -2584,7 +2723,23 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                设为 5 层 (15/16 临界)
+                设为 4 层 (15/16 临界)
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayerMask(0b011111)}
+                style={{
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 6,
+                  border: '1px solid var(--border-strong)',
+                  background: 'var(--accent-coral)',
+                  color: 'var(--accent-coral-deep)',
+                  cursor: 'pointer',
+                }}
+              >
+                开 5 层 (18/16 报错!)
               </button>
               <button
                 type="button"
@@ -2600,7 +2755,7 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                全开 6 层 (18 张贴图!)
+                全开 6 层 (18张贴图)
               </button>
             </div>
           </div>
@@ -2639,7 +2794,7 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
             onChange={setSamplerSource}
             options={[
               { value: 'asset', label: 'From Texture Asset (独立占用)' },
-              { value: 'shared_wrap', label: 'Shared: Wrap (共享包裹 · 仅占 1/16 ✅)' },
+              { value: 'shared_wrap', label: 'Shared: Wrap (共享包裹 · 仅占 4/16 ✅)' },
             ]}
           />
 
@@ -2649,7 +2804,7 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
             onChange={setViewMode}
             options={[
               { value: 'lit', label: '地形画面 (Lit)' },
-              { value: 'complexity', label: 'Shader Complexity' },
+              { value: 'complexity', label: 'Shader Complexity (Alt+8)' },
               { value: 'substrate', label: 'UE 5.8 Substrate 层板视图' },
             ]}
           />
@@ -2674,7 +2829,7 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
 const schematic9_1: SchematicDiagram = {
   title: 'UE 5.8 遮罩镂空植被 (Masked) 写入 GBuffer 底片室与深度图管线',
   caption:
-    '树叶用 Masked 一刀切丢弃空白像素，保留下来的叶片完整写入 SceneDepth 与 GBuffer 各张底片，过绘制翠绿低耗。',
+    '树叶用 Masked 一刀切丢弃空白像素，保留下来的叶片完整写入 SceneDepth 与 GBuffer 各张底片，避免半透明乱穿与爆红重绘。',
   nodes: [
     {
       id: 'tex_leaf',
@@ -2709,7 +2864,7 @@ const schematic9_1: SchematicDiagram = {
       y: 42,
       width: 190,
       inputs: [{ id: 'albedo', label: 'Diffuse Albedo', color: '#22c55e' }],
-      outputs: [{ id: 'mat', label: 'Substrate 数据', color: '#a855f7' }],
+      outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
     },
     {
       id: 'out_root',
@@ -2728,7 +2883,7 @@ const schematic9_1: SchematicDiagram = {
     {
       id: 'pipe_gbuf',
       title: 'SceneDepth + GBuffer 底片室',
-      subtitle: '统一算一遍灯光 · 告别爆红过绘制',
+      subtitle: '统一算一遍灯光 · 告别半透明爆红',
       category: 'pipeline',
       x: 492,
       y: 222,
@@ -2752,31 +2907,31 @@ const schematic9_2: SchematicDiagram = {
     {
       id: 'in_wind',
       title: 'Sine(Time × 风速) × 风向量',
-      subtitle: '风向量如 (15,0,0) cm',
+      subtitle: 'Sine 默认周期=1.0 · 单位 cm',
       category: 'input',
       x: 24,
       y: 36,
-      width: 178,
+      width: 186,
       outputs: [{ id: 'wave', label: 'XYZ 风偏移', color: '#38bdf8' }],
     },
     {
       id: 'in_uv',
-      title: 'TexCoord[0] → Mask (G/V)',
-      subtitle: '草尖 V=0 · 草根 V=1',
+      title: 'TexCoord[0] → ComponentMask(G)',
+      subtitle: '拆出纵向 V（草尖0 · 草根1）',
       category: 'input',
       x: 24,
       y: 176,
-      width: 178,
+      width: 186,
       outputs: [{ id: 'v', label: '纵向 V 坐标', color: '#22c55e' }],
     },
     {
       id: 'math_inv',
-      title: 'OneMinus (1 - x)',
-      subtitle: '反转成草根 0 · 草尖 1',
+      title: 'OneMinus (1 - V)',
+      subtitle: '反转成草根 0 · 草尖 1（可自乘柔化）',
       category: 'math',
-      x: 242,
+      x: 246,
       y: 176,
-      width: 172,
+      width: 176,
       inputs: [{ id: 'in_v', label: 'Input V', color: '#22c55e' }],
       outputs: [{ id: 'grad', label: '钉根渐变遮罩', color: '#eab308' }],
     },
@@ -2785,8 +2940,8 @@ const schematic9_2: SchematicDiagram = {
       title: 'Multiply (乘风力幅度)',
       subtitle: '对网格顶点求位移',
       category: 'math',
-      x: 448,
-      y: 108,
+      x: 454,
+      y: 112,
       width: 182,
       inputs: [
         { id: 'a', label: 'A 风波偏移', color: '#38bdf8' },
@@ -2799,17 +2954,17 @@ const schematic9_2: SchematicDiagram = {
       title: 'Substrate Slab BSDF',
       subtitle: '草叶物理颜色与粗糙度',
       category: 'substrate',
-      x: 448,
-      y: 24,
+      x: 454,
+      y: 22,
       width: 182,
-      outputs: [{ id: 'mat', label: 'Front Material', color: '#a855f7' }],
+      outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
     },
     {
       id: 'out_wpo',
       title: '材质主节点 (Root)',
       subtitle: '顶点位移连入 WPO 专用口',
       category: 'output',
-      x: 664,
+      x: 668,
       y: 66,
       width: 185,
       inputs: [
@@ -2884,12 +3039,12 @@ const schematic9_3: SchematicDiagram = {
         { id: 'albedo', label: 'Diffuse Albedo', color: '#f59e0b' },
         { id: 'rough', label: 'Roughness', color: '#22c55e' },
       ],
-      outputs: [{ id: 'mat', label: 'Substrate 输出', color: '#a855f7' }],
+      outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
     },
     {
       id: 'out_master',
       title: 'M_Prop_Master (母材质)',
-      subtitle: '按平台、用途和静态配置编译',
+      subtitle: '按平台、画质与静态配置编译',
       category: 'output',
       x: 694,
       y: 44,
@@ -2900,7 +3055,7 @@ const schematic9_3: SchematicDiagram = {
     {
       id: 'pipe_mi',
       title: 'MI_Wood / MI_Jade / MI_Gold',
-      subtitle: '普通参数可独立更新',
+      subtitle: '普通参数 0ms 独立更新',
       category: 'pipeline',
       x: 694,
       y: 194,
@@ -2928,79 +3083,84 @@ const schematic9_3: SchematicDiagram = {
 const schematic9_4: SchematicDiagram = {
   title: '多层地形 Shared: Wrap 突破 16 采样器上限 + 单层板合并快道',
   caption:
-    '示例假设 16 槽且全部纹理支持相同寻址与过滤。18 张平铺贴图可共享 1 种采样状态，每像素依然读取 18 次。',
+    '引擎预留 3 个采样器槽位；18 张平铺贴图开启 Shared: Wrap 后仅共占 1 槽（总计 4/16，上限最高支持 128 张贴图），并各自通过独立的 LandscapeLayerBlend 合并后送入单个 Substrate Slab。',
   nodes: [
     {
       id: 'shared_samp',
       title: 'Sampler Source: Shared: Wrap',
-      subtitle: '全局共用 1 名查字典专员 (1/16)',
+      subtitle: '共用 1 槽（引擎 3 + 共享 1 = 4/16）',
       category: 'pipeline',
-      x: 24,
-      y: 68,
-      width: 194,
-      note: 'Texture Sample 的 Details 属性。',
+      x: 20,
+      y: 204,
+      width: 202,
+      note: '在每个平铺 Texture Sample 的 Details 面板勾选。',
     },
     {
       id: 'tex_18',
       title: '6 层地表 × 3 张贴图 (共18张)',
       subtitle: '草地 / 湿泥 / 碎石 / 雪 / 苔藓 / 沙',
       category: 'texture',
-      x: 252,
-      y: 68,
-      width: 198,
+      x: 20,
+      y: 44,
+      width: 202,
       previewColor: '#3f7a38',
       outputs: [
-        { id: 'cols', label: '各层 Albedo 颜色', color: '#22c55e' },
-        { id: 'orms', label: '各层法线与粗糙度', color: '#eab308' },
+        { id: 'cols', label: '6 路 Albedo 颜色', color: '#22c55e' },
+        { id: 'orms', label: '6 路 Roughness 通道', color: '#eab308' },
       ],
     },
     {
-      id: 'layer_blend',
-      title: 'LandscapeLayerBlend',
-      subtitle: '先在贴图数据层面完成权重混合!',
+      id: 'layer_blend_albedo',
+      title: 'LandscapeLayerBlend (Albedo)',
+      subtitle: '每个 Blend 节点输出 1 路合成颜色',
       category: 'math',
-      x: 484,
-      y: 68,
-      width: 192,
-      inputs: [
-        { id: 'in_c', label: '6 路颜色输入', color: '#22c55e' },
-        { id: 'in_r', label: '6 路粗糙度输入', color: '#eab308' },
-      ],
-      outputs: [
-        { id: 'out_c', label: '合成 Albedo', color: '#22c55e' },
-        { id: 'out_r', label: '合成 Roughness', color: '#eab308' },
-      ],
+      x: 262,
+      y: 28,
+      width: 204,
+      inputs: [{ id: 'in_c', label: '6 层 Albedo 贴图', color: '#22c55e' }],
+      outputs: [{ id: 'out_c', label: '合成 Albedo', color: '#22c55e' }],
+    },
+    {
+      id: 'layer_blend_rough',
+      title: 'LandscapeLayerBlend (Roughness)',
+      subtitle: '独立 Blend 节点输出 1 路粗糙度',
+      category: 'math',
+      x: 262,
+      y: 162,
+      width: 204,
+      inputs: [{ id: 'in_r', label: '6 层 Roughness 通道', color: '#eab308' }],
+      outputs: [{ id: 'out_r', label: '合成 Roughness', color: '#eab308' }],
     },
     {
       id: 'single_slab',
       title: '单个 Substrate Slab BSDF',
-      subtitle: '已混合的地表属性进入一个 Slab',
+      subtitle: '先混贴图数据，再统一进 1 个 Slab',
       category: 'substrate',
-      x: 706,
-      y: 44,
-      width: 186,
+      x: 504,
+      y: 78,
+      width: 184,
       inputs: [
         { id: 'albedo', label: 'Diffuse Albedo', color: '#22c55e' },
         { id: 'rough', label: 'Roughness', color: '#eab308' },
       ],
-      outputs: [{ id: 'mat', label: 'Front Material', color: '#a855f7' }],
+      outputs: [{ id: 'mat', label: 'BSDF', color: '#a855f7' }],
     },
     {
       id: 'out_terrain',
       title: 'M_Landscape (编译绿灯)',
-      subtitle: '样例状态 1 种，读取 18 次',
+      subtitle: '4/16 槽位 · 每像素仍读 18 次',
       category: 'output',
-      x: 706,
-      y: 204,
-      width: 186,
+      x: 716,
+      y: 88,
+      width: 176,
       inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
     },
   ],
   edges: [
-    { fromNode: 'tex_18', fromPin: 'cols', toNode: 'layer_blend', toPin: 'in_c', color: '#22c55e' },
-    { fromNode: 'tex_18', fromPin: 'orms', toNode: 'layer_blend', toPin: 'in_r', color: '#eab308' },
-    { fromNode: 'layer_blend', fromPin: 'out_c', toNode: 'single_slab', toPin: 'albedo', color: '#22c55e' },
-    { fromNode: 'layer_blend', fromPin: 'out_r', toNode: 'single_slab', toPin: 'rough', color: '#eab308' },
+    { fromNode: 'tex_18', fromPin: 'cols', toNode: 'layer_blend_albedo', toPin: 'in_c', color: '#22c55e' },
+    { fromNode: 'tex_18', fromPin: 'orms', toNode: 'layer_blend_rough', toPin: 'in_r', color: '#eab308' },
+    { fromNode: 'layer_blend_albedo', fromPin: 'out_c', toNode: 'single_slab', toPin: 'albedo', color: '#22c55e' },
+    { fromNode: 'layer_blend_rough', fromPin: 'out_r', toNode: 'single_slab', toPin: 'rough', color: '#eab308' },
     { fromNode: 'single_slab', fromPin: 'mat', toNode: 'out_terrain', toPin: 'front', color: '#a855f7' },
   ],
 };
@@ -3012,8 +3172,8 @@ const schematic9_4: SchematicDiagram = {
 export const module09: ModuleDefinition = {
   id: '09',
   number: '09',
-  title: '渲染管线背景与工程架构',
-  subtitle: '深度图、GBuffer 底片室、母材质与性能调优',
+  title: '渲染管线、实例化、LOD 与性能调优',
+  subtitle: '深度图、GBuffer、母材质、Draw Call、GPU 实例化、LOD 与全局调优',
   lessons: [
     // ========================================================================
     // LESSON 9.1
@@ -3025,16 +3185,16 @@ export const module09: ModuleDefinition = {
       title: '必备管线背景：摄像机的测距眼（SceneDepth）、底片室（GBuffer）与三大混合模式',
       subtitle: '推开显卡暗房看四张神秘底片，彻底搞懂为什么树叶严禁用半透明、水与雾靠什么量深浅',
       duration: '16 分钟',
-      difficulty: '零基础',
+      difficulty: '进阶',
       steps: [
         {
           stepNumber: 1,
           shortLabel: '树叶穿帮之谜',
           tag: 'phenomenon',
-          title: '为什么新手做一丛树叶，不是套着黑方框，就是让整张地图卡成幻灯片？',
+          title: '7.5 见过黑纸板穿帮了——那为什么也不能图省事用 Translucent 半透明，偏偏要选 Masked？',
           paragraphs: [
-            '很多同学第一次往场景里种灌木树丛时，都会撞上两难怪圈：直接把带透明背景的树叶贴图塞进普通材质，结果每根树枝四周都顶着一大块丑陋的**纯黑长方形纸板**，把后面的石柱挡得严严实实。',
-            '心想“树叶边缘是透明的，那我把材质改成半透明不就好了？”——黑框是没了，可仔细一看，后排树叶竟然莫名其妙画到了前排树叶脸上，而且才摆了十几丛灌木，原本流畅的画面帧率直接腰斩！这背后究竟踩中了显卡的什么机关？',
+            '在第 7.5 课里，咱们已经亲眼见过：把带透明轮廓的树叶贴图直接放进默认 **`Opaque（不透明）`** 材质，每根树枝四周都会顶着一块丑陋的**死黑长方形纸板**，把后方的石柱挡得严严实实。',
+            '很多同学顺理成章会想：“树叶边缘是透明的，那我图省事直接改成 **`Translucent（半透明）`** 不就好了？”——黑方框确实消失了，可凑近一看却出大事了：因为半透明物体不逐像素记录前后遮挡，引擎只能粗略按每个模型的**物体中心点（Pivot）**从远到近排队绘制，结果交叉的灌木卡片后排直接画到了前排脸上！更糟的是，摆上十几丛树帧率立刻腰斩。这背后究竟踩中了显卡渲染管线的什么机关？',
           ],
           tryItPrompt:
             '观察中央视口里的灌木丛：先看默认 Opaque 下的黑方框穿帮，再点选 ② 里的 Translucent（半透明），留意叶片前后穿插错乱的现象。',
@@ -3043,46 +3203,46 @@ export const module09: ModuleDefinition = {
           stepNumber: 2,
           shortLabel: '测距眼与底片室',
           tag: 'background',
-          title: '显卡暗房里的两件法宝：测距雷达底片（SceneDepth）与延迟底片室（GBuffer）',
+          title: '显卡暗房里的两件法宝：测距底片（SceneDepth）与延迟底片室（GBuffer）',
           paragraphs: [
-            '原来显卡每画一帧画面，都在后台悄悄干两件极聪明的事：第一件是给镜头装一只“测距眼”，同步画一张**近黑远白的距离底片（`SceneDepth`）**，记下每个像素离镜头有几米远。后面新画的物体只要比底片远，说明被挡住了，当场跳过不画！',
-            '第二件是开一间**“延迟渲染底片室”（`GBuffer`）**：想象剧组给 100 个演员打 50 盏灯，显卡先把最前面不透明物体的颜色、**法线小牙签**、**粗糙度**拍成几张底片存进暗房，最后对着底片统一算 1 遍灯光！可**半透明物体（如玻璃窗）**隔着它还能看见后面的石柱，一张底片根本存不下两层东西，所以半透明没资格进底片室，只能拎出来一层层硬叠重算！',
+            '原来显卡每画一帧画面，都在后台干两件极聪明的事：第一件是先做深度遮挡裁决——硬件底层用高精度反向深度缓冲（Reversed-Z Depth Buffer）判断谁在前谁在后，被挡住的像素当场跳过不画；而在材质节点里，引擎贴心地把它换算成了近黑远白的真实距离底片 **`SceneDepth`**（记住：**UE5 距离单位统一是厘米 `cm`，`1 m = 100 cm`**，比如 `420 cm` 就是 `4.2 m`）。',
+            '第二件是开一间**“延迟渲染底片室”（`GBuffer`）**：想象剧组给 100 个演员打 50 盏灯，显卡先把最前面不透明物体的颜色、法线、粗糙度拍成底片存进暗房，最后对着底片统一算 1 遍灯光！衔接第 8.4 课：**UE 5.8 `Substrate` 把传统固定底片室升级成了按复杂度弹性分配字节的自适应底片（Adaptive / Blendable GBuffer），但“不透明与镂空能进底片室，半透明进不去”的铁律完全不变**——因为透过玻璃窗还能看见后面的石柱，一张底片存不下两层，半透明只能被拎到最后一层层硬叠重算！',
           ],
           tryItPrompt:
-            '在 ① 中依次点击「摄像机测距雷达图 (SceneDepth)」、「法线底片」和「粗糙度底片」，观察右侧玻璃窗是不是在这些底片里完全透明隐形、直接看穿到了后面的石柱？',
+            '在 ① 中依次点击「摄像机测距底片 (SceneDepth)」、「法线底片」和「粗糙度底片」，再把鼠标移到右侧玻璃窗上，观察探针读数是不是直接穿透玻璃读到了背后石柱的距离（cm）？',
           callout: {
             tone: 'tip',
-            title: '为下一章水、玻璃、雾埋下关键伏笔！',
-            body: '记住这张近黑远白的 `SceneDepth` 测距底片！第 10 章我们做“岸边浅水变白深水变蓝”和“雾片插地柔和消退”，靠的全是拿水底的 `SceneDepth` 减去水面的距离！',
+            title: '认识 SceneDepth 的黄金搭档：PixelDepth（第 10 章水与雾的底层钥匙！）',
+            body: '底片里的 `SceneDepth` 记录的是“背后不透明水底/地面到镜头的距离（cm）”，而 **`PixelDepth`** 记录的是“当前正在画的水面或雾片像素自己到镜头的距离（cm）”。两者一相减——**`SceneDepth - PixelDepth`** 就是水深或雾片贴地的接触距离！这就是第 10 章 `DepthFade`（深度渐变）让岸边浅水变白、雾片柔化消退的全部秘密。',
           },
         },
         {
           stepNumber: 3,
           shortLabel: '过绘制爆红灾难',
           tag: 'experiment',
-          title: '亲眼见证帧率杀手 Overdraw：为什么叠五层半透明会把显卡烧成“粉白色”？',
+          title: '亲眼见证帧率杀手 Overdraw：为什么叠五层半透明会把热力图烧成“粉白色”？',
           paragraphs: [
-            '当一丛灌木由五六张交叉的半透明面片叠在一起时，灾难就发生了：因为半透明不写测距底片，显卡没法提前剔除被挡住的部分，甚至连树叶贴图四角空白透明的地方，也得老老实实把整套灯光算一遍再叠上去！',
-            '同一个屏幕像素被反复重涂十几次，就叫**过绘制（`Overdraw`）**。打开热力图一看：翠绿色代表只算一两遍极省电，暗红代表吃力，一旦烧成**刺眼的粉白色**，就是显卡正在原地空转冒烟的求救信号！',
+            '当一丛灌木由五六张交叉的半透明面片叠在一起时，灾难就爆发了：半透明既不写测距底片，也没法提前把被遮住的后排树叶剔除，哪怕是贴图四角完全透明的空白区，显卡也得老老实实把整套光照公式从头算一遍再叠上去！同一个屏幕像素被反复重涂十几次，就是**过绘制（`Overdraw`）**。',
+            '在 UE 5.8 里排查这种多层半透明叠加灾难，首选视口热图 **`Shader Complexity`（快捷键 `Alt + 8`）**（或 `Shader Complexity & Quads`）：翠绿极省、橙红吃力、一旦烧成**刺眼的粉白色**就是显卡在原地冒烟！（顺便分清：`Quad Overdraw` 视图专门用来查极细密、比像素还小的三角形在 2×2 像素块上的边角浪费，别和半透明叠层混为一谈。）',
           ],
           tryItPrompt:
-            '保持在「过绘制热力图 (Quad Overdraw)」下，把树丛从 Translucent 切到 Masked（一刀切镂空），亲眼见证粉白灾难区一秒退烧变成清爽翠绿！',
+            '保持在「着色复杂度热图 (Shader Complexity)」下，把树丛从 Translucent 切到 Masked（一刀切镂空），亲眼见证粉白灾难区一秒退烧变成可控翠绿！',
         },
         {
           stepNumber: 4,
           shortLabel: '三大混合模式',
           tag: 'ue5',
-          title: '走进 UE 5.8：对号入座 Opaque、Masked 与 Translucent 三大混合模式',
+          title: '走进 UE 5.8：对号入座 Opaque、Masked、Translucent（外加 Additive）',
           paragraphs: [
-            '懂了底片室原理，UE 5.8 材质左下角 `Details` 面板里的 **`Blend Mode（混合模式）`** 从此一眼选对：实心砖墙石头选默认的 **`Opaque（不透明）`**，跑得最快；真正的窗户玻璃、轻烟薄雾才选 **`Translucent（半透明）`**，且层数越少越好。',
-            '而树叶、铁丝网、破布条这类“要么完全实心、要么完全镂空”的物体，天生属于 **`Masked（遮罩镂空）`**！它拿 `Opacity Mask Clip Value`（默认 `0.3333`）当剪刀，低于门槛的像素直接丢弃，留下来的叶片堂堂正正写进 `SceneDepth` 和 `GBuffer` 底片室，不乱穿也不爆红！',
+            '摸清底片室规则后，UE 5.8 材质左下角 `Details` 面板的 **`Blend Mode（混合模式）`** 一眼就能选对：实心砖墙石头选默认 **`Opaque（不透明）`**，吃满硬件 Early-Z 跑得最快；真正的玻璃窗、轻烟薄雾才选 **`Translucent（半透明）`**；如果是能量护盾、激光束或体积光柱这类“像两束手电筒光叠加变亮”的发光体，还可以选 **`Additive（叠加发光）`**。',
+            '而树叶、草丛、铁丝网这类“非实即空”的物体，必须选 **`Masked（遮罩镂空）`**！它拿 `Opacity Mask Clip Value`（默认 `0.3333`）当剪刀，低于门槛的像素直接丢弃，留下来的叶片堂堂正正写进深度和 GBuffer 底片室，绝不乱穿也避免多层半透明重绘。不过也要实事求是：**`Masked` 依然比 `Opaque` 略贵**——因为逐像素执行 `clip/discard` 会打断标准硬件 Early-Z，还会让 Nanite 植被退离最快的纯不透明光栅化路径，所以建模时仍应把叶卡边缘尽量贴着实心叶片裁紧！',
           ],
           tryItPrompt:
-            '切到 Lit 并保持 Masked，拖动滑块观察轮廓。在 UE 中贴图 Alpha 连 Opacity Mask；Opacity Mask Clip Value 在材质 Details 中设置裁剪门槛。',
+            '切回 Lit 并保持 Masked，拖动 Opacity Mask Clip Value 滑块观察叶片边缘黑边与镂空胖瘦的变化；在 UE 5.8 中贴图 Alpha 通道连入主节点的 Opacity Mask。',
           callout: {
             tone: 'ue58',
-            title: 'UE 5.8 面板位置速记',
-            body: '选中材质主节点 → 左下角 `Details` → `Material` 分类下修改 `Blend Mode = Masked` → 此时主节点上的 `Opacity Mask` 插孔会自动点亮解锁！',
+            title: 'UE 5.8 面板位置速记（附 Material Domain 预告）',
+            body: '选中材质主节点 → 左下角 `Details` → `Material` 分类：最上方 **`Material Domain`** 默认是 `Surface`（物体表面，后续第 10 章体积雾与后期特效还会见到 `Volume`、`Post Process`）；紧挨着下方就是 **`Blend Mode`**，切为 `Masked` 后主节点上的 `Opacity Mask` 插孔会自动点亮解锁！',
           },
         },
         {
@@ -3091,23 +3251,23 @@ export const module09: ModuleDefinition = {
           tag: 'pitfall',
           title: '实战避坑口诀：实心不透明，树叶一刀切，玻璃烟雾才用半透明！',
           paragraphs: [
-            '很多外包资产拖进引擎性能暴跌，十有八九是因为美术导出时顺手把所有带 Alpha 通道的树叶、草丛、铁栅栏全设成了 `Translucent`——不仅导致远近树叶前后穿插闪烁，连第 7 章学的 `VSM` 镂空树影也会丢失！',
-            '养成进图第一反应：遇到帧率莫名下降，立刻在视口左上角切到 `Optimization Viewmodes → Quad Overdraw` 扫一眼。看到植被冒粉白光，马上改成 `Masked`，帧率往往当场暴涨一大截！',
+            '很多外包资产拖进引擎帧率暴跌，十有八九是导出时把所有带 Alpha 通道的树叶、草丛、铁栅栏全误设成了 `Translucent`——不仅导致远近树叶按中心点排序前后乱穿，而且半透明材质**默认不参与常规 `VSM` 镂空阴影投射**，树下斑驳光影也会丢得一干二净！',
+            '养成进图体检第一反应：发现帧率异常掉帧，立刻按 **`Alt + 8`**（或视口左上角 `Lit → Optimization Viewmodes → Shader Complexity` / `Shader Complexity & Quads`）扫一眼。只要看到植被烧成红粉白，马上改回 `Masked` 并收紧叶卡轮廓，帧率往往立竿见影地起死回生！',
           ],
           tryItPrompt:
             '点击舞台顶部的「看踩坑现象 / 切正确配置」一键对比条，最后重温一遍半透明爆红与遮罩翠绿的震撼反差！',
           callout: {
             tone: 'warn',
-            title: '半透明卡片空白区也别留太大！',
-            body: '做篝火烟雾等必须用 `Translucent` 的特效时，尽量让面片贴合烟雾轮廓裁剪，减少四周纯透明大白边，能大幅压低过绘制面积。',
+            title: '无论 Translucent 还是 Masked，别留大片空白透明边！',
+            body: '做烟雾特效（`Translucent`）留大白边会白白扩大过绘制热区；做树叶卡片（`Masked`）留大白边则会让更多像素执行 `clip/discard` 并拖慢 Nanite 光栅化。多切两刀收紧网格贴合轮廓，收益远大于省那几个三角形！',
           },
         },
       ],
       takeaways: [
-        '`SceneDepth` 是摄像机拍下的近黑远白测距底片，既负责遮挡剔除省算力，也是后续做水深与软边雾的标尺',
-        '`GBuffer` 是延迟渲染暗房底片室，把不透明与镂空物体的颜色、法线、粗糙度存成底片统一算一次光',
-        '树叶、草丛、铁丝网严禁用 `Translucent`，必须用 `Masked`（遮罩一刀切）才能写入深度不乱穿且省性能',
-        '`Translucent` 进不了 GBuffer 底片室，多层叠加会引发严重的 `Quad Overdraw`（热力图从翠绿烧成粉白）',
+        '`SceneDepth` 是换算成厘米（`cm`，`1 m = 100 cm`）的不透明表面测距底片；与当前像素距离 `PixelDepth` 相减（`SceneDepth - PixelDepth`）就是第 10 章水深与软边雾的标尺',
+        'UE 5.8 `Substrate` 升级为自适应 GBuffer，但“不透明/镂空进底片室、半透明进不去”的管线铁律不变',
+        '树叶、草丛、铁丝网应选 `Masked`（写入深度不乱穿），但因其 `clip/discard` 会打断标准 Early-Z 并略贵于 `Opaque`，叶卡网格仍应紧贴轮廓裁剪',
+        '排查多层 `Translucent` 叠层过绘制请按 `Alt + 8` 看 `Shader Complexity`（`Quad Overdraw` 专查 2×2 像素块在极小三角形上的边角浪费）',
       ],
       schematic: schematic9_1,
       StageComponent: Stage9_1_GBufferBlend,
@@ -3121,7 +3281,7 @@ export const module09: ModuleDefinition = {
       moduleId: '09',
       number: '9.2',
       title: '顶点阶段 vs 像素阶段 —— World Position Offset 让风吹草动与算力下移巧思',
-      subtitle: '在 4 顶点与 16 顶点草片上比较同一个风场',
+      subtitle: '拆解显卡先搬顶点再涂像素的上下半场，手把手用 WPO 做出柔顺风吹草动与顶点算力搬家',
       duration: '14 分钟',
       difficulty: '进阶',
       steps: [
@@ -3131,11 +3291,11 @@ export const module09: ModuleDefinition = {
           tag: 'phenomenon',
           title: '漫山遍野十万棵随风摇摆的青草，难道要请动画师给每棵草绑骨头调动画吗？',
           paragraphs: [
-            '站在开放世界游戏的山坡上，风吹过草甸泛起层层绿浪。如果像做角色动作那样给十万棵草每棵绑一套骨骼动画，CPU 光算骨头位置就会当场死机！',
-            '更神奇的是，有时候美术拿两块一样的草材质贴到不同模型上，右边的草弯得像真柳条一样柔美，左边的草却像一块硬邦邦的木牌子直挺挺斜着晃。不用骨骼，材质是怎么让静止模型自己动起来的？为什么两棵草弯腰姿势差这么多？',
+            '站在开放世界游戏的山坡上，微风拂过草甸泛起层层绿浪。如果像做角色动作那样给十万棵草每棵绑一套骨骼动画，CPU 光算骨头矩阵就会当场死机！',
+            '更神奇的是，有时候美术拿同一份草材质贴到两个模型上，右边的草弯得像真柳条一样柔美，左边的草却像一块硬邦邦的木牌子直挺挺斜着晃。不用骨骼，材质是怎么让静止模型自己动起来的？为什么两棵草弯腰的优雅程度差这么多？',
           ],
           tryItPrompt:
-            '观察中央风洞里的左右两株小草：拉动「风力摆动幅度」滑块，对比左边硬纸板草直挺挺斜歪与右边柔韧草优雅弯腰的区别。',
+            '观察中央风洞里的左右两株小草：拉动「风力摆动幅度」和「风速」滑块，对比左边硬纸板草直挺挺斜歪与右边柔韧草优雅弯腰的区别。',
         },
         {
           stepNumber: 2,
@@ -3143,11 +3303,11 @@ export const module09: ModuleDefinition = {
           tag: 'background',
           title: '显卡干活分上下半场：先搬十几个骨架钉子（顶点），再涂四万个小格子（像素）',
           paragraphs: [
-            '回忆第 1 章学的模型零件，显卡画一棵草严格分**上下两个半场**：**上半场（顶点阶段）**只找模型骨架上的那十几颗钉子（顶点），决定它们站在屏幕哪儿；**下半场（像素阶段）**再把钉子围出来的成千上万个屏幕小格子逐一涂上颜色。',
-            '只数左右两株中央草片：左侧有 4 个角点，右侧有 8 排、每排 2 个顶点，共 20 个顶点。假设一次绘制覆盖 42,000 个像素，两项数据描述网格规模和屏幕覆盖；实际着色器调用还受裁剪、遮挡与渲染通道影响。',
+            '回忆第 1 章学的网格结构，显卡画一棵草严格分**上下两个半场**：**上半场（顶点着色器 Vertex Shader）**只找模型骨架上的那十几颗钉子（顶点），决定它们这一帧挪到世界空间的哪儿；**下半场（像素着色器 Pixel Shader）**再把钉子连成的三角形光栅化成成千上万个屏幕小格子，逐一涂色算光。',
+            '看看舞台中央这两株草：左侧硬纸板只有上下 4 个角点，中间没有横节钉子，再强的风也只能把它推成一块歪斜的平木板；右侧细分草片有 8 排共 16 个顶点，每一排都能弯出不同的偏移角度！更惊人的是数量级悬殊——这株草骨架只有 **16 个顶点**，贴近镜头时却可能覆盖 **42,000 个屏幕像素**（相差两千多倍！当然，最终 GPU 耗时还要结合可见面积、遮挡剔除与渲染通道在目标设备上实测）。',
           ],
           tryItPrompt:
-            '打开线框，数两株草的顶点。保持相同风场，比较每排顶点相连后形成的轮廓。',
+            '勾选「显示顶点与三角形线框」，数清左右两株草的骨架钉子数；保持风场开启，看看顶部 KPI 栏里峰值位移与 16 顶点 vs 42,000 像素的巨大悬殊。',
         },
         {
           stepNumber: 3,
@@ -3155,47 +3315,52 @@ export const module09: ModuleDefinition = {
           tag: 'experiment',
           title: '新手必笑翻车现场：忘了给草根乘以 0，整片草原在泥土上“连根滑冰”！',
           paragraphs: [
-            '如果我们在上半场直接拿一个随时间左右摆动的正弦波（`Sine`），原封不动加到整棵草所有钉子上，会发生什么滑稽一幕？从草尖到草根每一颗钉子都一起往左平移 30 厘米、再往右平移 30 厘米——整棵草当场拔根而起，在地面上跳起了太空步！',
-            '怎么把草根死死钉在土里？请出第 2 章学的 UV 坐标！建模师展草叶 UV 时，习惯把草尖放在顶部 `V = 0`，草根放在底部 `V = 1`。拿 **`OneMinus (1 - V)`** 反转一下，草根刚好变成 **`0`**，草尖变成 **`1`**，再跟风波相乘，草根纹丝不动，越往草尖摆幅越大！',
+            '怎么让风一波波吹起来？先请出两位时间老搭档：**`Time`**（游戏运行累计秒数）连进 **`Sine`**（正弦波，在 `-1` 到 `+1` 之间平滑来回摆动——**特别留意：UE 材质里的 `Sine` 默认周期 `Period = 1.0`**，也就是每 `1` 秒完成一个完整来回，并不是中学数学里的 `2π`！）。如果直接把这股风波加到所有顶点上，从草尖到草根每一颗钉子都会同步左右平移几十厘米——整棵草当场拔根而起，在地面跳起了太空步！',
+            '怎么把草根死死钉在泥土里？拿出第 2 章学的 UV 坐标，用 **`ComponentMask`** 节点（通道过滤器的真名：`TexCoord` 的 `R = U` 横向、`G = V` 纵向）只勾选 `G` 拆出纵向 `V`！建模师展草叶 UV 习惯把草尖放顶部 `V = 0`、草根放底部 `V = 1`。套一个 **`OneMinus (1 - V)`** 反转成草根 `0`、草尖 `1` 再乘以风波，草根就被彻底归零钉死！想要像舞台右侧那样底部挺拔、越靠近草尖越柔顺弯曲，再把 `(1 - V)` **自乘一次或接 `Power(2)` 平方**，弧度立刻以假乱真！',
           ],
           tryItPrompt:
-            '试着取消勾选下方的「乘上高度渐变钉死草根 (1-V 遮罩)」，亲眼看看两株草瞬间脱根在土堆上左右滑冰的穿帮现场，再勾回来钉牢它！',
+            '取消勾选下方的「乘上高度渐变钉死草根 (1-V 遮罩)」，亲眼看看两株草瞬间脱根在土堆上左右滑冰的穿帮现场，再勾回来钉牢它！',
         },
         {
           stepNumber: 4,
           shortLabel: 'WPO 与算力下移',
           tag: 'ue5',
-          title: '走进 UE 5.8：连入 World Position Offset 与算力搬家神器 VertexInterpolator',
+          title: '走进 UE 5.8：World Position Offset 与“算力搬家神器” VertexInterpolator',
           paragraphs: [
-            '在 UE 5.8 材质主节点上，专门负责上半场搬钉子的插孔就叫 **`World Position Offset`（世界位置偏移，简称 `WPO`）**，传进去一个三维向量 `(ΔX, ΔY, ΔZ)`，就能让树叶迎风摇曳、水面起伏呼吸、甚至怪兽心脏跳动！',
-            '做一组插值测试：在 4 顶点草片上将 TexCoord.G 乘自身，先直接送给颜色，再通过 VertexInterpolator 输出。V=0.5 处逐像素计算得 0.25，端点 0 和 1 线性插值得 0.5。增加细分后比较误差，再在目标平台测两种材质的 GPU 耗时。',
+            '在 UE 5.8 材质主节点上，专门在上半场搬动骨架顶点的插孔就叫 **`World Position Offset`（世界位置偏移，简称 `WPO`）**，传进去一个单位为厘米（`cm`）的三维向量 `(ΔX, ΔY, ΔZ)`，就能零骨骼成本驱动漫山草浪、旗帜飘扬、水面起伏甚至心跳鼓动！',
+            '既然上半场只算 **16 个顶点**、下半场要苦哈哈算 **42,000 个像素**，一个绝妙的省电思路就诞生了——**`VertexInterpolator`（顶点插值器，“算力搬家神器”）**！凡是随空间**变化平缓、低频柔和**的计算（比如 UV 匀速滚动、远近淡出渐变、基础底色过渡），只要在连线中途插一个 `VertexInterpolator`，就能把它从像素阶段“搬家”到顶点阶段：显卡只需在 16 个顶点上算 16 遍，中间 4 万多个像素直接由硬件**免费线性插值（平滑过渡）**出来，视觉几乎无差，像素着色器却瞬间轻松一大截！',
           ],
           tryItPrompt:
-            '点击右上角切换到「原理连线图」视图，顺着 `TexCoord → OneMinus → Multiply → World Position Offset` 理清整条风场链路。',
+            '点击右上角切换到「原理连线图」视图，顺着 `TexCoord → ComponentMask(G) → OneMinus → Multiply → World Position Offset` 理清整条风场链路。',
           callout: {
-            tone: 'ue58',
-            title: 'UE 5.8 远景风场省电开关',
-            body: '在支持该属性的组件上设置 World Position Offset Disable Distance（单位 cm，如 3000）。保持相机路线不变，通过 VSM 缓存可视化检查远处的阴影页能否复用。',
+            tone: 'warn',
+            title: 'VertexInterpolator 使用边界：只搬“平滑运算”，别搬剧烈弯曲的公式！',
+            body: '硬件在三角形内部做的是**直线线性插值**。如果你把 `V²`（平方）或高频正弦波这类弯曲剧烈的公式搬进 `VertexInterpolator`，在只有 4 个顶点的粗面片上，中点 `V = 0.5` 会被硬生生从端点 `0` 和 `1` 插成 `0.5`，而不是精确的 `0.25`！遇到高曲率运算请增加网格细分，或乖乖留在像素阶段，并在目标平台实测 GPU 耗时。',
           },
         },
         {
           stepNumber: 5,
           shortLabel: '防坑黄金口诀',
           tag: 'pitfall',
-          title: '实战避坑口诀：弯曲先看钉子够不够，位移必乘遮罩钉住根！',
+          title: '实战避坑口诀：弯曲看细分，根部必钉零，大幅变形别忘修法线与防闪灭！',
           paragraphs: [
-            '以后遇到“连了风场节点但模型死活弯不自然”或者“整座帐篷连着地钉一起飘走了”，按两步排查百试百灵：第一看网格线框里有没有足够的细分横节顶点；第二看位移向量在进 `WPO` 前有没有乘上 `1 - V` 或**顶点色（Vertex Color）**遮罩把底座清零。',
-            '另外留个心眼：显卡上半场搬动了钉子，但引擎判断物体“有没有走出屏幕外”默认还是看它原来的盒子大小（包围盒 Bounds）。如果用 `WPO` 把顶点拉出去好几米远，记得在模型组件里把 `Bounds Scale` 稍微调大一点，防止边缘突然闪没！',
+            '实战排查风场怪象按两步走：弯得生硬先切线框看有没有足够的横节细分；底座漂移先查进 `WPO` 前有没有乘上 `(1 - V)` 或 **`Vertex Color`（顶点色——在建模软件里直接刷在模型每个顶点上的 RGBA 颜色通道，美术最常用它把草根刷黑=0、草尖刷白=1 来当万能防脱根遮罩）**。',
+            '还有两大老手必知暗坑：① **法线不会跟着自动转！** `WPO` 只改了顶点坐标，并不会自动重新计算表面法线（Normal）——轻轻摇曳的小草人眼看不出来，但如果你用 WPO 做剧烈弯折、翻卷旗帜或波涛海浪，受光会明显发假，必须用 `FixRotateAboutAxisNormals` 或在数学公式里同步推导新法线！② **大幅偏移易被误裁闪灭！** 引擎判断物体“有没有走出镜头外”默认只看原包围盒，在 UE 5.8 中请优先在材质 `Details` 设置 **`Max World Position Offset Displacement`（单位 cm）** 来安全外扩边界（组件上的 `Bounds Scale` 仅作兜底备选）！',
           ],
           tryItPrompt:
-            '用顶部的「看踩坑现象 / 切正确配置」一键切换，再次确认 `(1-V)` 钉根遮罩对风场真实感的决定性作用。',
+            '用顶部的「看踩坑现象 / 切正确配置」一键切换，再试着把「风力摆动幅度」拉到 55 cm 以上，观察顶部 KPI 里的「建议 Max WPO 位移上限」如何亮起防闪灭提醒！',
+          callout: {
+            tone: 'ue58',
+            title: 'UE 5.8 远景风场与 VSM 阴影省电开关',
+            body: '在静态网格体或植被组件上设置 **`World Position Offset Disable Distance`**（单位 `cm`，例如 `3000` cm = 30 米），让远处看不清摆动细节的草丛自动停摆，不仅省顶点算力，更能让 UE 5.8 的 **VSM（虚拟阴影贴图）**安心复用静态阴影缓存页，大幅降低大世界阴影开销！',
+          },
         },
       ],
       takeaways: [
-        '顶点数取决于网格，像素覆盖取决于画面；实际着色成本需结合渲染通道、着色指令和目标 GPU 测量。',
-        '`World Position Offset (WPO)` 工作在顶点阶段；模型必须有足够的多段细分顶点才能弯出柔顺弧度',
-        '做植被风摆必须乘上 `1 - V` 高度渐变或顶点色遮罩把根部偏移清为 `0`，否则整棵植物会脱根滑行',
-        'VertexInterpolator 在顶点求值再插值；平方、正弦等非线性函数在粗网格上可产生明显误差。',
+        '显卡渲染分顶点（上半场）与像素（下半场）：一株草常只有十几个顶点却覆盖数万像素，用 `VertexInterpolator` 把变化平缓的低频计算搬到顶点阶段可省去海量重复像素计算（高曲率公式在粗网格上线性插值会有误差，需按需取舍）',
+        '`World Position Offset (WPO)` 驱动顶点位移；UE 材质的 `Sine` 默认周期 `Period = 1.0`（非 `2π`），且网格必须有足够细分才能弯出柔顺弧度',
+        '用 `ComponentMask (G)` 取纵向 `V` 配合 `OneMinus (1 - V)`（可平方柔化）或 `Vertex Color`（顶点色）把根部偏移清为 `0`，防止连根滑行',
+        'WPO 不会自动重算法线（大变形需手动修正法线）；防边缘闪灭在 UE 5.8 优先设置材质的 `Max World Position Offset Displacement`（cm），并配合 `WPO Disable Distance` 助力 VSM 缓存复用',
       ],
       schematic: schematic9_2,
       StageComponent: Stage9_2_VertexVsPixel,
@@ -3209,7 +3374,7 @@ export const module09: ModuleDefinition = {
       moduleId: '09',
       number: '9.3',
       title: '母材质模具与材质实例（MI） —— 告别“改个颜色等编译十分钟”与静态开关变体控制',
-      subtitle: '区分实例参数更新、静态组合与编译任务',
+      subtitle: '像做菜一样理解母材质、零重编材质实例（MI）与静态开关变体控制',
       duration: '15 分钟',
       difficulty: '进阶',
       steps: [
@@ -3223,7 +3388,7 @@ export const module09: ModuleDefinition = {
             '更崩溃的是，大型商业游戏动辄有上万种不同颜色质感的物件——难道大厂美术每天上班八小时，有七个小时都在盯着编译读条发呆吗？他们是怎么做到拉滑块一秒换装毫不卡顿的？',
           ],
           tryItPrompt:
-            '在实验台一更改普通材质常量，再用实例参数完成相同操作。网页固定播放 1.8 秒等待动画，编辑器的编译时间取决于目标、缓存与材质。',
+            '在实验台一先停在「直接改普通材质常量」，点选颜色色板体会一下被 Compiling Shaders 进度条卡住的痛苦，再切到右侧「在材质实例 (MI_Prop) 中调参数」感受丝滑瞬改！（网页固定模拟 1.8 秒等待，真实编译时长取决于材质复杂度、平台与缓存）',
         },
         {
           stepNumber: 2,
@@ -3231,23 +3396,23 @@ export const module09: ModuleDefinition = {
           tag: 'background',
           title: '底层揭秘：重印整本外文菜谱（母材质编译）vs 只换碗里的调料（材质实例 MI）',
           paragraphs: [
-            '原因很简单：咱们连的节点图是给人看的中文菜谱，显卡一个字也不认识，每次你直接改动普通节点点保存，引擎都得请编译器翻译官把整张图重新全文翻译成显卡底层机器码！',
-            '把颜色、粗糙度或纹理暴露为参数，由同一个母材质派生不同材质实例。在相同静态配置下修改普通实例参数可以复用已有着色器。',
+            '原因一听就透：咱们在编辑器里连的节点图是给人看的中文菜谱，显卡一个字也不认识；每次你直接改普通节点里的固定数字点保存，就等于改了菜谱正文，引擎必须请编译器翻译官把整本菜谱重新全文翻译印刷成显卡底层机器码！',
+            '商业项目的解法优雅得多——把固定数值做成**参数活口（`Scalar / Vector / Texture Parameter`）**，编译出一份通用**母材质模具（`Master Material`）**！它就像一张把“放多少盐、用什么酱油”留成空白填空的精装菜谱，编译好的显卡机器码从此纹丝不动；而派生的成百上千个**材质实例（`Material Instance`，简称 `MI`）**，只是极轻量的参数清单，你拉滑块换颜色、换粗糙度甚至换贴图时，引擎只需把新数字填进显存里那张小小的参数表——**显卡代码一字未改，当然 `0ms` 瞬间生效、零着色器重编译！**',
           ],
           tryItPrompt:
-            '选中酒桶、宝珠或圆盾并调节实例的粗糙度。观察哪些物体用了当前实例。',
+            '在实验台一保持「材质实例 (MI_Prop)」模式，依次点选 ① 酒桶、② 宝珠、③ 圆盾，随心所欲狂拖粗糙度、金属度滑块和色板，感受同一套母材质零等待变出木、玉、金三种质感！',
         },
         {
           stepNumber: 3,
           shortLabel: '静态开关双刃剑',
           tag: 'experiment',
-          title: '10 个独立布尔静态开关有多少种可能的取值组合？',
+          title: '编译期大剪刀的双刃剑：为什么滥用 10 个 Static Switch 会让变体上限飙到 1,024？',
           paragraphs: [
-            '既然母材质这么好用，很多同学一上头：“干脆我把积雪、风摆、溶解、清漆、视差十种功能全塞进同一个超级母材质里，再加 10 个**静态开关（`Static Switch Parameter`）**，哪个实例不用就关掉省性能！”',
-            'N 个独立布尔静态开关最多有 2^N 种取值组合。10 个开关给出 1,024 种可能，而三个实例即使颜色各异，也可以共享同一种静态配置。实际用到哪些组合取决于母材质和实例，编译任务还取决于平台、质量、顶点工厂与渲染通道。',
+            '既然母材质这么神，很多同学会忍不住动起“做一套全能宇宙超级母材质”的念头：把积雪、风摆、溶解、清漆、视差十种功能全塞进去，再配 10 个 **`Static Switch Parameter`（静态开关）**，谁不用就关掉！',
+            '先看清它的本质：**`Static Switch` 是一把“编译期大剪刀”**——它在编译阶段就把 `False` 那一侧没用到的节点直接咔嚓剪掉，所以最终跑在显卡上的着色器更精简更快；但天下没有免费午餐：**项目里实例实际用到的每一种开关组合，都必须单独编译出一份独立的着色器变体（Permutation）**！如果有 $N$ 个独立布尔开关，理论组合上限就会按 $2^N$ 指数爆炸（`10` 个开关就是最多 `1,024` 种组合），再乘以不同**平台、画质档位与渲染路径**，编译时间和包体会轻松失控！而且特别注意：**在 `MI` 里修改普通参数不重编译，但只要你在 `MI` 里拨动了 `Static Switch` 或勾选了 `Material Property Overrides`（如覆写混合模式 `Blend Mode`、双面 `Two Sided`），一样会立刻触发新变体编译！**',
           ],
           tryItPrompt:
-            '把开关数调到 10，比较上限与三个示例实例实际引用的组合数。让第三个实例也使用前两个实例的配置，观察实际组合数从 2 变为 1。',
+            '把实验台二的开关数滑到 10，观察组合上限如何从 8 暴涨到 1,024；再反复勾选/取消勾选「第三个实例也使用前两个实例的静态配置」，观察画布上分叉路径如何从 2 条合并为 1 条！',
         },
         {
           stepNumber: 4,
@@ -3255,11 +3420,11 @@ export const module09: ModuleDefinition = {
           tag: 'ue5',
           title: '走进 UE 5.8：3 秒建好母子材质流与工业界命名前缀规范',
           paragraphs: [
-            '在 UE 5.8 里落地这套架构只需三步：① 在母材质里右键任意颜色、常数或贴图节点，点 **`Convert to Parameter`（转换为参数）** 并起个好懂的中文或英文分组名（设置 `Group` 分组能让面板整整齐齐）；② 保存母材质后，在内容浏览器右键它选 **`Create Material Instance`（创建材质实例）**；③ 把生成的实例拖给场景里的模型！',
-            '顺手养成专业命名习惯：母材质统一标 **`M_`**（如 `M_Prop_Master`），材质实例统一标 **`MI_`**（如 `MI_Barrel_Wood`），通用材质函数标 **`MF_`**——团队协作一眼分清谁是模具、谁是成品。',
+            '在 UE 5.8 里落地这套架构只需三步：① 在母材质里右键任意颜色、常数或贴图节点，点 **`Convert to Parameter`（转换为参数）** 并设置清晰的 `Group` 分组名让实例面板井井有条（小提示：**`Constant2Vector` 不能直接右键转换为参数**，需要二维参数时请改用 `VectorParameter` 取 `RG`，或用两个 `ScalarParameter` 接 `AppendVector` 拼装）；② 保存母材质后，在内容浏览器右键它选 **`Create Material Instance`（创建材质实例）**；③ 把实例拖给场景模型！',
+            '顺手养成工业界铁打的命名前缀规范：母材质标 **`M_`**（如 `M_Prop_Master`），材质实例标 **`MI_`**（如 `MI_Barrel_Wood`），通用材质函数标 **`MF_`**（`Material Function`，把常用节点网络打包复用的子积木，类似编程里的封装函数）——团队打开文件夹一眼就能分清谁是模具、谁是积木、谁是成品。',
           ],
           tryItPrompt:
-            '复用 2.4 的 `M_FirstSurface`，在内容浏览器右键选择 Create Material Instance，命名 `MI_FirstSurface`。在实例中勾选 `Tint` 覆盖并改色，把实例赋给第二个网格，比较母材质和实例。综合练习再用同样步骤建立 `M_Panel` / `MI_Panel`，只覆盖 `RoughnessScale` 观察高光。',
+            '实战练手：复用第 2.4 课的 `M_FirstSurface`，右键 Create Material Instance 命名 `MI_FirstSurface`，在实例中勾选覆盖 `Tint` 改色并赋给第二个网格对比秒改体验；后续第 11 章综合练习中，我们也会用同样流程建立 `M_Panel` / `MI_Panel` 并单独覆写 `RoughnessScale`！',
           callout: {
             tone: 'tip',
             title: '快捷键一秒出参数节点',
@@ -3270,20 +3435,25 @@ export const module09: ModuleDefinition = {
           stepNumber: 5,
           shortLabel: '防坑黄金口诀',
           tag: 'pitfall',
-          title: '按使用场景选择实例参数与静态开关',
+          title: '实战避坑口诀：小改用参数，大类拆母材，重分支才上静态开关！',
           paragraphs: [
-            '需要独立调色或调粗糙度的道具可建立材质实例；资源列表中记录母材质、实例和各自使用的静态开关值。',
-            '需要编译时移除整条采样或着色分支时，考虑静态开关。运行时只需调强度可使用普通标量，乘零仍可能执行输入分支。选择时检查目标平台编译与运行成本。',
+            '别追求把全游戏所有效果塞进一个“万能超级母材质”——按大类拆成 3~5 个清爽母材质（如硬表面道具、植被、布料、特效），每个只保留真正必要的 2~3 个静态开关，既好维护又绝不会炸出上千变体。',
+            '那什么时候用 `Static Switch`、什么时候用普通 `Scalar` 参数调权重？记一条金标准：**只有当某条分支包含昂贵的额外贴图采样或重型计算时，才用 `Static Switch` 在编译期彻底剪掉**；如果只是轻量的颜色混合或强度调节，用普通 `Scalar` 参数即可 0ms 随心调（同时记住：乘 0 仍会执行输入分支，所以重分支才值得上开关）。',
           ],
           tryItPrompt:
-            '在材质编辑器打开 Platform Stats 并选定目标平台和质量。给两个实例设置相同开关，第三个使用另一值，比较对应的着色器统计。要测耗时，再在同一镜头用 ProfileGPU 对照。',
+            '点击顶部「看踩坑现象 / 切正确配置」一键对比 10 个静态开关（最多 1,024 种组合）与 2 个精简开关（最多 4 种组合）的树状反差；在 UE 5.8 实战里想核对实际编译变体数，请打开材质编辑器顶部工具栏的 `Platform Stats`（下一课 9.4 详解）。',
+          callout: {
+            tone: 'ue58',
+            title: '一表分清材质实例三兄弟：MI、MID 与 MPC',
+            body: '① **`MI`（Material Instance，静态材质实例）**：在编辑器里离线建好、批量给资产换装，游戏运行中不能改值；② **`MID`（Dynamic Material Instance，动态材质实例）**：在蓝图/C++ 中运行时动态创建，适合主角/少量关键物体受击闪红、技能充能（注意：严禁给成百上千同类小物件循环批量建 `MID`，否则会打断合批——批量差异化改参请见 **9.6 课** 的 `Custom Primitive Data` 与 `PerInstanceCustomData`！）；③ **`MPC`（Material Parameter Collection，材质参数集）**：全关卡共享的全局调色板，改一次风速、积雪量或昼夜色温，场景里上百个材质瞬间同步联动！',
+          },
         },
       ],
       takeaways: [
-        '直接修改普通材质（`M_`）会触发底层着色器机器码重编译；项目实战应统一采用「母材质 + 材质实例（`MI_`）」架构',
-        '相同静态配置下，多个实例能复用编译结果；普通标量和向量参数可独立调整。',
-        '10 个独立布尔静态开关提供最多 1,024 种取值。实际编译多少着色器，还要看使用的组合、平台与渲染通道。',
-        '记录项目用到的静态组合，按功能和实际开销决定是否拆分母材质。',
+        '直接修改普通材质常量会重编整份着色器机器码；项目实战应统一用「母材质（`M_`）+ 材质实例（`MI_`）」，改普通参数只更新显存参数表，0ms 生效零重编',
+        '`Static Switch` 是编译期剪刀，能剪掉无用分支提速，但在 `MI` 中切换它（或覆写 `Blend Mode` 等材质属性）会触发重编译并生成新变体',
+        '$N$ 个独立静态开关的理论上限为 $2^N$（10 个即 1,024 种），实际编译量取决于实例用到了多少种唯一组合以及目标平台、画质档位与渲染路径',
+        '牢记三兄弟分工：`MI` 离线静态换装、`MID` 蓝图运行时单物改参、`MPC` 全局一改全关卡联动；`MF_` 为可复用材质函数',
       ],
       schematic: schematic9_3,
       StageComponent: Stage9_3_MasterInstanceWorkbench,
@@ -3305,81 +3475,82 @@ export const module09: ModuleDefinition = {
           stepNumber: 1,
           shortLabel: '地形灰格罢工',
           tag: 'phenomenon',
-          title: '满怀欢喜给大山画上第 6 层沙地，为什么整座青山突然变成灰白棋盘格报错罢工了？',
+          title: '满怀欢喜给大山画上第 5 层苔藓，为什么整座青山突然变成灰白棋盘格报错罢工了？',
           paragraphs: [
-            '做开放世界地形（`Landscape`）时，几乎人人都会在深夜撞上这盆冷水：前五层草地、湿泥、碎石、积雪、苔藓画得好好的，刚兴冲冲加上第 6 层河滩沙地，整座大山咔嚓一下全变成了灰白相间的默认棋盘格！',
-            '低头一看日志栏，赫然飘着一行鲜红英文报错：**`[SM5] Error: Exceeded 16 samplers`**！明明电脑显卡有十几个 G 的大显存，凭什么才用了十几张贴图就不让画了？',
+            '做开放世界地形（`Landscape`）时，几乎人人都会在深夜撞上这盆冷水：前四层草地、湿泥、碎石、积雪（每层含颜色、法线、ORM 共 3 张贴图，4 层共 12 张）画得好好的，刚兴冲冲加上第 5 层苔藓，整座大山咔嚓一下全变成了灰白相间的默认棋盘格！',
+            '低头一看日志栏，赫然飘着一行鲜红英文报错：**`[SM5] Error: Exceeded 16 samplers`**！明明电脑显卡有十几个 G 的大显存，连 16 张贴图都还没堆满，凭什么加到第 5 层就不让画了？',
           ],
           tryItPrompt:
-            '看中央视口里正处于 6 层全开（`18 / 16`）报错灰棋盘格状态的大山：先点一下右上方的「设为 5 层 (15/16 临界)」，看大山是不是立刻恢复正常了？再点回「全开 6 层」复现故障！',
+            '看中央视口里正处于 5 层（引擎 3 + 贴图 15 = `18 / 16`）报错灰棋盘格状态的大山：先点一下「设为 4 层 (15/16 临界)」，看大山是不是立刻恢复正常了？再点回「开 5 层 (18/16 报错!)」复现故障！',
         },
         {
           stepNumber: 2,
           shortLabel: '16名查字典专员',
           tag: 'background',
-          title: '采样器状态、纹理资源和采样次数分别计数',
+          title: '破案：16 个硬件采样器窗口里，引擎自己先占了 3 个——而且“窗口数”≠“读图次数”！',
           paragraphs: [
-            '回想第 5 章学的纹理采样：贴图是字典，而决定“越界是包裹循环 `Wrap` 还是夹紧边缘 `Clamp`、滤波用双线性还是最近点”的那套规矩，由硬件里的**采样器（`Sampler`）**负责执行——你可以把它想象成坐在显卡窗口的**查字典专员**。',
-            '本实验假设一个有 16 个采样器槽位的着色阶段，6 层 × 3 张不同纹理，每张采样一次，均可使用同一平铺与过滤规则。独立状态计 18 个，共享状态计 1 个，样本读取仍是 18 次。引擎其余占用和平台预算以 Platform Stats 为准。',
+            '回想第 5 章学的纹理采样：贴图是字典，而决定“越界是包裹循环 `Wrap` 还是夹紧边缘 `Clamp`、滤波用平滑还是硬边”的那套规矩，由显卡硬件里的**采样器（`Sampler`）**负责执行——你可以把它想象成坐在窗口里的**查字典专员**。在经典着色器模型 **`SM5`（Shader Model 5）** 规范下，单个材质最多只有 **16 个** 硬件采样器窗口，而且引擎自己还得先预留约 **3 个窗口**（用来给光照贴图 Lightmap、阴影和地形权重图干活），真正留给你的只剩 **13 个空位**！',
+            '默认状态下每张贴图独占 1 位专员：4 层（`3 + 12 = 15 / 16`）刚好卡线过关；一加第 5 层（`3 + 15 = 18 / 16`）立刻爆表罢工！顺便科普一下 **`SM5 / SM6`**：它们代表 DirectX 着色器模型代际，**UE 5.8 桌面端默认已升级为 `SM6`**（放宽了部分桌面端限制），但保持干净的采样器预算、开启共享采样器依然是跨平台安全与兼容 SM5/移动端的必守铁律！此外务必分清两个指标：**`Texture Samplers`** 是“占了几个查表窗口”，而 **`Texture Lookups`** 是“每个像素实际翻了几次贴图”！',
           ],
           tryItPrompt:
-            '保持在「全开 6 层 (18 张贴图!)」报错状态下，准备下一步亲手按响那个一秒救活整座大山的开关！',
+            '在 ① 中交替点击「设为 4 层 (15/16 临界)」和「开 5 层 (18/16 报错!)」，对照顶部 KPI 卡片看清「已占采样器槽位 (Samplers)」与「每像素纹理读取 (Lookups)」的本质区别！',
         },
         {
           stepNumber: 3,
           shortLabel: '一秒救活地形',
           tag: 'experiment',
-          title: '救场神技实操：切为 Shared: Wrap，采样器从 18/16 骤降到 1/16！',
+          title: '救场神技实操：切为 Shared: Wrap，把 18 张平铺贴图合并进同 1 个共享采样器！',
           paragraphs: [
-            '先核对每张纹理坐标越界后的预期，以及过滤方式。在支持共享采样器的平台，把需要相同 Wrap 寻址且接受共享过滤的地形 Texture Sample 的 Sampler Source 设为 Shared: Wrap。',
-            '这组地形示例的 18 次读取只需 1 种共享状态。贴花、色阶或图集如需夹紧可按条件选 Shared: Clamp；需要特殊过滤或不同轴寻址时保留 From Texture Asset。',
+            '既然地形的草地、泥土、碎石、积雪、苔藓、沙地全都是无缝平铺图、用的全是同一套 `Wrap` 循环包裹与平滑滤波规则，为什么非要请 18 位专员各管一本字典？只要选中所有地形 `Texture Sample` 节点，在左下角 `Details` 里把 **`Sampler Source`** 从默认的 `From Texture Asset` 改成 **`Shared: Wrap`（共享包裹）**，18 张贴图瞬间合用 **1 个**共享采样器窗口（加上引擎自留的 3 个，总共只占 **`4 / 16`**）！',
+            '开启 `Shared: Wrap` / `Shared: Clamp` 后，在 SM5/SM6 桌面平台上单个材质最高可突破 16 张贴图魔咒、支持多达 **128 张贴图**（注意是 128 上限，并非无限；且每像素实际 `Texture Lookups` 读图次数依然是 18 次，只是突破了采样器窗口上限！）。',
           ],
           tryItPrompt:
-            '现在点击 ② 中的「Shared: Wrap (共享包裹 · 仅占 1/16 ✅)」，亲眼看着报错横幅瞬间消失、采样器读数掉回 `1 / 16` 并重现六层锦绣山河！',
+            '现在点击 ② 中的「Shared: Wrap (共享包裹 · 仅占 4/16 ✅)」，看着报错横幅瞬间消失并重现青山绿水，再大胆点一下「全开 6 层 (18张贴图)」享受 6 层锦绣山河！',
           callout: {
-            tone: 'tip',
-            title: 'Shared: Wrap 与 Shared: Clamp 怎么选？',
-            body: '共享状态会覆盖纹理自身的寻址与过滤选项。Wrap 适合可平铺图像，Clamp 适合需保持边缘颜色的图像。按目标平台验证共享支持、过滤结果与引擎占用。',
+            tone: 'warn',
+            title: '何时千万别用 Shared: Wrap？（回想第 5 章贴图规则！）',
+            body: '共享采样器会**强行覆盖**贴图资产原本的滤波和寻址设置！① 做像素画风格贴图（需要第 5 章讲的 **`Nearest` 最近邻硬边过滤**）千万别开 `Shared: Wrap`，否则像素格子会被强行平滑变糊；② 边缘不能重复平铺的**贴花（Decal）**、UI 图标或色阶图，用 `Shared: Wrap` 会导致边缘鬼影漏色，应改选 **`Shared: Clamp`** 或保留 `From Texture Asset`！',
           },
         },
         {
           stepNumber: 4,
           shortLabel: 'UE 5.8 双重体检',
           tag: 'ue5',
-          title: '走进 UE 5.8：用 Shader Complexity 与专属 Substrate 层板视图给材质做全身体检',
+          title: '走进 UE 5.8：用 Shader Complexity（Alt+8）与 Substrate 层板视图做全身体检',
           paragraphs: [
-            'Shader Complexity（Alt+8）用着色指令等信息形成视口热图，可据此挑选待测区域。网页按层数着色，真实耗时还受采样、带宽、可见面积与 GPU 影响。',
-            '在 Substrate 可视化中查看实际编译出的材质分类。地表属性能共用同一着色响应时，可先混合颜色、法线与粗糙度，再进入一个 Slab。确实需要多层物理响应的材质应保留分层，比较目标平台编译后的表现。',
+            '编译绿灯只是第一步，上线前一定要给材质做两次全身体检！第一项是按 **`Alt + 8`**（菜单路径 `Lit → Optimization Viewmodes → Shader Complexity`）看指令复杂度热力图，记住这条经典色阶：**深绿 / 翠绿（极省）→ 浅绿 / 黄（正常）→ 红（偏贵）→ 粉红 / 白（严重爆表）**，一旦发现大片发红发白就得赶紧给节点瘦身。',
+            '第二项是 UE 5.8 专属体检视图：**`Lit → Substrate → Material Classification`（层板分类视图）**！它能一眼照出哪些像素走在清爽的**单层板快道（Simple / Single-Slab Fast Path）**，哪些被拖进了昂贵的**多层板慢道（Complex Multi-Slab Slow Path）**。做多层地形或污渍混合时，记住黄金法则：**先用 `LandscapeLayerBlend` 或 `Lerp` 把各层的颜色、法线、粗糙度在贴图数据阶段混成一套，最后统一送进 1 个 `Substrate Slab BSDF`**——千万别每层各建一个 `Slab` 再强行混合，否则复杂度和层板视图立刻双双飙红变品红！',
           ],
           tryItPrompt:
-            '切换两种实现，观察网页示意。再固定 UE 相机与灯光，对照 Substrate 分类、Platform Stats 和 GPU 计时。',
+            '在 ③ 中分别切换「Shader Complexity (Alt+8)」和「UE 5.8 Substrate 层板视图」，反复勾选/取消勾选底部的「反面教材实验（多层板慢道）」，直观对比单层板快道青绿与多层板慢道飙红/品红的惊人反差！',
           callout: {
             tone: 'ue58',
-            title: '别忘了看材质编辑器左下角的 Stats 体检单',
-            body: '打开 Material Editor → Platform Stats，勾选实际着色平台及质量，比较修改前后的 Texture Samplers 和 Texture Lookups。再对固定镜头运行 ProfileGPU；二者分别反映编译统计和运行耗时。',
+            title: '精准量化体检双神器：Platform Stats 与 ProfileGPU',
+            body: '① **看编译体检单**：点击材质编辑器顶部工具栏的 **`Platform Stats`** 按钮（或在左下角 `Stats` 面板），勾选目标平台后重点核对 **`Texture Samplers`**（占用几个查表窗口）与 **`Texture Lookups`**（每像素实际读图次数）；② **看真实帧耗时**：在视口按 **`Ctrl + Shift + ,`** 运行 **`ProfileGPU`**，抓拍当前镜头 Base Pass 的真实毫秒开销！',
           },
         },
         {
           stepNumber: 5,
           shortLabel: '防坑黄金口诀',
           tag: 'pitfall',
-          title: '实战避坑口诀：多图必开共享包裹，层板先混贴图再封箱！',
+          title: '实战避坑口诀：平铺多图开共享包裹，层板先混贴图再封箱！',
           paragraphs: [
-            '本例所有地形纹理都需要平铺且使用相同过滤。生产中逐组核对寻址、过滤、平台与其他槽位占用；对使用不同规则的贴花做 UV 越界检查。尝试合并地表属性时保留材质原有的光照表现，再比较统计。',
-            '至此，光影、色彩、纹理、PBR 层板与深度管线五大内功你已全部融会贯通！下一章（模块 10），我们将把前面攒下的每一块积木全数派上用场，亲手造出清澈海水、通透水晶玻璃、森林丁达尔体积雾、溶解护盾与温润美玉！',
+            '总结多层材质与大地形优化铁律：① 所有无缝平铺贴图养成随手设为 `Shared: Wrap` 的肌肉记忆（特殊 `Nearest` 像素画或 `Clamp` 贴花除外），把 16 个硬件采样器窗口省得干干净净；② 在 UE 5.8 `Substrate` 中，只要地表各层共用同一套基础物理响应，就先混完颜色/法线/粗糙度再进单个 `Substrate Slab`，只有真正需要物理分层（如车漆清漆、冰雪覆膜）时才使用多层混合！',
+            '恭喜你！至此你已经彻底掌握了单个材质的体检与救场神技。但真实大场景卡顿时，真凶常常藏在单个材质之外——比如数千张派工单堵死 CPU、批量改色破坏合批，或远景高模烧白 Quad Overdraw。接下来 **9.5 ~ 9.8 四节重磅工程课**，我们将从单个材质球跃升到全关卡视角，一举打通 **`Draw Call`、`GPU 实例化`、`LOD / HLOD` 与 `stat unit / ProfileGPU` 性能调优闭环**！',
           ],
           tryItPrompt:
-            '点击顶部「看踩坑现象 / 切正确配置」一键切换，体验从“报错罢工 + 慢道飙红”到“1/16 共享 + 快道翠绿”的满血优化闭环！',
+            '点击顶部「看踩坑现象 / 切正确配置」一键对比单层板快道（青绿）与多层板慢道（品红/红），再切换右上角「原理连线图」记住双 `LandscapeLayerBlend` 汇入单 `Substrate Slab` 的标准画法！',
         },
       ],
       takeaways: [
-        '本例假定该着色阶段有 16 个槽。不同平台、渲染路径和材质特性会改变实际可用预算。',
-        '可兼容的纹理能共享 Wrap 或 Clamp 采样状态；采样指令仍会读取每个被采样的纹理。',
-        '善用 `Alt + 8`（`Shader Complexity`）与材质编辑器 `Stats` 面板检查指令数，绿区健康、红粉白区需重点瘦身',
-        '在 UE 5.8 `Substrate` 中做多层地表或污渍混合，应先混合贴图属性再连入单个 `Substrate Slab`，稳走单层板快道',
+        'SM5 下硬件限制 16 个采样器槽位（引擎自身需预留约 3 槽），默认每张图占 1 槽会导致 5 层地形（18/16）编译报错；UE 5.8 桌面虽默认 SM6，开启共享采样器仍是跨平台与预算管理的必修课',
+        '将无缝平铺贴图的 `Sampler Source` 设为 `Shared: Wrap` 可共用 1 槽并解锁最高 **128 张贴图**上限（但每像素 `Texture Lookups` 读取次数不变；像素画 `Nearest` 与贴花 `Clamp` 切勿误用 `Shared: Wrap`）',
+        '体检材质善用 **`Alt + 8`（`Shader Complexity`）**（深绿极省 → 浅绿/黄正常 → 红偏贵 → 粉/白爆表）、材质编辑器 **`Platform Stats`** 与 **`ProfileGPU`（`Ctrl + Shift + ,`）**',
+        '用 **`Lit → Substrate → Material Classification`** 检视 UE 5.8 层板路径：多层地形应先用各自独立的 `LandscapeLayerBlend` 混完贴图属性，再统一送入单个 `Substrate Slab BSDF`（`BSDF` → `Front Material`）稳走快道',
       ],
       schematic: schematic9_4,
       StageComponent: Stage9_4_LandscapeSamplerRescue,
     },
+    ...module09PerfLessons,
   ],
 };

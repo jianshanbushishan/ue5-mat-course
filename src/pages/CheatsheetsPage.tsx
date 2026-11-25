@@ -99,7 +99,11 @@ const SHORTCUT_NODES = [
   { key: 'O + 左键', node: 'OneMinus (1 - x)', desc: '黑白底片反转（好铁与铁锈位置瞬间对调）' },
   { key: 'L + 左键', node: 'LinearInterpolate (Lerp)', desc: '冷热水混水阀：Alpha=0 出 A，Alpha=1 出 B' },
   { key: 'UE 5.8 核心', node: 'Substrate Slab BSDF', desc: '新材质可用传统输入；需要显式层板时右键根节点 Convert to Substrate，Slab 输出接 Front Material' },
-  { key: 'UE 5.8 桥接', node: 'Metalness-To-DiffuseAlbedo-F0', desc: '把传统 BaseColor+Metallic 一键翻译成 Substrate 层板输入' },
+  { key: 'UE 5.8 桥接', node: 'Substrate Metalness-To-DiffuseAlbedo-F0', desc: '把传统 BaseColor+Metallic 一键翻译成 Substrate 层板输入' },
+  { key: '实例化零破批', node: 'PerInstanceRandom / PerInstanceCustomData', desc: 'ISM/HISM 共享 1 次 Draw Call 时，分别提供每实例 0~1 随机数与蓝图自定义浮点槽位' },
+  { key: '单组件保合批', node: 'Custom Primitive Data (CPD)', desc: '勾选参数的 Use Custom Primitive Data，运行时零 MID 改参，彻底保住自动合批' },
+  { key: '画质分级', node: 'QualitySwitch', desc: '按 Low / Medium / High / Epic 画质档位自动裁剪高耗节点分支' },
+  { key: '远景淡出', node: 'CameraDepthFade / PerInstanceFadeAmount', desc: '按镜头距离或实例化剔除距离平滑淡出细节法线、WPO 或网格消隐' },
 ];
 
 const VERIFY_NOTES = [
@@ -109,6 +113,8 @@ const VERIFY_NOTES = [
   { label: '照明环境', body: '自定义 Lambert 可将世界空间的单位光向量作为参数。预览球的 Show Environment 控制背景，Use Sky Lighting 和 Sky Light Intensity 控制环境照明。F0 只描述正入射界面反射。' },
   { label: '缓存与 AO', body: '用 primitive 的 WPO Disable Distance 检查远处的阴影缓存。Lumen 材质 AO 需要为它留出 GBuffer 空间，检查 Allow Static Lighting。' },
   { label: '性能统计', body: '用 Platform Stats 报告编译后的指令和采样器，用 GPU 计时验证帧耗。2 的 N 次方只给出 N 个独立布尔参数的组合上限。' },
+  { label: '瓶颈与 Draw Call', body: '先在固定机位关锁帧运行 stat unit 锁定 Game / Draw / GPU 短板，再用 stat scenerendering 查 Mesh draw calls，用 ProfileGPU (Ctrl+Shift+,) 拆解各 Pass 毫秒。' },
+  { label: 'LOD 与 Quad 检视', body: '用 Lit → Level of Detail Coloration → Mesh LODs 检查 Screen Size 切级节奏，用 Quad Overdraw 抓出远景微三角形白块。' },
 ];
 
 const PBR_MATERIALS = [
@@ -151,9 +157,9 @@ const EFFECT_RECIPES = [
   },
   {
     effect: '怪物烧蚀溶解与能量护盾',
-    domainMode: '溶解用 Masked；护盾用 Translucent Additive',
-    coreNodes: '溶解：Noise ≥ 进度输出 1，否则 0 → Opacity Mask；保留侧截取窄边 × 线性 HDR 发光；护盾：Fresnel + 反向 DepthFade',
-    pitfall: '护盾穿墙自动亮圈靠的是 DepthFade 探测极近距离差。',
+    domainMode: '溶解用 Masked；护盾用 Additive（或 Translucent）',
+    coreNodes: '溶解：Noise ≥ 进度输出 1，否则 0 → Opacity Mask（勾选 Two Sided）；保留侧截取窄边 × 线性 HDR 发光；护盾：Fresnel + 反向 DepthFade',
+    pitfall: '护盾穿墙自动亮圈靠的是 DepthFade 探测极近距离差；护盾与溶解通常需勾选 Two Sided 避免背面消失。',
   },
   {
     effect: '滚石自动积雪与免 UV 墙体',
@@ -164,14 +170,86 @@ const EFFECT_RECIPES = [
   {
     effect: '玉石与双层车漆',
     domainMode: 'Surface / Substrate Slab 或 Vertical Layer',
-    coreNodes: 'SSS MFP 按厘米输入，实验中的 10 mm 对应 1 cm；按散射模式提供厚度或薄表面设置。',
-    pitfall: '固定光强比较正光和背光。清漆顶层需设置透射与层厚，保留底层反射。',
+    coreNodes: 'SSS MFP 按厘米输入（10 mm = 1 cm）；车漆顶层清漆 Slab 设黑底色 + F0=0.04 + 低粗糙度 + 较大 SSS MFP（确保光线穿透到底层金属漆）。',
+    pitfall: '固定光强比较正光和背光。清漆顶层若忘设 SSS MFP（默认 0），在 UE 5.8 中会变成不透明纯黑壳遮死底层金属漆。',
   },
   {
     effect: '实验性 Toon 风格化',
     domainMode: 'Substrate NPR / Blendable GBuffer',
     coreNodes: '启用 Substrate，项目 GBuffer Format 选 Blendable，按提示重启；创建 Toon Profile 并在 Toon BSDF 详情中指定，BaseColor 驱动表面色。',
     pitfall: '明暗色阶由 Profile 控制，节点以 BSDF 输出连 Front Material。',
+  },
+];
+
+const PERF_TOOLS_MATRIX = [
+  {
+    category: '10 秒定瓶颈 (一级)',
+    tool: 'stat unit / stat unitgraph',
+    focus: 'Game / Draw / GPU / Frame (ms)',
+    action: '按 Frame ≈ max(Game, Draw, GPU) 找木桶最短板；目标 60 FPS ≤ 16.67 ms。',
+  },
+  {
+    category: '查派工单 (一级)',
+    tool: 'stat scenerendering',
+    focus: 'Mesh draw calls / Primitives',
+    action: 'Draw 线程偏高时优先核查；通过合槽、HISM/Nanite、CPD 与剔除压降提交数。',
+  },
+  {
+    category: '抓重材质/过绘制 (二级)',
+    tool: 'Shader Complexity (Alt+8)',
+    focus: '绿→黄→红→粉白热力色阶',
+    action: '树叶改 Masked 收紧叶卡、限制多层半透明、合并贴图通道降采样次数。',
+  },
+  {
+    category: '抓微三角形 (二级)',
+    tool: 'Quad Overdraw & Mesh LODs',
+    focus: '2×2 像素块废算白块 / 白红绿蓝 LOD 级',
+    action: '远景发白说明缺 LOD 或 Screen Size 过晚；补多级 LOD 并在远景合槽去 WPO。',
+  },
+  {
+    category: 'UE 5.8 层板体检 (二级)',
+    tool: 'Substrate → Material Classification',
+    focus: '单层板快道 vs 多层板慢道',
+    action: '多层地形/污渍先混贴图数据再进单个 Slab；仅真实双层介质才叠多层板。',
+  },
+  {
+    category: '毫秒级通道手术刀 (三级)',
+    tool: 'ProfileGPU (Ctrl+Shift+,) / Insights',
+    focus: 'BasePass / Shadow(VSM) / Translucency / Lumen',
+    action: '哪个 Pass 毫秒最肥就治哪个通道；Shadow 肥查 WPO Disable Distance 与阴影投射。',
+  },
+];
+
+const INSTANCING_LOD_MATRIX = [
+  {
+    tech: 'Auto-Instancing (自动合批)',
+    scene: '少量散落同款静态网格',
+    pros: '同 Mesh+同 Material 自动合批 Draw Call',
+    watchout: '海量独立 Actor 仍拖垮 CPU 管理；循环建 MID 会直接破批。',
+  },
+  {
+    tech: 'ISM (Instanced Static Mesh)',
+    scene: '集中同屏显示的小物件集群（砖块/螺钉）',
+    pros: '1 个组件极低 CPU + 1 次 Draw Call',
+    watchout: '非 Nanite 下共用整体包围盒，不支持逐实例独立切 LOD。',
+  },
+  {
+    tech: 'HISM (Hierarchical ISM)',
+    scene: '大范围森林植被、草甸与散布场景',
+    pros: '支持逐簇视锥裁剪 + 平滑独立切 LOD',
+    watchout: '配合 PerInstanceRandom / PerInstanceCustomData 实现零破批差异化。',
+  },
+  {
+    tech: 'HLOD (Hierarchical LOD)',
+    scene: '开放世界远景整片街区/建筑群',
+    pros: '数十栋建筑远景合并为 1 代理网格 = 1 Draw Call',
+    watchout: '需提前离线构建 HLOD，注意过渡 Screen Size 与烘焙贴图色差。',
+  },
+  {
+    tech: 'UE 5.8 Nanite (虚拟微多边形)',
+    scene: '高模不透明/镂空建筑、雕塑、岩石与植被',
+    pros: 'GPU 端连续 Cluster 切级，免手工 LOD 且大幅压缩几何 Draw Call',
+    watchout: '半透明与部分特效仍走传统管线；过多不同母材质/开关变体会增 Shading Bins 开销。',
   },
 ];
 
@@ -186,6 +264,10 @@ const CHECKLIST_ITEMS = [
   '经常调整的颜色、粗糙度、UV 平铺与贴图已提升为 Parameter 参数，日常资产全部使用 MI 材质实例零编译派生。',
   '母材质中 Static Switch（静态开关）数量严格克制，核对实际使用的静态参数组合与目标平台编译统计。',
   '在 Platform Stats 检查目标平台的采样器与纹理读取次数；仅对寻址和过滤要求相容的纹理使用 Shared: Wrap / Clamp。',
+  '小摆件与高频重复资产已将材质槽精简至 1~2 槽，小碎物取消不必要 Cast Shadow 并配置合理的剔除距离。',
+  '海量同类物件已用 HISM / ISM / Nanite 组织，批量差异化改参采用 PerInstanceRandom / CustomData / CPD，未循环批量建 MID。',
+  '非 Nanite 网格已配置按 Screen Size 切换的多级 LOD，远景 LOD 已简化材质槽并关闭 WPO（且设好 WPO Disable Distance），Quad Overdraw 无异常白块。',
+  '已在固定机位、解除锁帧下实测记录 stat unit（Game / Draw / GPU）、Mesh draw calls 与 ProfileGPU，确认无木桶短板超标。',
 ];
 
 const SECTION_ANCHORS = [
@@ -194,7 +276,8 @@ const SECTION_ANCHORS = [
   { id: 'sheet-verify', label: '03 引擎复查指南' },
   { id: 'sheet-pbr', label: '04 PBR 物理参考值' },
   { id: 'sheet-recipes', label: '05 效果实现配方' },
-  { id: 'sheet-checklist', label: '06 上线 10 项自检单' },
+  { id: 'sheet-perf', label: '06 性能、实例化与 LOD 决策' },
+  { id: 'sheet-checklist', label: '07 上线 14 项自检单' },
 ];
 
 export const CheatsheetsPage: React.FC = () => {
@@ -243,6 +326,7 @@ export const CheatsheetsPage: React.FC = () => {
                   <th>推荐源文件</th>
                   <th>sRGB 开关</th>
                   <th>UE 5.8 压缩设置</th>
+                  <th>采样器类型 (Sampler)</th>
                   <th>2K 显存占用</th>
                   <th>核心避坑叮嘱</th>
                 </tr>
@@ -262,6 +346,9 @@ export const CheatsheetsPage: React.FC = () => {
                       </span>
                     </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, whiteSpace: 'nowrap' }}>{row.comp}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, whiteSpace: 'nowrap', color: 'var(--brand-primary)', fontWeight: 600 }}>
+                      {row.sampler}
+                    </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap' }}>
                       {row.vram2k}
                     </td>
@@ -389,13 +476,66 @@ export const CheatsheetsPage: React.FC = () => {
           </div>
         </section>
 
-        {/* Section 06: Interactive Pre-Flight Checklist */}
+        {/* Section 06: Performance, Instancing & LOD Matrix */}
+        <section id="sheet-perf" className="sheet-section">
+          <h2 className="sheet-section-title">
+            <span className="sheet-section-num">06</span>
+            UE 5.8 性能诊断命令、GPU 实例化与 LOD 选型决策矩阵
+          </h2>
+          <div className="sheet-table-wrap" style={{ marginBottom: 14 }}>
+            <table className="sheet-table">
+              <thead>
+                <tr>
+                  <th>体检层级</th>
+                  <th>命令 / 视口路径</th>
+                  <th>核心关注指标</th>
+                  <th>对症优化方向</th>
+                </tr>
+              </thead>
+              <tbody>
+                {PERF_TOOLS_MATRIX.map((row, idx) => (
+                  <tr key={idx}>
+                    <td style={{ fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>{row.category}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--brand-primary)', fontWeight: 600 }}>{row.tool}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>{row.focus}</td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{row.action}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="sheet-table-wrap">
+            <table className="sheet-table">
+              <thead>
+                <tr>
+                  <th>合批 / 细节技术</th>
+                  <th>最佳适用场景</th>
+                  <th>核心性能收益</th>
+                  <th>边界与避坑叮嘱</th>
+                </tr>
+              </thead>
+              <tbody>
+                {INSTANCING_LOD_MATRIX.map((row, idx) => (
+                  <tr key={idx}>
+                    <td style={{ fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>{row.tech}</td>
+                    <td>{row.scene}</td>
+                    <td style={{ color: 'var(--accent-sage-deep)', fontWeight: 600 }}>{row.pros}</td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{row.watchout}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Section 07: Interactive Pre-Flight Checklist */}
         <section id="sheet-checklist" className="sheet-section">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
             <div>
               <h2 className="sheet-section-title" style={{ marginBottom: 4 }}>
-                <span className="sheet-section-num">06</span>
-                生产级母材质提交前 10 项自检清单
+                <span className="sheet-section-num">07</span>
+                生产级母材质与关卡性能提交前 14 项自检清单
                 <span className={`meta-pill ${doneCount === CHECKLIST_ITEMS.length ? 'sage' : 'neutral'}`}>
                   {doneCount} / {CHECKLIST_ITEMS.length} · {donePct}%
                 </span>

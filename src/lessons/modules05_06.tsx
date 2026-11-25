@@ -818,7 +818,7 @@ const Stage5_1_UvTilingWrapClamp: React.FC<LessonStageProps> = ({
 };
 
 /* ============================================================================
- * LESSON 5.2 STAGE: 3D 透视跑道俯仰角 + 最近点 / 双线性 / 各向异性 8x 拉帘对比
+ * LESSON 5.2 STAGE: 3D 透视跑道观察倾角 + 最近点 / 双线性 / 各向异性 8x 拉帘对比
  * ========================================================================== */
 
 type FilterMode = 'nearest' | 'bilinear' | 'aniso8' | 'aniso16';
@@ -1000,9 +1000,9 @@ const Stage5_2_FilteringAniso: React.FC<LessonStageProps> = ({
       rightFilter === 'aniso16' ? '最长轴最多取 16 个样点' : rightFilter === 'aniso8' ? '最长轴最多取 8 个样点' : '1 次各向同性采样';
     onKpiRef.current([
       {
-        label: '镜头俯仰角',
+        label: '镜头观察倾角',
         value: `${pitchDeg.toFixed(0)}°`,
-        sub: pitchDeg < 30 ? '近景怼脸放大模式' : '低头大斜角远眺马路',
+        sub: pitchDeg < 30 ? '近景垂直俯视放大' : '大斜角贴地远眺马路',
         tone: 'accent',
       },
       {
@@ -1031,7 +1031,7 @@ const Stage5_2_FilteringAniso: React.FC<LessonStageProps> = ({
       const img = ctx.createImageData(W, H);
       const data = img.data;
 
-      // Camera orientation: pitchDeg = 5° (looking nearly straight down close to ground) -> 84° (looking toward horizon)
+      // Camera viewing tilt angle: pitchDeg = 5° (looking nearly straight down) -> 84° (grazing toward horizon)
       const pitchRad = (pitchDeg * Math.PI) / 180;
       const sinP = Math.sin(pitchRad);
       const cosP = Math.cos(pitchRad);
@@ -1147,6 +1147,7 @@ const Stage5_2_FilteringAniso: React.FC<LessonStageProps> = ({
   // Footprint diagram dimensions for SVG inspector
   const fpHeightCells = pitchDeg < 28 ? 0.35 : clamp(stretchRatio * 0.65, 1, 9.2);
   const fpWidthCells = pitchDeg < 28 ? 0.35 : 1.0;
+  const anisoTapCount = rightFilter === 'aniso16' ? 16 : rightFilter === 'aniso8' ? 8 : 1;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1261,7 +1262,7 @@ const Stage5_2_FilteringAniso: React.FC<LessonStageProps> = ({
             ))}
 
             {/* If grazing & bilinear on left: show giant isotropic blur box */}
-            {pitchDeg >= 45 && (
+            {pitchDeg >= 45 && leftFilter !== 'nearest' && (
               <rect
                 x={77 - (fpHeightCells * 14) / 2}
                 y={74 - (fpHeightCells * 14) / 2}
@@ -1288,17 +1289,17 @@ const Stage5_2_FilteringAniso: React.FC<LessonStageProps> = ({
 
             {/* Sample dots */}
             {rightFilter.startsWith('aniso') && pitchDeg >= 35 ? (
-              Array.from({ length: 8 }).map((_, idx) => {
-                const t = idx / 7 - 0.5;
+              Array.from({ length: anisoTapCount }).map((_, idx) => {
+                const t = anisoTapCount > 1 ? idx / (anisoTapCount - 1) - 0.5 : 0;
                 return (
                   <circle
                     key={idx}
                     cx={77}
                     cy={74 + t * (fpHeightCells * 14 - 8)}
-                    r={2.7}
+                    r={anisoTapCount >= 16 ? 2.0 : 2.7}
                     fill="#16a34a"
                     stroke="#fff"
-                    strokeWidth="0.9"
+                    strokeWidth={anisoTapCount >= 16 ? '0.65' : '0.9'}
                   />
                 );
               })
@@ -1309,7 +1310,13 @@ const Stage5_2_FilteringAniso: React.FC<LessonStageProps> = ({
           <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.35 }}>
             {pitchDeg < 30
               ? '怼脸时脚印极小：Bilinear 混合相邻 4 格消除锯齿'
-              : '红虚框=普通滤波乱糊一锅粥；绿点=各向异性沿纵深精准采样！'}
+              : leftFilter === 'nearest'
+              ? rightFilter.startsWith('aniso')
+                ? `左侧 Nearest 单点硬采易锯齿闪烁；绿点=各向异性沿纵深精准采 ${anisoTapCount} 点！`
+                : '左侧 Nearest 单点硬采易锯齿闪烁；右侧 Bilinear 易发糊'
+              : rightFilter.startsWith('aniso')
+              ? `红虚框=普通滤波乱糊一锅粥；绿点=各向异性沿纵深精准采 ${anisoTapCount} 点！`
+              : '红虚框=普通滤波按最长边画大正方形一锅乱炖，导致远景发糊'}
           </div>
         </div>
       </div>
@@ -1328,7 +1335,7 @@ const Stage5_2_FilteringAniso: React.FC<LessonStageProps> = ({
 
       <div className="stage-controls-panel">
         <StageSlider
-          label="🎥 镜头俯仰角（5° 怼脸俯视 ↔ 84° 贴地远眺天际线）"
+          label="🎥 镜头观察倾角（5° 垂直俯视 ↔ 84° 贴地斜眺）"
           value={pitchDeg}
           min={5}
           max={84}
@@ -1516,7 +1523,7 @@ const Stage5_3_MipmapMoire: React.FC<LessonStageProps> = ({
       for (let px = 0; px < W; px++) {
         const nx = (px / W - 0.5) * 2.2 * aspectK;
         const u = (nx * depth + swayX) * tileDensity * 0.32;
-        const du = (2.2 / W) * depth * tileDensity * 0.32 * plazaMips.size;
+        const du = ((2.2 * aspectK) / W) * depth * tileDensity * 0.32 * plazaMips.size;
 
         const footprint = Math.max(du, dv * 0.55); // Mild aniso + mip
         const rawLod = clamp(Math.log2(Math.max(1, footprint)) + mipBias, 0, 7);
@@ -1834,7 +1841,7 @@ const module05Lessons: LessonDefinition[] = [
         title: '尺子走出 0~1 边界怎么办？循环包裹 Wrap vs 边缘夹紧 Clamp',
         paragraphs: [
           '既然尺子刻度能超过 `1`（比如 `1.6`）甚至小于 `0`（比如 `-0.4`），可贴图字典明明只有 `0 ~ 1` 这一小方格，越界之后去哪儿查颜色？显卡定下了两条寻址家规：',
-          '第一条叫 **包裹循环（`Wrap`）**：直接扔掉整数只看小数部分（`1.6` 当成 `0.6` 查），图案像无缝壁纸一样铺满全世界，最适合地砖、草地与流水；第二条叫 **边缘夹紧（`Clamp`）**：凡是小于 `0` 一律死锁在最左/最上一排纹素，大于 `1` 死锁在最右/最下一排纹素——专为只准在墙上出现一次的弹孔、血迹和贴花准备！',
+          '第一条叫 **包裹循环（`Wrap`）**：直接扔掉整数只看小数部分（`1.6` 当成 `0.6` 查），图案像无缝壁纸一样铺满全世界，最适合地砖、草地与流水；第二条叫 **边缘夹紧（`Clamp`）**：凡是小于 `0` 一律死锁在最左/最上一排纹素，大于 `1` 死锁在最右/最下一排纹素——专为只准在墙上出现一次的弹孔、血迹和贴花准备！（顺带一提，UE 里还有第三种 **镜像重复（`Mirror`）**：每越过一次边界就把图案像照镜子一样翻转拼接，用来藏接缝也很方便。）',
         ],
         tryItPrompt:
           '👉 点击舞台顶部切换到「模式 B：墙面弹孔贴花越界」，在水泥墙上任意移动鼠标，观察底部公式栏里 `Wrap 取小数` 与 `Clamp 锁死 [0..1]` 的区别！',
@@ -1852,8 +1859,8 @@ const module05Lessons: LessonDefinition[] = [
           '👉 切回模式 A 拨动「Panner 水流平移速度」体验动态流水，再点右上角「原理图」按钮查看 UE 5.8 标准节点连线！',
         callout: {
           tone: 'ue58',
-          title: 'UE 5.8 省采样器冷知识：Shared: Wrap / Shared: Clamp',
-          body: '把 Texture Sample 的 Sampler Source 设为 Shared: Clamp，不仅不用修改原贴图资产设置，还能让几十张贴图共用同一个硬件采样器，彻底告别 16 采样器超限报错！',
+          title: 'UE 5.8 省采样器冷知识：Shared: Wrap / Shared: Clamp（注意过滤覆盖！）',
+          body: '把 Texture Sample 的 Sampler Source 设为 Shared: Clamp，不仅不用修改原贴图资产设置，还能让几十张贴图共用同一个硬件采样器（显卡同时能开的“查表窗口”数量有限，详见第 9.4 课），彻底告别 16 采样器超限报错！\n⚠️ 注意：Shared: Wrap / Shared: Clamp 会同时覆盖贴图自身的 Filter 过滤设置（改用共享平滑过滤），所以复古像素风的 Nearest 贴图千万别改成 Shared，应保留默认 From Texture Asset！',
         },
       },
       {
@@ -1863,56 +1870,56 @@ const module05Lessons: LessonDefinition[] = [
         title: '实战避坑：为什么开了 Clamp 却拉出贯穿全墙的十字彩条？',
         paragraphs: [
           '揭晓开头那个让无数美术崩溃的十字拉丝惨案！既然 `Clamp` 的规矩是“走出 `0~1` 后，永远复写贴图最外圈第 1 像素的颜色”，如果画师画火焰符文或弹孔时，笔刷不小心蹭到了画布最边缘哪怕 1 个像素的橙色火星，这一点点火星就会被 `Clamp` 硬生生拉成几米长的激光彩带！',
-          '本例用 Alpha 合成弹孔。把图像四边的 Alpha 清为 0，Clamp 越界采到透明边就会露出墙面。黑色 RGB 配 Alpha=1 仍会拉出黑条。直通 Alpha 纹理可在透明区延展邻近 RGB，减少双线性和 mip 过滤产生的色边。',
+          '救命的办法其实超简单：做独立 Alpha 贴花时，务必把画布最外圈四边的透明通道清成 **`Alpha = 0`**——这样 `Clamp` 越界锁死在最外圈时，铺出去的全是透明空气，干干净净露出底下的水泥墙面（如果只是涂黑但 `Alpha = 1`，照样会拉出黑条哦）。另外，透明边缘周围要像第 4.2 课那样**外扩邻近颜色**，避免缩放和边缘平滑混合时露出黑边或白边（缩放过滤的细节详见 5.2–5.3 课）！',
         ],
         tryItPrompt:
           '👉 在模式 B 下点击橙/绿避坑横幅，一键对比「Clamp 边缘 Alpha 非零（边缘火星拉出十字彩带）」与「Clamp + 1px 透明安全边」！',
         callout: {
           tone: 'warn',
           title: '一句话防坑口诀',
-          body: '平铺地砖用 Wrap。独立 Alpha 贴花用 Clamp，在边缘保留足够的透明填充，并在远景检查过滤后的边缘。',
+          body: '平铺地砖用 Wrap（或 Mirror 镜像藏缝）；独立 Alpha 贴花用 Clamp，务必在四边留出 Alpha = 0 透明安全边并外扩邻近 RGB！',
         },
       },
     ],
     takeaways: [
       '显示器发光点叫像素（Pixel），贴图色块格叫纹素（Texel），纹理采样就是像素拿 UV 去查纹素字典。',
       'UV 乘以大于 1 的数会让刻度变密，花纹反而缩小并重复铺成多块；乘以小于 1 的小数花纹才会放大。',
-      '超出 0~1 范围时，地砖草地用 Wrap（取小数无限循环），独立弹孔贴花用 Clamp（锁死最外圈像素）。',
-      '使用 Alpha 合成时，Clamp 贴花需在图像边界将 Alpha 清零，并分别处理 RGB 扩色。若使用共享采样器，确认其寻址与过滤符合贴花要求，例如可兼容的 Shared: Clamp。',
+      '超出 0~1 范围时，地砖草地用 Wrap（循环平铺）或 Mirror（镜像重复），独立弹孔贴花用 Clamp（锁死最外圈像素）。',
+      '独立 Alpha 贴花用 Clamp 时，必须在图像边界将 Alpha 清零并外扩邻近 RGB；改用 Shared: Clamp 省硬件采样器时，切记它会覆盖贴图自身的 Filter 设置（像素风 Nearest 贴图不可用）。',
     ],
     schematic: {
       title: 'UE 5.8 UV 缩放、Panner 流动与采样器寻址连线图',
-      caption: 'TexCoord 控制平铺密度，Panner 叠加时间偏移，送入配置好 Wrap / Shared:Clamp 的 Texture Sample',
+      caption: '默认 1.0 的 TexCoord 乘以 Tiling 参数并经 Panner 平移后采样贴图，RGB 接入 Substrate Slab BSDF → Material Root',
       nodes: [
         {
           id: 'texcoord',
           title: 'TextureCoordinate',
           subtitle: '快捷键 U · UV 尺子',
           category: 'input',
-          x: 24,
-          y: 48,
-          width: 175,
+          x: 16,
+          y: 28,
+          width: 156,
           outputs: [{ id: 'uv', label: 'UV (RG)', color: '#eab308' }],
-          note: 'UTiling / VTiling = 2.0',
+          note: '默认 UTiling / VTiling = 1.0',
         },
         {
           id: 'tiling_param',
           title: 'ScalarParameter',
           subtitle: 'Tiling 倍数参数',
           category: 'param',
-          x: 24,
-          y: 195,
-          width: 175,
+          x: 16,
+          y: 172,
+          width: 156,
           outputs: [{ id: 'val', label: '2.0', color: '#e5e7eb' }],
         },
         {
           id: 'mul_uv',
           title: 'Multiply',
-          subtitle: '快捷键 M · 缩放刻度',
+          subtitle: '快捷键 M · 1.0 × 2.0',
           category: 'math',
-          x: 245,
-          y: 95,
-          width: 155,
+          x: 196,
+          y: 78,
+          width: 138,
           inputs: [
             { id: 'a', label: 'A (UV)', color: '#eab308' },
             { id: 'b', label: 'B (Tiling)', color: '#e5e7eb' },
@@ -1924,9 +1931,9 @@ const module05Lessons: LessonDefinition[] = [
           title: 'Panner',
           subtitle: '快捷键 P · 时间平移',
           category: 'math',
-          x: 440,
-          y: 95,
-          width: 165,
+          x: 358,
+          y: 78,
+          width: 146,
           inputs: [{ id: 'coord', label: 'Coordinate', color: '#eab308' }],
           outputs: [{ id: 'out', label: 'Flow UV', color: '#eab308' }],
           note: 'Speed X=0.2, Y=0.1',
@@ -1936,9 +1943,9 @@ const module05Lessons: LessonDefinition[] = [
           title: 'Texture Sample',
           subtitle: 'Shared: Wrap / Clamp',
           category: 'texture',
-          x: 645,
-          y: 78,
-          width: 195,
+          x: 528,
+          y: 60,
+          width: 164,
           previewColor: '#2d68a8',
           inputs: [{ id: 'uvs', label: 'UVs', color: '#eab308' }],
           outputs: [
@@ -1947,12 +1954,36 @@ const module05Lessons: LessonDefinition[] = [
           ],
           note: '贴花改选 Shared: Clamp',
         },
+        {
+          id: 'slab_bsdf',
+          title: 'Substrate Slab BSDF',
+          subtitle: '基础材质层',
+          category: 'substrate',
+          x: 716,
+          y: 66,
+          width: 168,
+          previewColor: '#a855f7',
+          inputs: [{ id: 'albedo', label: 'Diffuse Albedo', color: '#e5e7eb' }],
+          outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+        },
+        {
+          id: 'mat_root',
+          title: 'Material Root',
+          subtitle: '材质最终输出',
+          category: 'output',
+          x: 908,
+          y: 78,
+          width: 148,
+          inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
+        },
       ],
       edges: [
         { fromNode: 'texcoord', fromPin: 'uv', toNode: 'mul_uv', toPin: 'a', color: '#eab308' },
         { fromNode: 'tiling_param', fromPin: 'val', toNode: 'mul_uv', toPin: 'b', color: '#e5e7eb' },
         { fromNode: 'mul_uv', fromPin: 'out', toNode: 'panner', toPin: 'coord', color: '#eab308' },
         { fromNode: 'panner', fromPin: 'out', toNode: 'tex_sample', toPin: 'uvs', color: '#eab308' },
+        { fromNode: 'tex_sample', fromPin: 'rgb', toNode: 'slab_bsdf', toPin: 'albedo', color: '#e5e7eb' },
+        { fromNode: 'slab_bsdf', fromPin: 'bsdf', toNode: 'mat_root', toPin: 'front', color: '#a855f7' },
       ],
     },
     StageComponent: Stage5_1_UvTilingWrapClamp,
@@ -1986,10 +2017,10 @@ const module05Lessons: LessonDefinition[] = [
         title: '像素脚印踩歪了怎么办？从 4 邻居混色到 1×16 细长脚印',
         paragraphs: [
           '病根只有一句话：**屏幕像素和贴图纹素几乎永远没法一比一严丝合缝对齐**！先看**怼脸放大**：贴图里 1 个纹素大格子要管屏幕上几十个像素。如果死板规定“离哪个纹素中心近就全抄谁的色”，交界处就会切出硬方块，叫 **最近点过滤（`Nearest`）**；如果把周围相邻 `2 × 2 = 4` 个纹素按远近温柔混色，锯齿立刻化作顺滑渐变，叫 **双线性过滤（`Bilinear`）**！',
-          '那为什么**低头斜看远方马路**时双线性也彻底翻车？看舞台右侧的「像素脚印透视窗」：当你以 `80°` 大斜角平视地面，屏幕上 1 个方方正正的像素投射到贴图上，左右只跨了 `1` 格，顺着公路纵深却一口气拉长跨过了 **`16` 格**！普通滤波不分长短，直接画个 `16 × 16` 的大正方形红框一锅乱炖求平均，把旁边的黑柏油和白斑马线全搅成了灰粥！',
+          '那为什么**低头斜看远方马路**时双线性也彻底翻车？看舞台右侧的「像素脚印透视窗」：当你以 `80°` 大观察倾角贴地斜眺，屏幕上 1 个方方正正的像素投射到贴图上，左右只跨了 `1` 格，顺着公路纵深却一口气拉长跨过了 **`16` 格**！普通滤波不分长短，直接画个 `16 × 16` 的大正方形红框一锅乱炖求平均，把旁边的黑柏油和白斑马线全搅成了灰粥！（小剧透：下一课 5.3 会揭秘，显卡为了防远景闪烁会自动切换缩略图，普通滤波正是因为缩略图切得太猛，才把原本很清的横向也一并糊掉了！）',
         ],
         tryItPrompt:
-          '👉 慢慢把「镜头俯仰角」从 `15°` 往右拉到 `82°`，紧盯右侧小窗里绿色像素脚印是如何从一粒小圆点被拉成细长扁条的！',
+          '👉 慢慢把「镜头观察倾角」从 `15°` 往右拉到 `82°`，紧盯右侧小窗里绿色像素脚印是如何从一粒小圆点被拉成细长扁条的！',
         callout: {
           tone: 'tip',
           title: '大白话秒懂“各向异性过滤（Anisotropic Filtering）”',
@@ -2002,7 +2033,7 @@ const module05Lessons: LessonDefinition[] = [
         tag: 'experiment',
         title: '亲手拖动白色拉帘：一秒擦亮十米外的斑马线与双黄线',
         paragraphs: [
-          '把镜头俯仰角停在 `80° ~ 84°` 之间，用手抓住跑道正中央的白色 `⇆` 对比拉帘左右滑动，仔细端详公路尽头的白色斑马线、中央双黄线和两侧红白路肩砖：',
+          '把镜头观察倾角停在 `80° ~ 84°` 之间，用手抓住跑道正中央的白色 `⇆` 对比拉帘左右滑动，仔细端详公路尽头的白色斑马线、中央双黄线和两侧红白路肩砖：',
           '左半屏 `Bilinear` 在中景处就已经糊成了灰蒙蒙一片，连双黄线都消失不见了；而右半屏 `Anisotropic 8x` 沿着纵深精准采样后，斑马线条纹与路肩红白砖块一路清晰锐利地延伸到了天际线尽头！切到 `Aniso 16x` 连最极端掠射角都稳如泰山。',
         ],
         tryItPrompt:
@@ -2012,10 +2043,10 @@ const module05Lessons: LessonDefinition[] = [
         stepNumber: 4,
         shortLabel: 'UE 5.8 过滤设置',
         tag: 'ue5',
-        title: '走进 UE 5.8：Filter 下拉框与项目各向异性画质档位',
+        title: '走进 UE 5.8：Filter 下拉框、三线性过渡与各向异性画质档位',
         paragraphs: [
-          '回到真实 UE 5.8 工程里，这两套机制各司其职：① 如果你正在制作《我的世界》或复古 2D 像素风独立游戏，双击导入的小尺寸像素画贴图，在 `Texture → Advanced → Filter` 下拉框里把 `Default` 手动改为 **`Nearest（最近点）`**，就能彻底关掉双线性柔化，保留清脆硬朗的像素颗粒感！',
-          '② 对于写实项目的公路、大地砖、木地板、水面波浪法线，保持默认跟随纹理组（`Default from Texture Group`），并在引擎画质设置（Scalability `Textures: High/Epic` 或控制台 `r.MaxAnisotropy 8`）中启用 8 倍或 16 倍各向异性过滤即可。',
+          '回到真实 UE 5.8 工程里，打开贴图资产的 `Texture → Advanced → Filter` 下拉框，你会看到四个选项：`Nearest`、`Bi-linear`、`Tri-linear` 和 `Default (from Texture Group)`。① 如果你在做《我的世界》或复古 2D 像素风游戏，手动改成 **`Nearest（最近点）`** 就能关掉平滑柔化，保留清脆的像素方块感；而写实贴图常见的 **`Tri-linear（三线性过滤）`** 会在双线性混色的基础上，顺手把远近相邻两张缩略图也柔和过渡混合，彻底消灭马路中景突兀的“清晰→模糊”分界硬线！',
+          '② 对于写实项目的公路、大地砖、木地板、水面波浪法线，保持默认跟随纹理组（`Default from Texture Group`）即可。UE 的 Scalability 纹理画质档位默认对应的各向异性倍数为：**`High = 4x`、`Epic = 8x`、`Cinematic = 16x`**；想临时实测对比时，按键盘左上角波浪键 **`~`** 打开 UE 控制台，输入 `r.MaxAnisotropy 8`（或 `16`）即可实时生效！',
         ],
         tryItPrompt:
           '👉 切到 `12°` 近景对比 `Nearest` 与 `Bilinear`，想象一下做复古像素宝剑时如果忘了改 `Nearest` 会糊成什么样！',
@@ -2044,23 +2075,23 @@ const module05Lessons: LessonDefinition[] = [
       },
     ],
     takeaways: [
-      '最近点过滤（Nearest）直接取最近纹素颜色，适合复古像素风；双线性过滤（Bilinear）混合周围 4 纹素消除近景放大锯齿。',
-      '低头大斜角远眺地面时，1 个屏幕像素在贴图上的脚印会被拉成 1×16 细长条，普通滤波按大正方形乱糊会导致远景发雾。',
+      '最近点过滤（Nearest）保留像素硬边；双线性（Bilinear）混合周围 4 纹素消除近景锯齿；三线性（Trilinear）进一步平滑相邻两层缩略图的切换接缝。',
+      '大斜角贴地远眺时，1 个屏幕像素在贴图上的脚印会被拉成 1×16 细长条，普通滤波按大正方形乱糊会导致远景发雾。',
       '各向异性过滤（Anisotropic 8x/16x）专门顺着拉长的纵深方向多点采样求平均，让公路标线直到地平线依然锐利。',
-      '地面斜看发糊时盲目升级 4K/8K 贴图毫无作用且浪费显存，检查纹理组与开启 MaxAnisotropy 才是正解。',
+      '地面斜看发糊时盲目升级 4K/8K 贴图毫无作用且浪费显存，在纹理组与 Scalability（High=4x / Epic=8x / Cinematic=16x）中确保开启各向异性才是正解。',
     ],
     schematic: {
       title: 'UE 5.8 贴图过滤模式与硬件各向异性采样管线',
-      caption: '显卡根据相邻像素 UV 偏导数 (ddx / ddy) 自动测算脚印长宽比，决定单点混合还是沿纵深多点采样',
+      caption: '过滤与各向异性采样都在 Texture Sample 硬件单元内部完成，最终仅输出一条 RGB 颜色线接入 Substrate Slab BSDF → Material Root',
       nodes: [
         {
           id: 'screen_uv',
           title: 'Screen Pixel UV',
-          subtitle: 'ddx(UV) & ddy(UV)',
+          subtitle: '相邻两像素的 UV 差值 ddx/ddy',
           category: 'input',
-          x: 24,
-          y: 84,
-          width: 175,
+          x: 20,
+          y: 26,
+          width: 192,
           outputs: [
             { id: 'uv', label: 'UV 坐标', color: '#eab308' },
             { id: 'footprint', label: '脚印跨度 1×16', color: '#f97316' },
@@ -2070,49 +2101,61 @@ const module05Lessons: LessonDefinition[] = [
         {
           id: 'tex_filter',
           title: 'Texture Asset · Filter',
-          subtitle: 'Nearest / Bilinear / Default',
+          subtitle: 'Nearest / Bi / Tri-linear / Default',
           category: 'param',
-          x: 250,
-          y: 38,
-          width: 195,
-          inputs: [{ id: 'in_uv', label: 'UV', color: '#eab308' }],
-          outputs: [{ id: 'cfg', label: 'Filter Mode', color: '#38bdf8' }],
+          x: 20,
+          y: 176,
+          width: 192,
+          outputs: [{ id: 'cfg', label: 'Filter 设置', color: '#38bdf8' }],
           note: '像素画改选 Nearest',
         },
         {
-          id: 'aniso_unit',
-          title: 'GPU Anisotropic Unit',
-          subtitle: 'r.MaxAnisotropy = 8x / 16x',
-          category: 'pipeline',
-          x: 250,
-          y: 178,
-          width: 195,
-          inputs: [{ id: 'fp', label: 'Footprint', color: '#f97316' }],
-          outputs: [{ id: 'taps', label: '沿纵深 8 点采样', color: '#22c55e' }],
-          note: '仅顺拉长轴采样，横向不糊',
+          id: 'tex_sample',
+          title: 'Texture Sample (硬件采样器)',
+          subtitle: '内部完成过滤 + Aniso 8x/16x',
+          category: 'texture',
+          x: 256,
+          y: 74,
+          width: 214,
+          previewColor: '#22c55e',
+          inputs: [
+            { id: 'in_uv', label: 'UVs', color: '#eab308' },
+            { id: 'fp', label: '脚印跨度', color: '#f97316' },
+            { id: 'cfg', label: 'Filter', color: '#38bdf8' },
+          ],
+          outputs: [{ id: 'rgb', label: 'RGB', color: '#e5e7eb' }],
+          note: '沿纵深多点采样，横向不糊',
         },
         {
           id: 'slab_out',
           title: 'Substrate Slab BSDF',
-          subtitle: 'Diffuse Albedo 输入',
+          subtitle: '基础材质层',
           category: 'substrate',
-          x: 505,
-          y: 96,
-          width: 205,
-          previewColor: '#22c55e',
-          inputs: [
-            { id: 'albedo', label: 'Diffuse Albedo', color: '#e5e7eb' },
-            { id: 'aniso_tap', label: 'Filtered Color', color: '#22c55e' },
-          ],
-          outputs: [{ id: 'mat', label: 'Front Material', color: '#a855f7' }],
+          x: 514,
+          y: 88,
+          width: 192,
+          previewColor: '#a855f7',
+          inputs: [{ id: 'albedo', label: 'Diffuse Albedo', color: '#e5e7eb' }],
+          outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
           note: '地平线标线清晰锐利',
+        },
+        {
+          id: 'mat_root',
+          title: 'Material Root',
+          subtitle: '材质最终输出',
+          category: 'output',
+          x: 748,
+          y: 96,
+          width: 152,
+          inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
         },
       ],
       edges: [
-        { fromNode: 'screen_uv', fromPin: 'uv', toNode: 'tex_filter', toPin: 'in_uv', color: '#eab308' },
-        { fromNode: 'screen_uv', fromPin: 'footprint', toNode: 'aniso_unit', toPin: 'fp', color: '#f97316' },
-        { fromNode: 'tex_filter', fromPin: 'cfg', toNode: 'slab_out', toPin: 'albedo', color: '#38bdf8' },
-        { fromNode: 'aniso_unit', fromPin: 'taps', toNode: 'slab_out', toPin: 'aniso_tap', color: '#22c55e' },
+        { fromNode: 'screen_uv', fromPin: 'uv', toNode: 'tex_sample', toPin: 'in_uv', color: '#eab308' },
+        { fromNode: 'screen_uv', fromPin: 'footprint', toNode: 'tex_sample', toPin: 'fp', color: '#f97316' },
+        { fromNode: 'tex_filter', fromPin: 'cfg', toNode: 'tex_sample', toPin: 'cfg', color: '#38bdf8' },
+        { fromNode: 'tex_sample', fromPin: 'rgb', toNode: 'slab_out', toPin: 'albedo', color: '#e5e7eb' },
+        { fromNode: 'slab_out', fromPin: 'bsdf', toNode: 'mat_root', toPin: 'front', color: '#a855f7' },
       ],
     },
     StageComponent: Stage5_2_FilteringAniso,
@@ -2146,14 +2189,14 @@ const module05Lessons: LessonDefinition[] = [
         title: '1 个像素底下挤着 4096 个纹素，“一锤子瞎摸”必翻车',
         paragraphs: [
           '算笔简单算术就全破案了：一面贴了 `2048 × 2048`（四百多万纹素）精细红砖图的大墙退到百米开外时，在屏幕上缩得只占 `32 × 32` 个像素。算下来，**远景 1 个屏幕像素脚底下足足挤着 `4096` 个红砖和白灰缝纹素！** 如果没有缩略图，显卡采样器一锤子下去只盲摸其中 `1` 个点：这一帧摸到红砖涂纯红，下一帧镜头挪动零点一毫米摸到白灰缝啪地跳纯白！几万个像素同时乱跳，就是刺眼的**闪烁走样与摩尔纹（Moiré）**！',
-          '根治妙招就是导入贴图时提前算好一套长宽逐级减半的**“俄罗斯套娃缩略图”（`Mipmap`）**：`2048 → 1024 → 512 … → 1×1`！远景像素直接去读提前平均好的小号缩略图，减轻远景闪烁，改善纹理访问的局部性！',
+          '根治妙招就是导入贴图时提前算好一套长宽逐级减半的**“俄罗斯套娃缩略图”（`Mipmap`）**：`2048 → 1024 → 512 … → 1×1`！远景像素直接去读提前平均好的小号缩略图，既彻底告别远景闪烁，还大幅改善了**纹理访问局部性**（相邻像素去查相邻纹素，更容易命中显卡高速缓存，跑起来反而更快）！',
         ],
         tryItPrompt:
           '👉 看舞台右侧的几何方块拼图：`Mip 1 (1/4)` + `Mip 2 (1/16)` + `Mip 3 (1/64)`……全部加起来，是不是刚好等于原图的三分之一（`+33.3%`）？',
         callout: {
           tone: 'formula',
           title: '无穷套娃为什么不会撑爆显存？',
-          body: '大正方形纹理长和宽各减半，面积就缩为 1/4！把所有缩略图面积相加：\n1/4 + 1/16 + 1/64 + 1/256 + … = 1/3 ≈ +33.3%！\n对较大的正方形贴图，这约为基级的三分之一。过滤能减轻远景走样；实际占用还受块取整和驻留影响。',
+          body: '大正方形纹理长和宽各减半，面积就缩为 1/4！把所有缩略图面积相加：\n1/4 + 1/16 + 1/64 + 1/256 + … = 1/3 ≈ +33.3%！\n完整套娃链总大小约为原图的 4/3（反过来，如果关掉 Mip，省掉的正是 (1/3) ÷ (4/3) = 25%）；实际占用还受块取整和流送驻留影响。',
         },
       },
       {
@@ -2166,7 +2209,7 @@ const module05Lessons: LessonDefinition[] = [
           '我们给每级套娃涂上了醒目的诊断色：脚下最近处是火红色的 **`Mip 0`（高清原图）**，往前几米温柔交棒给橙色的 **`Mip 1`（半尺寸图）**，再往远依次换成翠绿 **`Mip 2`**、天蓝 **`Mip 3`** 与深紫 **`Mip 4+`**！镜头往前走，这道彩虹接力环就稳稳护送在脚前。',
         ],
         tryItPrompt:
-          '👉 打开「🌈 UE 5.8 Mip 层级彩虹染色镜」，再左右拨动下方「Mip 偏移 (Mip Bias)」滑块，观察彩虹色带是如何往近处收缩或往远处推开的！',
+          '👉 打开「🌈 UE 5.8 Mip 层级彩虹染色镜」，再左右拨动下方「Mip 偏移（Mip Bias，手动偏移选更清或更糊一层）」滑块，观察彩虹色带是如何往近处收缩或往远处推开的！',
       },
       {
         stepNumber: 4,
@@ -2174,103 +2217,132 @@ const module05Lessons: LessonDefinition[] = [
         tag: 'ue5',
         title: '走进 UE 5.8：为什么游戏贴图尺寸非得是 512、1024、2048？',
         paragraphs: [
-          '在 UE 5.8.1 导入 1000×752 的 PNG，纹理编辑器默认显示 `NoMipmaps`。改为 `SimpleAverage`，保存后重新打开可以读到新设置。查看纹理编辑器的 mip 选择器，确认当前平台实际构建出的层数。',
-          '常规流送以长宽各为二次幂的纹理为前提，可在资源中填充到合适尺寸。生成 mip、流送资格和块对齐分别检查。1000×752 两边都是 4 的倍数，满足常见桌面 BC 顶层尺寸对齐，但两边都不是二次幂。',
+          '很多同学刚入行时都疑惑：为什么不能随手做一张 `1000 × 752` 的砖墙贴图，游戏行业偏偏死磕 `512、1024、2048` 这些 **2 的整次幂**（长宽可以不同，比如 `1024 × 512` 也完全没问题）？秘密就藏在刚才的套娃缩略图里：`2048 → 1024 → 512 → 256 → … → 1`，只有 2 的整次幂才能一路干干净净对半砍到底、绝不余出半个像素，且便于下一章的 `4 × 4` 显存块压缩整齐对齐！',
+          '更关键的是，长宽各为 2 的整次幂还能解锁 UE 5.8 的 **纹理流送（Texture Streaming）** 神技——镜头离墙还远时，显卡只加载轻巧的低清缩略图（如 `Mip 3`），等你走近了再把高清 `Mip 0` 自动流送进显存，帮整个大世界省下海量显存！',
         ],
         tryItPrompt:
           '👉 试着拉高「广场细砖密集度」到 `3.0×`，再开关 Mipmap 对比：花纹越精细，没有 Mipmap 时的摩尔纹漩涡就越触目惊心！',
         callout: {
           tone: 'ue58',
-          title: '在纹理编辑器核对构建结果',
-          body: '记录导入尺寸、平台像素格式、mip 层数和 Never Stream 状态。更改 Mip Gen Settings 后重新构建，并检查实际资源。',
+          title: 'UE 5.8 实操提示：非 2 次幂贴图会怎样？',
+          body: '在 UE 5.8 导入非 2 次幂贴图（如 1000×752）时，纹理编辑器默认把 Mip Gen Settings 设为 NoMipmaps 且不参与常规流送（Never Stream）。虽然可以手动改成 SimpleAverage 强行补出 Mip 层级，但仍会失去常规纹理流送；3D 场景贴图务必坚持 2 的整次幂，并在纹理编辑器中核对实际 Mip 层数与流送状态。',
         },
       },
       {
         stepNumber: 5,
         shortLabel: '非 2 次幂与 UI 坑',
         tag: 'pitfall',
-        title: '场景贴图和 UI 何时需要 mip？',
+        title: '实战避坑：3D 贴图死守 2 次幂，只有“固定尺寸 UI”才考虑关 Mip',
         paragraphs: [
-          '需要常规流送的场景纹理可选 1024×512 等二次幂尺寸；近景和远景都要检查清晰度、闪烁与实际驻留层级。',
-          'UI 图标如果始终按原尺寸显示，可考虑关闭 mip。界面会缩小或出现在三维场景时，应观察缩小时的走样。大正方形贴图关闭完整 mip 链约节省原总量的 25%。',
+          '记住这条省心铁律：只要贴图贴在 3D 模型上、会跟着镜头忽远忽近，就老老实实用 `512 / 1024 / 2048`（或 `1024 × 512`）这种 2 的整次幂并开启 Mipmap，兼顾远景不闪烁与自动流送省显存。顺带记个妙喻：**`Mipmap` 本质上是“贴图的 LOD（纹理多细节层次）”**；到了第 **9.7 课**，我们会遇见它在 3D 模型与材质领域的孪生兄弟——**几何 LOD、Quad Overdraw 与 HLOD**！',
+          '什么情况才考虑关 Mipmap？只有**始终按 1:1 原尺寸显示的 2D UI 图标与底图**（注意：如果 UI 会被大幅缩小或放进 3D 空间当广告牌，关 Mip 照样会锯齿闪烁！）。顺便解开一个小疑惑：前面说加 Mip 多了 `33.3%`，这里关掉 Mip 怎么变成约省 `25%` 了？因为**加 Mip 多了 `1/3`，总大小变成原来的 `4/3`，所以反过来关掉 Mip 省掉的是 `(1/3) ÷ (4/3) = 1/4 = 25%`**！',
         ],
         tryItPrompt:
-          '点击下方横幅，用同一张广场砖纹对比只采基级和启用 mip。',
+          '👉 点击下方避坑横幅，用同一张广场砖纹一键对比「关掉 Mipmap 远景狂闪」与「开启完整 Mipmap 丝滑平稳」！',
         callout: {
           tone: 'warn',
           title: '一句话防坑口诀',
-          body: '完整链约为基级的 4/3；删掉附加层约省完整链的四分之一。',
+          body: '3D 贴图认准 2 次幂开 Mipmap（加套娃 +33.3% 变成 4/3）；只有固定 1:1 显示的 2D UI 才关闭 Mip，反过来约省完整链的 25%！',
         },
       },
     ],
     takeaways: [
-      '远景 1 个屏幕像素底下挤着成百上千个纹素，若直接采基级可能导致镜头微动时颜色剧烈跳变（闪烁走样与摩尔纹）。',
-      'Mipmap 提前生成长宽逐级减半的套娃缩略图（2048→1024→512…→1），可以减轻远景走样，改善纹理访问局部性。',
-      '生成 mip 与常规流送分别检查。纹理编辑器可以修改 NPOT 资源的 Mip Gen Settings，再看本平台实际生成的层数。',
-      '大正方形的完整 mip 链约为基级的 4/3，关闭后节省完整链的约 25%。',
+      '远景 1 个屏幕像素底下挤着成百上千个纹素，若强读原图（Mip 0）会导致镜头微动时颜色剧烈跳变（闪烁走样与摩尔纹）。',
+      'Mipmap 提前生成长宽逐级减半的套娃缩略图（2048→1024→512…→1），既消除远景闪烁，也提升纹理访问局部性（相邻像素更易命中高速缓存）。',
+      '3D 场景贴图应采用 2 的整次幂（如 2048² 或 1024×512）以支持整除减半与 UE 5.8 常规纹理流送；非 2 次幂图默认 NoMipmaps。',
+      '加 Mipmap 多占原图的 1/3（+33.3%），总大小变为 4/3；因此仅对固定 1:1 显示的 UI 关闭 Mip 时，省掉的是 (1/3) ÷ (4/3) = 25%。',
     ],
     schematic: {
       title: 'UE 5.8 Mipmap 套娃金字塔生成与屏幕跨度自动选层流水线',
-      caption: '2 的整次幂贴图导入时离线构建 Mip 0..N，渲染时按像素跨度三线性混合相邻两级缩略图',
+      caption: '2 的整次幂贴图离线构建完整 Mip 0..N 链全部送入三线性采样器，按跨度平滑插值后接入 Substrate Slab BSDF → Material Root',
       nodes: [
         {
           id: 'pow2_src',
           title: '2048×2048 源贴图',
           subtitle: '2 的整次幂 (2¹¹ × 2¹¹)',
           category: 'texture',
-          x: 24,
-          y: 80,
-          width: 175,
+          x: 16,
+          y: 28,
+          width: 164,
           previewColor: '#ef4444',
           outputs: [{ id: 'mip0', label: 'Mip 0 (100%)', color: '#ef4444' }],
-          note: '示例基级尺寸为 2048²',
+          note: '可一路对半砍到 1×1',
+        },
+        {
+          id: 'lod_calc',
+          title: 'ComputeMipLevel',
+          subtitle: 'log2(跨度,对半砍几次)+Bias',
+          category: 'math',
+          x: 16,
+          y: 184,
+          width: 186,
+          outputs: [{ id: 'lod', label: 'Continuous LOD', color: '#38bdf8' }],
         },
         {
           id: 'mip_gen',
           title: 'Mip Gen Settings',
           subtitle: 'FromTextureGroup',
           category: 'pipeline',
-          x: 240,
-          y: 80,
-          width: 190,
+          x: 214,
+          y: 20,
+          width: 184,
           inputs: [{ id: 'src', label: 'Mip 0', color: '#ef4444' }],
           outputs: [
+            { id: 'm0', label: 'Mip 0 (2048² · 100%)', color: '#ef4444' },
             { id: 'm1', label: 'Mip 1 (1024² · 25%)', color: '#f97316' },
             { id: 'm2', label: 'Mip 2..11 (+8.3%)', color: '#22c55e' },
           ],
           note: '全套缩略图仅 +33.3% 显存',
         },
         {
-          id: 'lod_calc',
-          title: 'ComputeMipLevel',
-          subtitle: 'log2(像素纹素跨度) + Bias',
-          category: 'math',
-          x: 475,
-          y: 42,
-          width: 185,
-          outputs: [{ id: 'lod', label: 'Continuous LOD', color: '#38bdf8' }],
-        },
-        {
           id: 'trilinear',
           title: 'Trilinear Sampler',
           subtitle: '相邻两层 Mip 平滑插值',
-          category: 'output',
-          x: 700,
-          y: 78,
-          width: 190,
+          category: 'texture',
+          x: 438,
+          y: 54,
+          width: 184,
           previewColor: '#22c55e',
           inputs: [
-            { id: 'chain', label: 'Mip Chain', color: '#22c55e' },
+            { id: 'in_m0', label: 'Mip 0', color: '#ef4444' },
+            { id: 'in_m1', label: 'Mip 1', color: '#f97316' },
+            { id: 'in_m2', label: 'Mip 2..11', color: '#22c55e' },
             { id: 'lod_in', label: 'LOD', color: '#38bdf8' },
           ],
-          outputs: [{ id: 'clean', label: '过滤后像素', color: '#e5e7eb' }],
+          outputs: [{ id: 'rgb', label: 'RGB', color: '#e5e7eb' }],
           note: '远景读小图，高速不闪',
+        },
+        {
+          id: 'slab_out',
+          title: 'Substrate Slab BSDF',
+          subtitle: '基础材质层',
+          category: 'substrate',
+          x: 660,
+          y: 86,
+          width: 176,
+          previewColor: '#a855f7',
+          inputs: [{ id: 'albedo', label: 'Diffuse Albedo', color: '#e5e7eb' }],
+          outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+        },
+        {
+          id: 'mat_root',
+          title: 'Material Root',
+          subtitle: '材质最终输出',
+          category: 'output',
+          x: 870,
+          y: 94,
+          width: 148,
+          inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
         },
       ],
       edges: [
         { fromNode: 'pow2_src', fromPin: 'mip0', toNode: 'mip_gen', toPin: 'src', color: '#ef4444' },
-        { fromNode: 'mip_gen', fromPin: 'm2', toNode: 'trilinear', toPin: 'chain', color: '#22c55e' },
+        { fromNode: 'mip_gen', fromPin: 'm0', toNode: 'trilinear', toPin: 'in_m0', color: '#ef4444' },
+        { fromNode: 'mip_gen', fromPin: 'm1', toNode: 'trilinear', toPin: 'in_m1', color: '#f97316' },
+        { fromNode: 'mip_gen', fromPin: 'm2', toNode: 'trilinear', toPin: 'in_m2', color: '#22c55e' },
         { fromNode: 'lod_calc', fromPin: 'lod', toNode: 'trilinear', toPin: 'lod_in', color: '#38bdf8' },
+        { fromNode: 'trilinear', fromPin: 'rgb', toNode: 'slab_out', toPin: 'albedo', color: '#e5e7eb' },
+        { fromNode: 'slab_out', fromPin: 'bsdf', toNode: 'mat_root', toPin: 'front', color: '#a855f7' },
       ],
     },
     StageComponent: Stage5_3_MipmapMoire,
@@ -2381,7 +2453,7 @@ const Stage6_1_PngVsBcBlock: React.FC<LessonStageProps> = ({
     onKpiRef.current([
       {
         label: '假设的 PNG 磁盘体积',
-        value: `${diskPngMB.toFixed(2)} MB`,
+        value: `${diskPngMB.toFixed(2)} MiB`,
         sub: '流式连坐压缩，GPU 无法直读',
         tone: 'neutral',
       },
@@ -2627,7 +2699,7 @@ const Stage6_1_PngVsBcBlock: React.FC<LessonStageProps> = ({
             </div>
 
             {/* Bar 1: Disk PNG */}
-            <div style={{ display: 'grid', gridTemplateColumns: '138px 1fr 68px', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '176px 1fr 72px', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
               <span>💾 硬盘 PNG (仅存档)</span>
               <div style={{ height: 11, background: 'var(--bg-subtle)', borderRadius: 6, overflow: 'hidden' }}>
                 <div
@@ -2639,12 +2711,12 @@ const Stage6_1_PngVsBcBlock: React.FC<LessonStageProps> = ({
                 />
               </div>
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, textAlign: 'right' }}>
-                {diskPngMB.toFixed(2)} MB
+                {diskPngMB.toFixed(2)} MiB
               </span>
             </div>
 
             {/* Bar 2: Uncompressed RGBA8 */}
-            <div style={{ display: 'grid', gridTemplateColumns: '138px 1fr 68px', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '176px 1fr 72px', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
               <span>🔥 未压缩 RGBA8</span>
               <div style={{ height: 11, background: 'var(--bg-subtle)', borderRadius: 6, overflow: 'hidden' }}>
                 <div
@@ -2660,19 +2732,32 @@ const Stage6_1_PngVsBcBlock: React.FC<LessonStageProps> = ({
               </span>
             </div>
 
-            {/* Bar 3: BC1 Compressed */}
-            <div style={{ display: 'grid', gridTemplateColumns: '138px 1fr 68px', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
-              <span>✅ {bcTier === 'bc7' ? 'BC7（16 B/块）' : bcTier === 'bc1' ? 'BC1（8 B/块）' : 'RGBA8（未压缩）'}</span>
+            {/* Bar 3: Active GPU Format */}
+            <div style={{ display: 'grid', gridTemplateColumns: '176px 1fr 72px', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
+              <span style={{ color: bcTier === 'rgba8' ? '#ef4444' : undefined, fontWeight: bcTier === 'rgba8' ? 700 : undefined }}>
+                {bcTier === 'rgba8'
+                  ? '⚠️ 未压缩 RGBA8 · 无优化'
+                  : bcTier === 'bc7'
+                  ? '✅ BC7（16 B/块）'
+                  : '✅ BC1（8 B/块）'}
+              </span>
               <div style={{ height: 11, background: 'var(--bg-subtle)', borderRadius: 6, overflow: 'hidden' }}>
                 <div
                   style={{
                     width: `${clamp((activeVramMB / maxBarMB) * 100, 3, 100)}%`,
                     height: '100%',
-                    background: '#22c55e',
+                    background: bcTier === 'rgba8' ? '#ef4444' : '#22c55e',
                   }}
                 />
               </div>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#16a34a', textAlign: 'right' }}>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontWeight: 700,
+                  color: bcTier === 'rgba8' ? '#ef4444' : '#16a34a',
+                  textAlign: 'right',
+                }}
+              >
                 {activeVramMB.toFixed(2)} MiB
               </span>
             </div>
@@ -2684,7 +2769,7 @@ const Stage6_1_PngVsBcBlock: React.FC<LessonStageProps> = ({
       <PitfallCompareBar
         isPitfall={bcTier === 'rgba8'}
         pitfallLabel={`手滑误选 UserInterface2D 未压缩：一张 ${resOption} 图狂吞 ${rawRgbaMB.toFixed(2)} MiB 显存！`}
-        correctLabel={`标准 Default (BC1) 块压缩：仅占 ${bc1MB.toFixed(2)} MB 显存（立省 87.5%）且一步寻址`}
+        correctLabel={`标准 Default (BC1) 块压缩：仅占 ${bc1MB.toFixed(2)} MiB 显存（立省 87.5%）且一步寻址`}
         onToggle={(pitfall) => setBcTier(pitfall ? 'rgba8' : 'bc1')}
       />
 
@@ -3180,7 +3265,6 @@ const Stage6_2_BcMicroscope: React.FC<LessonStageProps> = ({
   }, [compressedData, patchType, selectedBlock]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <p>块机制示意。编号按色阶从端点到端点排列。BC1 拟合共享色线，BC4/5 独立拟合通道，BC7 示例只用固定左右分区与四级调色盘。没有生成 BC7 位流；实际质量请在同一素材与目标平台上解码比较。</p>
       {/* Top Sample & Format Selectors */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' }}>
         <StageSegmented<TestPatchType>
@@ -3440,6 +3524,20 @@ const Stage6_2_BcMicroscope: React.FC<LessonStageProps> = ({
           setBcFormat(pitfall ? 'bc1' : 'bc5');
         }}
       />
+
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--text-muted)',
+          lineHeight: 1.5,
+          padding: '6px 10px',
+          borderRadius: 8,
+          background: 'var(--bg-subtle)',
+          border: '1px solid var(--border-soft)',
+        }}
+      >
+        ℹ️ 教学机制示意说明：本显微镜按色阶从端点到端点依次标号，便于直观对比。BC1 演示共享单色线，BC4/BC5 演示通道独立拟合，BC7 演示固定左右双分区与四色线（未打包真实 BC7 位流；实际画质请在同一素材与目标平台上解码比较）。
+      </div>
     </div>
   );
 };
@@ -3883,8 +3981,8 @@ const Stage6_3_NormalMapLab: React.FC<LessonStageProps> = ({
               {/* Axis labels */}
               <text x="72" y="-5" fontSize="10" fontWeight="800" fill="#ef4444">+X 红</text>
               <text x="-94" y="-5" fontSize="10" fontWeight="700" fill="#ef4444">-X</text>
-              <text x="5" y="83" fontSize="10" fontWeight="800" fill="#22c55e">+Y 绿</text>
-              <text x="5" y="-76" fontSize="10" fontWeight="700" fill="#22c55e">-Y</text>
+              <text x="4" y="84" fontSize="9.5" fontWeight="800" fill="#22c55e">+Y 绿(朝下)</text>
+              <text x="4" y="-76" fontSize="9.5" fontWeight="700" fill="#22c55e">-Y(朝上)</text>
 
               {/* Toothpick Shaft & Tip */}
               <line
@@ -3999,7 +4097,7 @@ const Stage6_3_NormalMapLab: React.FC<LessonStageProps> = ({
                 style={{ padding: '5px 9px', fontSize: 11.5 }}
                 onClick={() => setPinXY([0.8, 0])}
               >
-                👉 朝右斜坡 (+0.8, 0, 0.6) 偏粉红
+                👉 朝右的坡面 (+0.8, 0, 0.6) 偏粉红
               </button>
               <button
                 type="button"
@@ -4007,7 +4105,7 @@ const Stage6_3_NormalMapLab: React.FC<LessonStageProps> = ({
                 style={{ padding: '5px 9px', fontSize: 11.5 }}
                 onClick={() => setPinXY([0, 0.8])}
               >
-                👇 朝下斜坡 (0, +0.8, 0.6) 偏嫩绿
+                👇 朝下的坡面 (0, +0.8, 0.6) 偏嫩绿
               </button>
             </div>
           </div>
@@ -4214,8 +4312,8 @@ const Stage6_3_NormalMapLab: React.FC<LessonStageProps> = ({
                 value={sourceBaker}
                 onChange={setSourceBaker}
                 options={[
-                  { value: 'opengl', label: 'OpenGL 法线 (Y+ · Blender/Maya)' },
-                  { value: 'directx', label: 'DirectX 法线 (Y- · UE 5.8 原生)' },
+                  { value: 'opengl', label: 'OpenGL 法线 (Y+ 朝上亮绿 · Blender/Maya)' },
+                  { value: 'directx', label: 'DirectX 法线 (Y- 朝下亮绿 · UE 5.8 原生)' },
                 ]}
               />
 
@@ -4226,7 +4324,7 @@ const Stage6_3_NormalMapLab: React.FC<LessonStageProps> = ({
                   onChange={setFlipGreen}
                 />
                 <StageToggle
-                  label="⚠️ 故意误勾 sRGB (看阴阳歪斜惨案)"
+                  label="⚠️ 故意误勾 sRGB (看法线歪斜惨案)"
                   checked={wrongSrgb}
                   onChange={setWrongSrgb}
                 />
@@ -4254,10 +4352,10 @@ const Stage6_3_NormalMapLab: React.FC<LessonStageProps> = ({
                 }}
               >
                 {wrongSrgb
-                  ? '❌ 致命错误：给法线勾了 sRGB！代表平坦的 0.5 被压成 0.214，整块石板法线全往左上角歪斜发黑！'
+                  ? '❌ 致命错误：给法线勾了 sRGB！代表平坦的 0.5 被压成 0.214，平墙法线整体歪向左上方 (-0.572, +0.572, +0.588)——打左上光异常过亮、打右下光大片发黑，光照彻底错乱！'
                   : isGreenCorrect
                   ? '✅ 凹凸正确：顶光往下照时，中央凹坑“上壁暗、下壁亮”，四角铆钉“上沿亮、下沿暗”！'
-                  : '⚠️ 弹坑变鼓包了！OpenGL (Y+) 直接塞进 UE 5.8 没翻绿通道，上下坡全反了，快勾上 Flip Green Channel！'}
+                  : '⚠️ 弹坑变鼓包了！OpenGL (Y+) 直接塞进 UE 5.8 没翻绿通道，朝上/朝下的坡面全反了，快勾上 Flip Green Channel！'}
               </div>
             </div>
           </div>
@@ -4293,18 +4391,18 @@ const module06Lessons: LessonDefinition[] = [
     moduleId: '06',
     number: '6.1',
     title: '卷筒纸 vs 快递格 —— 为什么显卡不能直接读 PNG，必须用 4×4 块压缩？',
-    subtitle: '揭开“硬盘 1.8MB 贴图进引擎暴涨到 21MB”的真相：亲手点选像素，看流式解压与 BC 独立快递柜的速度对决',
+    subtitle: '揭开“硬盘 1.8 MiB 贴图不压缩进显卡暴涨到 21 MiB”的真相：亲手点选像素，看流式解压与 BC 独立快递柜的速度对决',
     duration: '12 分钟',
     difficulty: '零基础',
     steps: [
       {
         stepNumber: 1,
-        shortLabel: '1.8MB 暴涨十倍',
+        shortLabel: '1.8 MiB 暴涨十倍',
         tag: 'phenomenon',
-        title: '硬盘里明明才 1.8 MB 的贴图，拖进引擎怎么显示占 21 MB 显存？',
+        title: '硬盘里明明才 1.8 MiB 的贴图，不压缩进显卡怎么飙到 21 MiB 显存？',
         paragraphs: [
-          '几乎每一位初学虚幻引擎的同学都会被贴图面板右上角的数字吓一跳：在电脑文件夹里右键看一张 `2048 × 2048` 的高清 `PNG` 贴图，体积明明只有轻巧的 **`1.8 MB`**；可一旦拖进引擎并关掉压缩，它的显存账单啪地飙到了惊人的 **`21.33 MiB`**——足足暴涨了十倍多！',
-          '大家第一反应肯定是：“显卡是不是太笨了？直接把那张 `1.8 MB` 的 `PNG` 原封不动放进显存里随用随读，不就立省十倍空间了吗？” 先在左侧贴图右下角随便点一格，看一场惊心动魄的查色比赛！',
+          '几乎每一位初学虚幻引擎的同学都会被贴图面板右上角的数字吓一跳：在电脑文件夹里看一张 `2048 × 2048` 的高清 `PNG` 贴图，体积明明只有轻巧的 **`1.8 MiB`**（注：**`1 MiB = 1024 × 1024 字节`**，显卡按 2 的次幂计算显存）；可一旦拖进引擎并关掉压缩，它的显存账单啪地飙到了惊人的 **`21.33 MiB`**——足足暴涨了十倍多！',
+          '大家第一反应肯定是：“显卡是不是太笨了？直接把那张 `1.8 MiB` 的 `PNG` 原封不动放进显存里随用随读，不就立省十倍空间了吗？” 先在左侧贴图右下角随便点一格，看一场惊心动魄的查色比赛！',
         ],
         tryItPrompt:
           '👉 用鼠标点击左侧太阳石雕贴图偏右下角的任意格子，同时盯着右侧「PNG 卷筒纸流式解压」和「BC 4×4 快递柜」两条赛道的速度差距！',
@@ -4315,25 +4413,25 @@ const module06Lessons: LessonDefinition[] = [
         tag: 'background',
         title: '抽真空卷筒纸 vs 超市快递柜：显卡根本等不起“排队拆包”！',
         paragraphs: [
-          'PNG 在磁盘中使用扫描线过滤与 DEFLATE 压缩。运行时的常规 GPU 纹理采样器需要能按坐标定位的纹理布局。示意动画从文件开头逐步解开数据，对比固定块的直接寻址；动画速度、扫描数量和 PNG 体积均是示意值。',
-          '桌面 BC 纹理以 4×4 纹素独立寻址，BC1 每块 8 字节；采样器由坐标求块地址，再用块内索引解码颜色。移动平台常用的 ASTC 每块 16 字节，可以选择不同块尺寸，例如 ASTC 8×8 为 2 bpp。',
+          '把 `PNG / JPG` 想象成一卷**抽了真空的压缩卷筒纸**：为了在硬盘里尽量省空间，它用流式压缩（DEFLATE）让后面的像素参考前面出现过的颜色。如果你想直接读取第 800 个像素，就**必须老老实实从头一路拆包展开到第 800 格**！而显卡画一帧画面时，几万名像素工人同时满世界乱跳查颜色，根本等不起“排队拆卷筒纸”！（左侧动画用慢放演示这种顺序拆包与直接寻址的差别。）',
+          '于是显卡另辟蹊径，把整张图切成一排排大小固定的 **`4 × 4` 独立快递柜（块压缩 `BC`）**！每个柜子固定装 16 个纹素、占同样大的格子（比如 `BC1` 固定占 **8 字节**）：给显卡任意 `(X, Y)` 坐标，做一次简单除法就能算出柜号，**一步精准开锁**！顺便认识两个常用小单位：**`1 Byte（字节）= 8 bits（位）`**，以及 **`bpp`（bits per pixel，平均每像素占几位）**——`BC1` 每 16 像素花 `8 字节 = 64 bits`，摊下来每像素才 **`4 bpp`（0.5 字节）**，比未压缩 `RGBA8` 的 `32 bpp`（4 字节）整整轻了 8 倍！',
         ],
         tryItPrompt:
-          '分别点左上和右下角，比较目标位置如何改变示意扫描长度与 BC 块的地址计算。',
+          '👉 分别点左上角和右下角的快递格，观察 PNG 被迫连坐解压的像素数如何暴涨，而 BC 快递柜永远是一步直达！',
         callout: {
           tone: 'formula',
-          title: '一笔算清 2048 × 2048 贴图的显存三本账',
-          body: '① 未压缩 RGBA8 原图：2048 × 2048 × 4 字节 = 16 MiB，加 33.3% Mipmap = 21.33 MiB！\n② BC1 快递柜压缩：每 4×4 (16 纹素) 仅占 8 字节（均摊每纹素才 0.5 字节！），连带全套 Mipmap 约 2.67 MiB —— 立省 87.5%！',
+          title: '一笔算清 2048 × 2048 贴图的显存三本账（1 MiB = 1024 × 1024 字节）',
+          body: '① 未压缩 RGBA8（32 bpp）：2048 × 2048 × 4 字节 = 16 MiB，加 33.3% Mipmap = 21.33 MiB！\n② BC1 快递柜压缩（4 bpp）：每 4×4 (16 纹素) 仅占 8 字节（均摊 0.5 字节/纹素），连带全套 Mipmap 约 2.67 MiB —— 立省 87.5%！',
         },
       },
       {
         stepNumber: 3,
         shortLabel: '切换分辨率算账',
         tag: 'experiment',
-        title: '拨动分辨率账本：看一张未压缩 4K 图如何一口吞掉 85 MB',
+        title: '拨动分辨率账本：看一张未压缩 4K 图如何一口吞掉 85 MiB',
         paragraphs: [
-          '在舞台下方把分辨率从 `2K` 切到 **`4K (4096²)`** 看看柱状图的变化：长和宽各翻 2 倍，总像素数可是翻了整整 **`4 倍`**！如果忘了开块压缩，单单 **1 张** `4K` 贴图连带 Mipmap 就会吃掉恐怖的 **`85.33 MB`** 显存——放几十张进去显卡当场爆显存闪退！',
-          '而切回 `BC1 (8B/格)` 后，同样这张 `4K` 大图立刻瘦身回温和的 **`10.67 MiB`**（高画质 `BC7` 也仅占 `21.33 MiB`），在各自固定的块大小内直接寻址。',
+          '在舞台下方把分辨率从 `2K` 切到 **`4K (4096²)`** 看看柱状图的变化：长和宽各翻 2 倍，总像素数可是翻了整整 **`4 倍`**！如果忘了开块压缩，单单 **1 张** `4K` 贴图连带 Mipmap 就会吃掉恐怖的 **`85.33 MiB`** 显存——放几十张进去显卡当场爆显存闪退！',
+          '而切回 `BC1 (8B/格)` 后，同样这张 `4K` 大图立刻瘦身回温和的 **`10.67 MiB`**（高画质 `BC7` 也仅占 `21.33 MiB`），而且依然保留固定块大小、一步随机寻址的快感！',
         ],
         tryItPrompt:
           '👉 在底部控制栏依次切换 `1K / 2K / 4K` 与 `BC1 / BC7 / 未压缩`，观察柱状图红柱与绿柱的悬殊比例！',
@@ -4344,15 +4442,15 @@ const module06Lessons: LessonDefinition[] = [
         tag: 'ue5',
         title: '走进 UE 5.8：看穿“硬盘大小与显存无关”的铁律',
         paragraphs: [
-          'UE 读取源图并为所选平台构建纹理。给定相同尺寸、像素格式和驻留 mip，GPU 纹理数据量相同；换成更小的 JPEG 主要改变磁盘源文件和已有画质。',
-          '在 Texture Editor 查看指定平台的 Format、导入尺寸、mip 与资源估算。网页给出理论数据量，实际显存还受当前驻留层级和资源对齐影响。',
+          '导入 UE 5.8 时，引擎会先把你的 `PNG / TGA / JPG` 彻底解压成原始像素，再按目标平台重新打包成显卡专用的固定字节块。也就是说，**只要分辨率、压缩格式和 Mip 层级相同，贴图在显存里占的空间就完全一模一样**——把源文件压成极糊的小体积 `JPG`，完全省不下一丁点显存！',
+          '想查一张贴图的真实显存账单？双击打开 UE 5.8 的 `Texture Editor`，右侧直接看指定平台的 `Format`（像素格式）、导入尺寸、`Mip` 层数和 `Resource Size` 估算即可（本页给出的是理论数据量，实际运行显存还会受当前流送驻留层级和对齐影响）。',
         ],
         tryItPrompt:
           '👉 点击右上角「原理图」查看 UE 5.8 导入转码管线：源文件 PNG/TGA 只是原料，图中以桌面 BC 格式的 4×4 块为例！',
         callout: {
           tone: 'ue58',
-          title: '按目标平台核对纹理格式',
-          body: 'Compression Settings 描述纹理用途，目标平台和构建设置决定最终的像素格式。桌面常见 BC；支持 ASTC 的移动端可选择多种块尺寸。',
+          title: '桌面 BC vs 移动端 ASTC 块压缩小贴士',
+          body: 'Compression Settings 描述贴图用途，目标平台和构建设置决定最终格式：PC / 主机常用 4×4 块的 BC 家族（4 bpp ~ 8 bpp）；而手机移动端常用 ASTC，每块固定 16 字节但块尺寸可选，比如 ASTC 8×8 摊下来仅 2 bpp，比 BC1 还能再省一半显存！',
         },
       },
       {
@@ -4361,7 +4459,7 @@ const module06Lessons: LessonDefinition[] = [
         tag: 'pitfall',
         title: '实战避坑：别拿烂画质 JPG 妄想省显存，严禁给 3D 贴图选 UserInterface2D',
         paragraphs: [
-          '排掉两个最让人心疼的实战冤枉坑：① 曾有团队为了救显存，熬夜把工程里几百张无损 `TGA/PNG` 批量转成画质 40% 的高糊 `JPG` 重新导入——结果进游戏一测，**显存 `1 KB` 都没降**，画面反而叠上了 `JPG + BC1` 双重方块伪影！',
+          '排掉两个最让人心疼的实战冤枉坑：① 曾有团队为了救显存，熬夜把工程里几百张无损 `TGA/PNG` 批量转成画质 40% 的高糊 `JPG` 重新导入——结果进游戏一测，**显存 `1 KiB` 都没降**，画面反而叠上了 `JPG + BC1` 双重方块伪影！',
           '② 导入贴图时千万别手滑把 3D 场景贴图的压缩改成 **`UserInterface2D (RGBA)`**！这个选项等于命令显卡**拆掉所有快递柜裸奔存 `RGBA8`**，一张 `2K` 贴图显存瞬间原地暴涨 8 倍（`2.67 MiB → 21.33 MiB`）！',
         ],
         tryItPrompt:
@@ -4374,10 +4472,10 @@ const module06Lessons: LessonDefinition[] = [
       },
     ],
     takeaways: [
-      'PNG/JPG 是前后依赖的流式压缩，无法在毫秒内随机跳读任意单点，因此显卡绝不能直接读取 PNG。',
-      'GPU 块压缩支持按块独立寻址。BC 是 4×4 纹素；ASTC 块大小可选，8×8 每块 16 B，等于 2 bpp。',
-      '一张 2048×2048 贴图未压缩含 Mipmap 高达 21.33 MiB，经 BC1（每格 8 字节）压缩后约占 2.67 MiB，立省 87.5%。',
-      '压低源图 JPG 画质只会毁画面而不会减少半分显存；决定显存的唯有分辨率、Mipmap 开关与 BC 快递柜规格。',
+      'PNG/JPG 是前后依赖的流式压缩（像抽真空的卷筒纸），无法一步随机跳读任意像素，因此显卡绝不能直接读取 PNG。',
+      'GPU 块压缩（如桌面 4×4 的 BC、移动端块尺寸可选的 ASTC）像固定大小的编号快递柜，给坐标即可一步开柜解码。',
+      '1 Byte = 8 bits，显存按 1 MiB = 1024² 字节计算：2048² 贴图含 Mipmap 未压缩（32 bpp）高达 21.33 MiB，经 BC1（4 bpp）压缩后仅约 2.67 MiB，立省 87.5%。',
+      '压低源图 JPG 画质只会毁画面而不会减少半分显存；决定显存的唯有分辨率、Mipmap 开关与 GPU 块压缩规格。',
     ],
     schematic: {
       title: 'UE 5.8 贴图离线导入转码与 GPU 4×4 快递柜随机寻址架构',
@@ -4386,12 +4484,12 @@ const module06Lessons: LessonDefinition[] = [
         {
           id: 'disk_png',
           title: '硬盘源文件 .PNG / .TGA',
-          subtitle: '2048² 无损源图 (1.8 MB)',
+          subtitle: '2048² 无损源图 (1.8 MiB)',
           category: 'input',
           x: 24,
           y: 88,
           width: 180,
-          outputs: [{ id: 'raw', label: '解压出 RGBA8 (21.3MB)', color: '#f97316' }],
+          outputs: [{ id: 'raw', label: '解压出 RGBA8 (21.33 MiB)', color: '#f97316' }],
           note: '流式压缩，显卡无法随机读',
         },
         {
@@ -4467,28 +4565,28 @@ const module06Lessons: LessonDefinition[] = [
         tag: 'background',
         title: '拆穿 BC1 省钱把戏：16 个像素只存 2 个端点色，连条直线硬凑！',
         paragraphs: [
-          '`BC1` 凭什么把 `16 个像素`（原本 64 字节）塞进区区 **`8 个字节`**？它的省钱手法极其粗暴：在这 `4 × 4` 小方格里，它**只掏钱存下两个 RGB565 端点（此处用距离最远的一对）**，然后在颜色空间里拿直尺把俩端点连成一条直线，中间等分匀出 `#1、#2` 两个过渡色——凑成**总共只有 4 种颜色的调色盘**！格子里 16 个像素每人只发 `2 bit` 编号（`0~3`），被迫挑一个最接近的颜色凑合穿！',
+          '`BC1` 凭什么把 `16 个像素`（原本 64 字节）塞进区区 **`8 个字节`**？它的省钱手法极其粗暴：在这 `4 × 4` 小方格里，它**只掏钱存下两个 `RGB565` 端点色**（红占 5 位、绿占 6 位、蓝占 5 位，合起来 16 位 = 2 字节，人眼对绿色最敏感所以给绿多留了 1 位！），然后在颜色空间里拿直尺把俩端点连成一条直线，中间等分匀出 2 个过渡色——凑成**总共只有 4 种颜色的调色盘**！格子里 16 个像素每人只发 `2 bit` 编号（`0~3`），被迫挑一个最接近的颜色凑合穿！',
           '如果这格画的是深棕到浅棕的木头，单一色线较易拟合，但四个色阶仍会量化；可现在格子里既有**大红**、又有**翠绿**、还有**黑花蕊**——大红连向翠绿的直线中间全是脏黄绿，根本拐不到黑色花蕊那儿去，自然炸出锯齿杂块！',
         ],
         tryItPrompt:
           '👉 点击切换到样本「🫧 细腻法线曲面」并保持 `BC1`：盯着左侧贴图下半截的「✨ 法线打灯示意区」，看法线被直线捆绑后高光碎成了多少麻子块！',
         callout: {
           tone: 'tip',
-          title: '手工解码一个 8 字节 BC1 块',
-          body: '可手算一个真实不透明 BC1 块：小端字节 00 F8 1F 00 E4 E4 E4 E4。两个 RGB565 端点是红和蓝；每行解包的 2-bit 索引依次为 0、1、2、3，对应 RGB8 (255,0,0)、(0,0,255)、(170,0,85)、(85,0,170)。若源色为 (160,0,95)，索引 2 的通道误差为 (+10,0,−10)。',
+          title: '进阶选读：手工解码一个真实 8 字节 BC1 块',
+          body: '💡 编号说明：真实硬件把 2-bit 索引 0、1 留给两端点，2、3 给中间过渡色；上方显微镜为了直观观察色阶，按从左到右排列标注为 端0 / #1 / #2 / 端1。\n按真实硬件格式手算一个不透明 BC1 块：小端字节 00 F8 1F 00 E4 E4 E4 E4 → 两个 RGB565 端点是纯红和纯蓝；每行解包的索引 0、1、2、3 依次对应 RGB8 (255,0,0)、(0,0,255)、(170,0,85)、(85,0,170)。若源色为 (160,0,95)，选索引 2 的通道误差为 (+10, 0, −10)。',
         },
       },
       {
         stepNumber: 3,
         shortLabel: '压缩全家桶验货',
         tag: 'experiment',
-        title: '在同一块内比较单通道、独立双通道和分区色线',
+        title: 'BC1 ~ BC7 压缩全家桶验货：单通道、独立双通道与多分区色线',
         paragraphs: [
-          '为了治好 `BC1` 的偏科毛病，显卡准备了三位各怀绝技的大哥，快在顶部挨个点开验货：① **`BC4`（8字节/格）**：专攻**单张黑白灰度遮罩**，把全部预算拿去存 2 个灰度端点并匀出 **8 级超丝滑台阶**；',
-          'BC5 用两套独立端点和索引分别近似 X 与 Y。BC7 每个 4×4 块 16 字节，依模式可使用规定的分区和插值。这里固定左右两组，分别拟合色线，用来观察端点共享。',
+          '为了治好 `BC1` 的偏科毛病，显卡准备了一整个各怀绝技的压缩家族（顺带一提，需要半透明通道的老牌 **`BC3`** 其实就是把 `BC1` 存 RGB + `BC4` 存 Alpha 拼成 16 字节/格）：① **`BC4`（8 字节/格）**：专攻**单张黑白灰度遮罩**，把全部预算都给单个通道，匀出 **8 级超丝滑灰度台阶**；② **`BC5`（16 字节/格）**：相当于两份独立的 `BC4`，分别拟合红（X）与绿（Y）双通道、彻底解耦不串色，是法线贴图的首选！',
+          '③ **`BC7`（16 字节/格）**：新一代全能王，可在同一 `4 × 4` 格内按模式划分多块子分区、各自拉独立调色线（上方显微镜用固定左右双分区演示这一原理），轻松拿捏鲜艳红花绿叶边缘与平滑透明过渡；④ **`BC6H`（16 字节/格）**：专攻 **HDR 天空盒与 EXR 光照图**，能保存远超 `1.0` 的高亮太阳能量数据！',
         ],
         tryItPrompt:
-          '选择法线样本看独立通道调色盘；再选彩色样本，移动方框观察固定分区会在什么位置跨过物体边缘。',
+          '👉 先选「🫧 细腻法线曲面」对比 BC1 与 BC5 的独立双通道调色盘；再选「🌺 红花配绿叶斜边」切到 BC7，移动方框观察分区如何分开拟合红花与绿叶！',
       },
       {
         stepNumber: 4,
@@ -4496,40 +4594,40 @@ const module06Lessons: LessonDefinition[] = [
         tag: 'ue5',
         title: '走进 UE 5.8：Compression Settings 下拉菜单一表对号入座',
         paragraphs: [
-          '在支持 BC 的桌面目标，Default/Masks 可根据是否需要有效 Alpha 等条件构建为 BC1 或 BC3；Masks 按线性数据读取。Alpha (no sRGB, BC4) 用于一个数据通道。Grayscale 是另一设置，可能得到 G8。分别在目标平台预览核对。',
-          'Normalmap 在这里的桌面示例使用 BC5；选择 BC7 可以对照颜色在实际素材上的重建效果。BC3、BC5 和 BC7 都是每块 16 字节。',
+          '在支持 BC 的桌面平台上，UE 5.8 贴图设置按用途直接对号入座：普通彩色贴图选 **`Default`**、合并粗糙度/金属度的通道图选 **`Masks`（自动关 sRGB 按线性数据读取）**——两者无透明时通常构建为 `BC1`（8 字节/格），有透明时升级为 `BC3`（16 字节/格）；单独一张平滑灰度遮罩选 **`Alpha (no sRGB, BC4)`** 最省最滑（注意别和 **`Grayscale`** 混淆，后者常生成未压缩的单通道 8 位灰度格式 **`G8`**，占双倍显存！）。',
+          '法线贴图必选 **`Normalmap`（桌面常用 `BC5`）**；主角皮肤、精致徽章或带渐变透明的高要求彩色图，则可切到 **`BC7`**（和 `BC3`、`BC5` 同为每块 16 字节），在 Texture Editor 的目标平台预览里对照核对实际格式与重建效果！',
         ],
         tryItPrompt:
-          '在不同区域打开编号，对照当前块的端点、示意索引和重建色。',
+          '👉 在不同区域开关「显示调色盘编号」，对照当前 4×4 块的端点、索引与重建颜色！',
         callout: {
           tone: 'ue58',
           title: '查看目标平台的块大小',
-          body: 'BC3 和 BC7 都是每 4×4 块 16 字节。BC7 有无 Alpha 均使用这个块大小。导入同一素材，在目标平台纹理预览中检查像素格式与误差。',
+          body: 'BC3、BC5、BC6H 和 BC7 都是每 4×4 块 16 字节（8 bpp），BC7 不管带不带 Alpha 都是这个体积。导入同一素材后，记得在 Texture Editor 的目标平台预览中核对实际像素格式。',
         },
       },
       {
         stepNumber: 5,
         shortLabel: '空透明翻倍与错压坑',
         tag: 'pitfall',
-        title: '保留 Alpha 后实际使用什么格式？法线是否被按颜色压缩？',
+        title: '实战避坑：小心“空透明”让显存白翻倍，别让法线错按颜色压缩！',
         paragraphs: [
-          '只有编译后的像素格式从 BC1（8 B）切换为 BC3（16 B）时，块数据才翻倍。全白 Alpha 可能被忽略。先看目标平台格式；确认无需透明时再比较 Compress Without Alpha 前后的格式与体积。',
-          '② 导入法线贴图时若文件名没写 `_N` 后缀，引擎可能没自动识别而当成 `Default (BC1)`，导致金属和光滑石材高光全是方块麻子——见到麻子高光先查是不是漏改了 `Normalmap (BC5)`！',
+          '① **“空透明”显存白翻倍坑**：从 PS 导出 `32-bit PNG/TGA` 时，如果里面藏了一个没人用却带杂点的 Alpha 透明通道，导进 UE 5.8 的 `Default` 贴图就可能被迫从 `4 bpp` 的 **`BC1`（8 字节/格）** 升级成 `8 bpp` 的 **`BC3`（16 字节/格）**——显存当场白白翻倍！（纯白 Alpha 引擎通常会忽略，但有杂点就会触发升级。）不确定时先在目标平台预览看实际像素格式，确认不需要透明就勾上 **`Compress Without Alpha`**！',
+          '② **法线误用 `Default (BC1)` 麻子高光坑**：导入法线贴图时若文件名没写 `_N` 后缀，引擎可能没自动识别而当成 `Default (BC1)`，导致金属和光滑石材高光全是方块麻子——见到麻子高光先查是不是漏改了 `Normalmap (BC5)`！',
         ],
         tryItPrompt:
           '👉 点击底部避坑横幅，一键对比「法线误用 BC1 高光起方块麻子」与「正确切换 BC5 镜面丝滑高光」！',
         callout: {
           tone: 'warn',
           title: '一句话防坑口诀',
-          body: '桌面可对照 BC1、BC4、BC5 和 BC7。材质语义决定通道用途，Texture Editor 的目标平台预览决定实际格式。',
+          body: '普通彩图/ORM 用 BC1（无透明勾 Compress Without Alpha），单灰度选 BC4，法线锁死 BC5，特写/带透明上 BC7，HDR 天空盒交 BC6H！',
         },
       },
     ],
     takeaways: [
-      'BC1 在每个 4×4 方格内只存 2 个端点色并连直线插值出 4 色，遇到红绿交界或三色同格时会串色产生锯齿块。',
-      'BC4（8B/格）将全部精度给单通道插值 8 级灰度，极适合单独的高度图或平滑遮罩。',
-      'BC5（16B/格）为红、绿分别保存一组端点和索引。通道独立，块内两方向仍有量化误差。',
-      'BC7（16B/格）支持在 4×4 格内划分多组子集分别拟合直线，可在目标平台测试彩色边缘与 Alpha 的实际重建效果。',
+      'BC1（8B/格）在每个 4×4 方格内只存 2 个 RGB565 端点色并连直线插值出 4 色，红绿交界或三色同格时易串色出杂斑；BC3（16B/格）即 BC1 颜色 + BC4 透明通道。',
+      'BC4（8B/格）把精度全给单通道插值 8 级灰度，比未压缩 8 位单通道 G8 省一半显存，极适合平滑灰度遮罩。',
+      'BC5（16B/格）为红、绿分别保存独立 8 阶端点与索引，彻底消除通道串色，是切线法线贴图黄金搭档。',
+      'BC7（16B/格）支持多子集分区拟合彩色边缘与平滑 Alpha，BC6H（16B/格）专攻 HDR 天空盒与 EXR；无透明彩图记得核对格式并勾选 Compress Without Alpha 防误升 BC3。',
     ],
     schematic: {
       title: 'UE 5.8 BC1 ~ BC7 压缩选型决策树与显存规格对照',
@@ -4654,13 +4752,13 @@ const module06Lessons: LessonDefinition[] = [
         stepNumber: 3,
         shortLabel: '勾股定理白嫖 Z',
         tag: 'experiment',
-        title: '从量化后的 XY 重建 Z',
+        title: 'BC5 省显存绝技：扔掉蓝通道，靠初中勾股定理现场算回 Z！',
         paragraphs: [
-          '本例采用切线空间正半球单位法线，满足 X²+Y²+Z²=1，Z≥0。',
-          'BC5 的两个通道各自按块共享端点与索引。用解码后的 XY 求 `sqrt(max(0,1-X²-Y²))`，可以省去单独存储 Z；量化引入的方向误差仍会改变高光。',
+          '上一课说过，法线贴图用 `BC5` 压缩时只存了 **红（X）和绿（Y）** 两个通道，把整页 **蓝（Z）通道** 直接扔进了垃圾桶——少了 Z 轴方向，立体感不会塌掉吗？完全不会！因为每根切线空间小牙签的长度恒为 **`1`**（满足 `X² + Y² + Z² = 1`），而且它永远朝皮肤外面翘（`Z ≥ 0`），绝不会倒插进模型肚子里！',
+          '所以只要知道小牙签左右歪了多少 `X`、上下歪了多少 `Y`，用初中勾股定理就能唯一算出朝外翘了多少：**`Z = √(1 − X² − Y²)`**！`BC5` 省下整条蓝通道后把预算全押在 X、Y 独立保真上，渲染时由 UE 的 `Normal` 采样器自动白嫖算回 Z（注：XY 经过 4×4 块量化后仍有微小误差，重建出的法线也会保留这点误差）。',
         ],
         tryItPrompt:
-          '切换原始 RGB、量化 XY 后固定 Z、量化 XY 后重建 Z，观察同一光照下的石雕。',
+          '👉 切换到「📐 实验 ②：BC5 砍蓝通道 & 勾股重建 Z」，依次点选 ①原始三通道、②扔掉蓝通道不重建（崩坏!）、③量化 XY + 重建 Z，对比右侧石雕的立体高光！',
       },
       {
         stepNumber: 4,
@@ -4668,8 +4766,8 @@ const module06Lessons: LessonDefinition[] = [
         tag: 'ue5',
         title: '走进 UE 5.8：为什么弹坑会鼓成大肉包？OpenGL (Y+) 与 DirectX (Y-) 之争',
         paragraphs: [
-          '再来破获外包协作头号悬案：明明颜色图画的是凹陷陨石坑，进 UE 5.8 打上顶光一看，怎么鼓成了凸起大包？根源在于行业两大门派把绿色 `Y` 轴规定反了：**OpenGL 派（Blender、Maya、Substance 默认设置之一）** 规定向上坡涂亮绿（`Y+`），而 **DirectX 派（UE 5.8 原生标准！）** 规定向下坡涂亮绿（`Y-`）！',
-          '当一张 `OpenGL` 法线直接拖进 UE 5.8，上下坡被彻底颠倒，凹坑自然翻成了鼓包！千万别让美术重烘贴图，直接在 UE 5.8 双击打开法线贴图，搜索勾上 **`Flip Green Channel（翻转绿通道）`**，一秒钟凹坑丝滑归位！',
+          '再来破获外包协作头号悬案：明明画的是凹陷陨石坑，进 UE 5.8 打上顶光一看，怎么鼓成了凸起大包？根源在于行业两大门派把绿色 `Y` 通道的朝向规定反了——按传统数学“竖轴向上为正”的命名习惯，**OpenGL 派（Blender、Maya 等常见默认）** 规定**朝上的坡面**涂亮绿（`G > 128`，简称 **`Y+`**），而 **DirectX 派（UE 5.8 原生标准！）** 规定**朝下的坡面**涂亮绿（`G > 128`，简称 **`Y-`**——正好和实验 ① 里贴图坐标 `+V` 向下一致，所以实验 ① 里把牙签往下拖变成嫩绿，正是 UE 原生的 DirectX 规则）！',
+          '当一张 `OpenGL` 法线直接拖进 UE 5.8，朝上和朝下的坡面被彻底颠倒，凹坑自然翻成了鼓包！千万别让美术重烘贴图，直接在 UE 5.8 双击打开法线贴图，搜索勾上 **`Flip Green Channel（翻转绿通道）`**，一秒钟凹坑丝滑归位！',
         ],
         tryItPrompt:
           '👉 在「🔦 实验 ③：弹坑转灯 & 翻转绿通道」中绕着石板拖动小太阳，来回开关 `Flip Green Channel`，亲眼见证中央大包一秒塌陷回深邃真弹坑！',
@@ -4685,11 +4783,11 @@ const module06Lessons: LessonDefinition[] = [
         tag: 'pitfall',
         title: '实战避坑：严禁给法线勾 sRGB，顶光验凹凸，强弱调节用 FlattenNormal',
         paragraphs: [
-          '本例演示误将法线通道按颜色解码。标准 sRGB 的 0.5 转为线性 0.2140，再映射到有符号分量为 −0.5719。正常的 Normal 采样器按数据读取并重建方向。',
-          '② **验凹凸真假用正上方顶光**：真凹坑必定是**上半壁背光暗、下半壁迎光亮**；若反了立刻勾 `Flip Green Channel`。③ 想在材质里减弱法线凹凸感时，用官方 **`FlattenNormal`** 节点（或只给 `R, G` 乘缩放系数保持 `B=1`），绝不要把整张法线直接乘以 `0.2`！',
+          '① **严禁给法线贴图勾选 `sRGB`**！普通颜色图开 sRGB 是为了迎合人眼亮度曲线，但法线存的是精确数学方向——一旦误勾 sRGB，代表平坦零歪斜的 `0.5` 会被解码压成线性 `0.2140`，映射成方向就变成了 `-0.5719`，整面平墙的法线瞬间朝左上方歪斜 `(-0.572, +0.572, +0.588)`，造成打左上光过亮、打右下光发黑的严重光照偏斜！',
+          '② **验凹凸真假用正上方顶光**：真凹坑必定是**上半壁背光暗、下半壁迎光亮**；若反了立刻勾 `Flip Green Channel`。③ **调节法线强弱别直接乘 `0.2`**：把法线的 `X、Y、Z` 整体乘以 `0.2`，三个分量等比缩水后会被引擎重新归一化（拉回长度 1），歪斜角度**纹丝不动**！想减弱凹凸必须用官方 **`FlattenNormal`** 节点（只缩小 `X、Y` 而保持朝外的 `Z`）！',
         ],
         tryItPrompt:
-          '👉 在实验 ③ 中点一下「⚠️ 故意误勾 sRGB」见识阴阳黑脸惨案，再点底部避坑横幅一键恢复完美 DirectX 法线配置！',
+          '👉 在实验 ③ 中点一下「⚠️ 故意误勾 sRGB」见识法线歪斜导致的光照错乱惨案，再点底部避坑横幅一键恢复完美 DirectX 法线配置！',
         callout: {
           tone: 'warn',
           title: '一句话防坑口诀',
@@ -4699,41 +4797,67 @@ const module06Lessons: LessonDefinition[] = [
     ],
     takeaways: [
       '法线贴图用 RGB = Normal × 0.5 + 0.5 将 [-1, +1] 方向装进 [0, 1] 贴图；平坦朝外 (0, 0, 1) 编码后恰为 (0.5, 0.5, 1.0) 浅蓝紫色。',
-      'BC5 从量化后的 XY 重建正半球法线 Z，保留量化误差。UE 的 Normal 采样器已输出解码后的 RGB 法线，直接接 Normal。',
-      'UE 5.8 采用 DirectX (Y-) 法线标准；导入 Blender/Maya 等 OpenGL (Y+) 法线发现凹坑变鼓包时，勾选 Flip Green Channel 即可修复。',
-      '法线贴图严禁开启 sRGB（否则 0.5 降至 0.214 导致整片法线严重歪斜），调节法线强弱应使用 FlattenNormal 节点。',
+      '因为切线法线长度恒为 1 且永远朝外（Z ≥ 0），BC5 只存 X、Y 两通道即可由 UE Normal 采样器用 Z = √(1 − X² − Y²) 自动重建 Z。',
+      'UE 5.8 采用 DirectX (Y-，朝下的坡面亮绿) 法线标准；导入 Blender/Maya 等 OpenGL (Y+，朝上的坡面亮绿) 法线发现凹坑变鼓包时，勾选 Flip Green Channel 即可修复。',
+      '法线贴图严禁开启 sRGB（否则 0.5 降至 0.214 导致法线整体朝左上歪斜）；调节法线强弱应使用 FlattenNormal，不能把 XYZ 整体乘以小数。',
     ],
     schematic: {
-      title: 'UE 5.8 BC5 法线解码、绿通道校准与 DeriveNormalZ 重建原理图',
-      caption: 'UE 的 Normal 采样器会解码块内 RG 并重建 Z。保持切线空间法线设置，直接将 RGB 连到 Slab.Normal。',
+      title: 'UE 5.8 BC5 法线解码、绿通道校准与 Z 轴重建原理图',
+      caption: 'Panel_Normal (BC5, sRGB 关) 经 Normal 采样器硬件解码 RG 并勾股重建 Z，直连 Substrate Slab BSDF → Material Root',
       nodes: [
         {
-          id: 'nrm_tex',
-          title: 'Texture Sample (BC5)',
-          subtitle: 'Normalmap · sRGB=OFF',
-          category: 'texture',
+          id: 'nrm_asset',
+          title: 'Panel_Normal',
+          subtitle: 'BC5 · sRGB 关 · 可选 Flip Green',
+          category: 'input',
           x: 24,
-          y: 78,
-          width: 190,
+          y: 72,
+          width: 196,
           previewColor: '#8080ff',
-          outputs: [{ id: 'xyz', label: 'RGB（解码后的切线法线）', color: '#8080ff' }],
-          note: 'Sampler Type = Normal；保持 Tangent Space Normal',
+          outputs: [{ id: 'rg', label: 'RG 双通道 (X/Y)', color: '#8080ff' }],
+          note: '只存 X、Y，省去 B 通道',
+        },
+        {
+          id: 'nrm_sample',
+          title: 'Texture Sample',
+          subtitle: 'Sampler Type: Normal',
+          category: 'texture',
+          x: 260,
+          y: 72,
+          width: 214,
+          previewColor: '#6366f1',
+          inputs: [{ id: 'in_rg', label: 'BC5 RG', color: '#8080ff' }],
+          outputs: [{ id: 'xyz', label: 'RGB (切线法线)', color: '#8080ff' }],
+          note: '硬件自动 ×2-1 并勾股重建 Z',
         },
         {
           id: 'slab_nrm',
           title: 'Substrate Slab BSDF',
           subtitle: '切线空间法线接入',
           category: 'substrate',
-          x: 715,
-          y: 78,
-          width: 185,
+          x: 514,
+          y: 72,
+          width: 194,
           previewColor: '#a855f7',
           inputs: [{ id: 'normal', label: 'Normal', color: '#8080ff' }],
-          outputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
+          outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+          note: '保持 Tangent Space Normal',
+        },
+        {
+          id: 'mat_root',
+          title: 'Material Root',
+          subtitle: '材质最终输出',
+          category: 'output',
+          x: 748,
+          y: 80,
+          width: 158,
+          inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
         },
       ],
       edges: [
-        { fromNode: 'nrm_tex', fromPin: 'xyz', toNode: 'slab_nrm', toPin: 'normal', color: '#8080ff' },
+        { fromNode: 'nrm_asset', fromPin: 'rg', toNode: 'nrm_sample', toPin: 'in_rg', color: '#8080ff' },
+        { fromNode: 'nrm_sample', fromPin: 'xyz', toNode: 'slab_nrm', toPin: 'normal', color: '#8080ff' },
+        { fromNode: 'slab_nrm', fromPin: 'bsdf', toNode: 'mat_root', toPin: 'front', color: '#a855f7' },
       ],
     },
     StageComponent: Stage6_3_NormalMapLab,
@@ -4756,7 +4880,7 @@ export const modules05_06: ModuleDefinition[] = [
     id: '06',
     number: '06',
     title: '纹理显存压缩',
-    subtitle: '硬盘 2MB 的图，进显卡凭什么涨到 21MB？',
+    subtitle: '硬盘 2MB 的图，不压缩进显卡凭什么涨到 21 MiB？',
     lessons: module06Lessons,
   },
 ];

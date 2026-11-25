@@ -582,7 +582,7 @@ const TextureInspectorLab: React.FC = () => {
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {bcMode === 'BC5' && <StageToggle label="法线显示：从 XY 重建 Z" checked={rebuildZ} onChange={setRebuildZ} />}
-            <StageToggle label="按 sRGB 颜色读取" checked={srgbOn} onChange={setSrgbOn} />
+            <StageToggle label="按 sRGB 颜色编码预览（关闭则按线性值直出）" checked={srgbOn} onChange={setSrgbOn} />
             <StageToggle label="计入完整 Mip 链" checked={mipsOn} onChange={setMipsOn} />
           </div>
         </div>
@@ -665,8 +665,8 @@ const MiniNodeGraphLab: React.FC = () => {
                 const fres = Math.pow(1 - Math.max(0, N[2]), 3.2) * fresnelBoost;
                 const pulse = (0.75 + 0.25 * Math.sin(t * 3.2)) * emissivePower;
                 [r, g, b] = shadePbrPixel({
-                  N, V, L, baseColorLinear: base, metallic: 0.35,
-                  roughness: 0.25 + (1 - mask) * 0.45,
+                  N, V, L, baseColorLinear: base, metallic: 1 - mask,
+                  roughness: 0.25 + mask * 0.45,
                   emissiveLinear: [(mask * 0.28 + fres * 0.22) * pulse,
                     (mask * 0.12 + fres * 0.58) * pulse, fres * 0.95 * pulse],
                 });
@@ -725,7 +725,7 @@ const MiniNodeGraphLab: React.FC = () => {
           当前连线链路：<code className="inline-code-pill">TexCoord × {uvTiling.toFixed(1)}</code> →{' '}
           <code className="inline-code-pill">Panner ({panSpeed.toFixed(1)})</code> →{' '}
           <code className="inline-code-pill">噪波遮罩 {invertMask ? '→ OneMinus' : ''}</code> →{' '}
-          <code className="inline-code-pill">Lerp 混色 + Fresnel 边缘辉光</code> →{' '}
+          <code className="inline-code-pill">Lerp 混色/金属过渡 + Fresnel 边缘辉光</code> →{' '}
           <code className="inline-code-pill">Substrate Slab → Front Material</code>
         </div>
 

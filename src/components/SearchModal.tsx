@@ -12,7 +12,7 @@ interface SearchHit {
   snippet: string;
 }
 
-const QUICK_TAGS = ['sRGB', '法线', 'BC5', 'Substrate', 'Mipmap', '水', '玻璃', 'DepthFade'];
+const QUICK_TAGS = ['sRGB', '法线', 'BC5', 'Substrate', 'Mipmap', 'Draw Call', '实例化', 'LOD', '性能调优', '水', '玻璃', 'DepthFade'];
 
 export const SearchModal: React.FC<{
   open: boolean;

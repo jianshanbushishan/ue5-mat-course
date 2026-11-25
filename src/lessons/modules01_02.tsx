@@ -42,7 +42,7 @@ const TARGET_OBJECTS: Record<
 > = {
   apple: {
     label: '🍎 红苹果',
-    albedo: [0.92, 0.05, 0.05],
+    albedo: [0.9, 0.05, 0.05],
     habit: '吞掉绿光和蓝光，只把红光弹出去',
   },
   leaf: {
@@ -57,7 +57,7 @@ const TARGET_OBJECTS: Record<
   },
   mug: {
     label: '☕ 白瓷杯',
-    albedo: [0.92, 0.92, 0.92],
+    albedo: [0.8, 0.8, 0.8],
     habit: '不挑食！红绿蓝什么光来都原样弹回去',
   },
 };
@@ -295,7 +295,7 @@ const LightAndColorStage: React.FC<LessonStageProps> = ({
           const nz = Math.sqrt(Math.max(0, 1 - r2));
           const N = norm3([nx, ny + appleDip, nz]);
           const ndotl = Math.max(0, dot3(N, L));
-          const spec = Math.pow(Math.max(0, dot3(N, Hvec)), 28) * 0.28;
+          const spec = Math.pow(Math.max(0, dot3(N, Hvec)), 36) * 0.05;
           const ambient = 0.04;
 
           // 关键光学公式：漫反射 = 入射光 RGB * 物体反射率 RGB * 受光角度；表皮高光直接反射入射光颜色
@@ -438,36 +438,40 @@ const LightAndColorStage: React.FC<LessonStageProps> = ({
     const canvas = rgbCanvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const nx = clamp((clientX - rect.left) / rect.width, 0.15, 0.85);
-    const ny = clamp((clientY - rect.top) / rect.height, 0.18, 0.82);
+    const W = canvas.width;
+    const H = canvas.height;
+    const rawNx = (clientX - rect.left) / rect.width;
+    const rawNy = (clientY - rect.top) / rect.height;
+    const px = rawNx * W;
+    const py = rawNy * H;
+    const dragNx = clamp(rawNx, 0.15, 0.85);
+    const dragNy = clamp(rawNy, 0.18, 0.82);
 
-    // 实时拾取鼠标所在处加色结果
-    const radN = 0.285;
-    const aspect = canvas.width / canvas.height;
-    const dist = (a: [number, number]) =>
-      Math.hypot((nx - a[0]) * aspect, ny - a[1]);
+    // 使用与渲染圆完全一致的像素半径计算命中，悬停探针不做边缘截断
+    const rad = Math.min(W, H) * 0.285;
+    const distPx = (a: [number, number]) => Math.hypot(px - a[0] * W, py - a[1] * H);
+
+    let nextSpots = spots;
 
     if (isDown) {
-      const dR = dist(spots.r);
-      const dG = dist(spots.g);
-      const dB = dist(spots.b);
+      const dR = distPx(spots.r);
+      const dG = distPx(spots.g);
+      const dB = distPx(spots.b);
       const minD = Math.min(dR, dG, dB);
-      if (minD < 0.32) {
+      if (minD <= rad * 1.1) {
         const picked = minD === dR ? 'r' : minD === dG ? 'g' : 'b';
         setDraggingKey(picked);
-        setSpots((prev) => ({ ...prev, [picked]: [nx, ny] }));
+        nextSpots = { ...spots, [picked]: [dragNx, dragNy] as [number, number] };
+        setSpots(nextSpots);
       }
-      return;
-    }
-
-    const nextSpots = draggingKey ? { ...spots, [draggingKey]: [nx, ny] as [number, number] } : spots;
-    if (draggingKey) {
+    } else if (draggingKey) {
+      nextSpots = { ...spots, [draggingKey]: [dragNx, dragNy] as [number, number] };
       setSpots(nextSpots);
     }
 
-    const rHit = Math.hypot((nx - nextSpots.r[0]) * aspect, ny - nextSpots.r[1]) < radN * aspect * 0.82 ? 1 : 0;
-    const gHit = Math.hypot((nx - nextSpots.g[0]) * aspect, ny - nextSpots.g[1]) < radN * aspect * 0.82 ? 1 : 0;
-    const bHit = Math.hypot((nx - nextSpots.b[0]) * aspect, ny - nextSpots.b[1]) < radN * aspect * 0.82 ? 1 : 0;
+    const rHit = Math.hypot(px - nextSpots.r[0] * W, py - nextSpots.r[1] * H) <= rad ? 1 : 0;
+    const gHit = Math.hypot(px - nextSpots.g[0] * W, py - nextSpots.g[1] * H) <= rad ? 1 : 0;
+    const bHit = Math.hypot(px - nextSpots.b[0] * W, py - nextSpots.b[1] * H) <= rad ? 1 : 0;
     setProbeColor([rHit, gHit, bHit]);
     const keyStr = `${rHit},${gHit},${bHit}`;
     const nameMap: Record<string, string> = {
@@ -720,11 +724,16 @@ const lesson1_1: LessonDefinition = {
       tag: 'phenomenon',
       title: '把一颗红苹果关进伸手不见五指的黑屋，它还是红色的吗？',
       paragraphs: [
-        '在打开虚幻引擎之前，我们先聊一个每天都在发生、却很少细想的生活现象：为什么一拉电闸关掉房间里所有的灯，桌上鲜艳的红苹果、绿植物、蓝书包就统统变成了纯黑色？',
-        '因为自然界里除了太阳、灯泡和火焰，**99% 的物体自己根本不会发光**！苹果表面并没有涂着会自己亮起来的“红色荧光剂”。更反直觉的是：如果你在黑屋子里拿一把**纯绿色激光手电筒**去照这颗红苹果，它既不会变绿，也不会变黄，而是会变成一颗像木炭一样的**黑苹果**！',
+        '欢迎来到零基础 UE 5.8 材质课！在打开虚幻引擎之前，我们先聊一个每天都在发生、却很少细想的生活现象：为什么一拉电闸关掉房间里所有的灯，桌上鲜艳的红苹果、绿植物、蓝书包就统统变成了纯黑色？',
+        '因为自然界里除了太阳、灯泡和火焰，**99% 的物体自己根本不会发光**！苹果表面并没有涂着会自己亮起来的“红色荧光剂”。更反直觉的是：如果你在黑屋子里拿一把**纯绿色激光手电筒**去照这颗红苹果，它既不会变绿，也不会变黄，而是会变成一颗像木炭一样的**黑苹果**（只会在表皮蜡层留下一丁点微弱反光）！',
       ],
       tryItPrompt:
         '点击下方「切换手电筒灯光颜色」里的【🟢 纯绿光】或【🌑 关灯暗室】，亲眼看看左侧暗室里的红苹果瞬间发生了什么变化！',
+      callout: {
+        tone: 'tip',
+        title: '零基础入门导航：先在浏览器里玩懂，再进引擎！',
+        body: '本课程假设你没有任何 3D 美术、数学或虚幻引擎基础。第 1.1～2.3 课全部在浏览器里通过互动实验学底层常识，暂时不用装 UE；到了第 2.4 课，我们会手把手带你第一次打开 UE 5.8！',
+      },
     },
     {
       stepNumber: 2,
@@ -739,7 +748,7 @@ const lesson1_1: LessonDefinition = {
         '按住右侧实验舱里的红、绿、蓝三个聚光灯圆环随意拖动！看看红灯和绿灯重叠的地方是不是变成了鲜亮的黄色？三盏灯叠在中心是不是纯白色？',
       callout: {
         tone: 'tip',
-        title: '一句话记住屏幕加色口诀',
+        title: '一句话记住屏幕加色口诀（1 表示开到 100%，0 表示关闭，第 2.1 课详讲）',
         body: '红(1,0,0) + 绿(0,1,0) = 黄(1,1,0)；绿(0,1,0) + 蓝(0,0,1) = 青(0,1,1)；红(1,0,0) + 蓝(0,0,1) = 品红(1,0,1)；三原色全满 (1,1,1) = 纯白光！',
       },
     },
@@ -759,17 +768,17 @@ const lesson1_1: LessonDefinition = {
       stepNumber: 4,
       shortLabel: '走进UE 5.8',
       tag: 'ue5',
-      title: '走进 UE 5.8：为什么材质底色叫 `Diffuse Albedo（漫反射率）`？',
+      title: '走进 UE 5.8：为什么材质底色叫 `Base Color / Diffuse Albedo`？',
       paragraphs: [
-        '现在你再打开 UE 5.8 的材质编辑器，看到显式添加的层板 **`Substrate Slab BSDF`** 第一个插孔写着 **`Diffuse Albedo`**（传统根节点提供 `Base Color`），就再也不会把它误当成“涂死在模型上的颜料”了！',
-        '它的真实物理含义正是**“三原色各自的反射百分比”**！比如你给一颗苹果材质填上 `(0.90, 0.05, 0.05)`，其实是在向引擎申报：“以后不管关卡里打什么灯，请帮我反射 90% 的红光、只反射 5% 的绿光和蓝光”。没有关卡灯光配合，再鲜艳的 `Diffuse Albedo` 在黑屋里也是全黑的。',
+        '先提前混个脸熟：以后我们在 UE 5.8 里给物体填颜色时，那个插孔叫做 **`Base Color（基础色）`**（升级到新版 Substrate 材质层板后叫做 **`Diffuse Albedo（漫反射率）`**）。第 2.4 课会第一次带你进引擎，第 8.4 课再详解 Substrate 层板，这里先记住“底色不是涂死在模型上的死颜料”就够了！',
+        '它的真实物理含义正是**“三原色各自的反射百分比”**！比如你给一颗苹果材质填上 `(0.90, 0.05, 0.05)`，其实是在向引擎申报：“以后不管关卡里打什么灯，请帮我反射 90% 的红光、只反射 5% 的绿光和蓝光”。没有关卡灯光配合，再鲜艳的底色在黑屋里也是全黑的。',
       ],
       tryItPrompt:
-        '点击舞台右上角的【原理图】切换钮，看看在 UE 5.8 中“表皮反射率”是如何送入 `Substrate Slab BSDF` 并与场景灯光互动的！',
+        '点击舞台右上角的【原理图】切换钮，提前预览在 UE 5.8 中“表皮反射率”是如何交给材质并由场景灯光参与计算的！',
       callout: {
         tone: 'ue58',
-        title: 'UE 5.8 术语小贴士',
-        body: '新工程可启用 Substrate，同时支持传统根节点。显式 Slab 的 Diffuse Albedo 描述漫反射，灯光由渲染器计算。',
+        title: 'UE 5.8 预告小贴士',
+        body: 'UE 5.8 同时支持传统材质（Base Color）与新版 Substrate 层板（Diffuse Albedo），它们都描述“表皮对红绿蓝光的反射比例”，真正的亮暗由引擎结合关卡灯光实时算出。',
       },
     },
     {
@@ -778,8 +787,8 @@ const lesson1_1: LessonDefinition = {
       tag: 'pitfall',
       title: '防坑口诀：灯色相加，反射按分量相乘，冷蓝夜景别怪红衣变黑炭！',
       paragraphs: [
-        '很多新手做夜景关卡时会踩一个经典大坑：给主角做了一件鲜红披风 `(0.9, 0.05, 0.05)`，结果放进只有高饱和纯蓝月光 `(0.06, 0.22, 0.95)` 的森林里一看，披风黑得像块破抹布，还以为材质坏了去拼命改材质球！',
-        '算一下乘法就秒懂了：`0.9 × 0.06 = 0.054`！蓝色月光里根本没几颗红光子，红披风巧妇难为无米之炊。正确做法绝不是乱改披风材质，而是让灯光师在月光里保留一点自然白光底色，或在主角身旁挂一盏温暖的橙色小提灯！',
+        '很多新手做夜景关卡时会踩一个经典大坑：给主角做了一件鲜红披风 `(0.90, 0.05, 0.05)`，结果放进只有高饱和纯蓝月光 `(0.06, 0.22, 0.95)` 的森林里一看，披风黑得像块破抹布，还以为材质坏了去拼命改材质球！',
+        '算一下乘法就秒懂了：`0.90 × 0.06 = 0.054`！蓝色月光里根本没几颗红光子，红披风巧妇难为无米之炊。正确做法绝不是乱改披风材质，而是让灯光师在月光里保留一点自然白光底色，或在主角身旁挂一盏温暖的橙色小提灯！',
       ],
       tryItPrompt:
         '点击舞台上方的黄色/绿色对比条切换【看踩坑现象】与【切正确配置】，感受纯蓝冷月光是如何让红苹果“哑火”的。',
@@ -793,12 +802,12 @@ const lesson1_1: LessonDefinition = {
   takeaways: [
     '绝大多数物体自己不发光，我们看到红苹果是因为它吞掉了绿蓝光、只把红光反射进眼睛',
     '显示器与 3D 渲染遵循“光的加色法”：红 + 绿 = 黄，绿 + 蓝 = 青，红 + 蓝 = 品红，三色全满 = 纯白',
-    'UE 5.8 的 Diffuse Albedo（漫反射率）不是死颜料，而是物体对红、绿、蓝三束光的反射百分比',
+    'UE 5.8 的 Base Color / Diffuse Albedo（漫反射率）不是死颜料，而是物体对红、绿、蓝三束光的反射百分比',
     '最终入眼颜色 ≈ 灯光 RGB × 材质反射率 RGB；在纯蓝冷光下没有红光来源，红衣服必然变黑',
   ],
   schematic: {
     "title": "把苹果的漫反射率交给渲染器",
-    "caption": "按图连接已转换的 Substrate 材质。关卡灯光由渲染器在材质图外计算。舞台单独演示入射光与反射率逐通道相乘。",
+    "caption": "提前预览 UE 5.8 接线逻辑：把苹果的反射率交给材质层板，关卡灯光由引擎在材质图外实时参与相乘计算。",
     "nodes": [
       {
         "id": "albedo",
@@ -814,7 +823,7 @@ const lesson1_1: LessonDefinition = {
             "color": "#38bdf8"
           }
         ],
-        "note": "线性值 (0.9, 0.05, 0.05)"
+        "note": "苹果反射率 (0.90, 0.05, 0.05)"
       },
       {
         "id": "slab",
@@ -963,6 +972,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
   const [cpuCount, setCpuCount] = useState<number>(42);
   const [raceRunId, setRaceRunId] = useState<number>(1);
   const [recipeMode, setRecipeMode] = useState<'clean' | 'branch'>('clean');
+  const [gpuPhase, setGpuPhase] = useState<'flash' | 'passA' | 'passB' | 'done'>('done');
   const [sunDeg, setSunDeg] = useState<number>(32);
   const [selectedCell, setSelectedCell] = useState<[number, number]>([6, 5]);
 
@@ -978,9 +988,19 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
     }
   }, [resetSignal]);
 
-  // 只为逐格涂色的教学动画计时；分支开关不修改动画节奏。
+  // CPU 逐格涂色与 GPU 并行节拍教学动画（clean 模式下 1 拍齐闪，branch 模式下分 A / B 两拍排队）
   useEffect(() => {
     setCpuCount(0);
+    const timers: number[] = [];
+
+    if (recipeMode === 'clean') {
+      setGpuPhase('flash');
+      timers.push(window.setTimeout(() => setGpuPhase('done'), 180));
+    } else {
+      setGpuPhase('passA');
+      timers.push(window.setTimeout(() => setGpuPhase('passB'), 360));
+      timers.push(window.setTimeout(() => setGpuPhase('done'), 720));
+    }
 
     const cpuInterval = window.setInterval(() => {
       setCpuCount((prev) => {
@@ -994,8 +1014,9 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
 
     return () => {
       window.clearInterval(cpuInterval);
+      timers.forEach((t) => window.clearTimeout(t));
     };
-  }, [raceRunId]);
+  }, [raceRunId, recipeMode]);
 
   const slip = evalSpherePixel(selectedCell[0], selectedCell[1], sunDeg);
 
@@ -1005,13 +1026,25 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
       {
         label: 'CPU 串行进度 (单人逐格)',
         value: `${cpuCount} / ${total} 格`,
-        sub: cpuCount < total ? '😓 老教授正挨个格子涂色...' : '逐格动画完成',
+        sub: cpuCount < total ? '😓 老教授正挨个格子涂色...' : '老教授终于逐格涂完',
         tone: cpuCount < total ? 'warn' : 'neutral',
       },
       {
-        label: '假设的线程组执行路径',
-        value: recipeMode === 'branch' ? '两种输入走 A / B' : '所有输入走 A',
-        sub: '动画仅展示分组，耗时需在目标 GPU 测量',
+        label: 'GPU 小队执行节拍',
+        value:
+          recipeMode === 'branch'
+            ? gpuPhase === 'passA'
+              ? '⏳ 第 1 拍：A 组算 / B 组等'
+              : gpuPhase === 'passB'
+              ? '⏳ 第 2 拍：B 组算 / A 组等'
+              : '⚠️ 拆成 2 拍排队完成'
+            : gpuPhase === 'flash'
+            ? '⚡ 1 拍齐步动笔中！'
+            : '⚡ 1 拍齐步完成 (全组 A)',
+        sub:
+          recipeMode === 'branch'
+            ? '组内分歧被迫串行两轮（教学示意）'
+            : '256 格同步算同一份食谱',
         tone: recipeMode === 'branch' ? 'warn' : 'good',
       },
       {
@@ -1024,15 +1057,14 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
       },
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cpuCount, recipeMode, selectedCell[0], selectedCell[1], sunDeg]);
+  }, [cpuCount, recipeMode, gpuPhase, selectedCell[0], selectedCell[1], sunDeg]);
 
   // 绘制 CPU 与 GPU 对比像素网格画布
   useEffect(() => {
     const drawGridCanvas = (
       canvas: HTMLCanvasElement | null,
       paintedLimit: number,
-      highlightSel: boolean,
-      showPaths: boolean
+      isGpu: boolean
     ) => {
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
@@ -1050,8 +1082,15 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
           const idx = gy * GRID_N + gx;
           const x0 = gx * cellW;
           const y0 = gy * cellH;
+          const isLeftHalf = gx < GRID_N / 2;
 
-          if (idx < paintedLimit) {
+          let isPainted = idx < paintedLimit;
+          if (isGpu && recipeMode === 'branch') {
+            if (gpuPhase === 'passA') isPainted = isLeftHalf;
+            else if (gpuPhase === 'passB') isPainted = true;
+          }
+
+          if (isPainted) {
             const p = evalSpherePixel(gx, gy, sunDeg);
             const r = Math.round(Math.pow(p.finalRgb[0], 1 / 2.2) * 255);
             const g = Math.round(Math.pow(p.finalRgb[1], 1 / 2.2) * 255);
@@ -1063,8 +1102,8 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
             ctx.fillRect(x0 + 1, y0 + 1, cellW - 2, cellH - 2);
           }
 
-          // CPU 当前正在涂的那一格画红色画笔框
-          if (!highlightSel && idx === paintedLimit && paintedLimit < GRID_N * GRID_N) {
+          // CPU 当前正在涂的那一格画黄色画笔框
+          if (!isGpu && idx === paintedLimit && paintedLimit < GRID_N * GRID_N) {
             ctx.strokeStyle = '#fbbf24';
             ctx.lineWidth = 2.2;
             ctx.strokeRect(x0 + 1, y0 + 1, cellW - 2, cellH - 2);
@@ -1072,31 +1111,83 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
         }
       }
 
-      // GPU 选中显微镜格子高亮框
-      if (highlightSel) {
+      // GPU 齐闪动画（1 拍瞬亮）与分支两拍视觉反馈
+      if (isGpu) {
+        if (recipeMode === 'clean' && gpuPhase === 'flash') {
+          ctx.fillStyle = 'rgba(52, 211, 153, 0.36)';
+          ctx.fillRect(0, 0, W, H);
+          ctx.strokeStyle = '#34d399';
+          ctx.lineWidth = 4;
+          ctx.strokeRect(2, 2, W - 4, H - 4);
+        }
+
+        if (recipeMode === 'branch') {
+          // 中央分界虚线区分路径 A（左半）与路径 B（右半）
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(W * 0.5, 0);
+          ctx.lineTo(W * 0.5, H - 22);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          if (gpuPhase === 'passA') {
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.22)';
+            ctx.fillRect(0, 0, W * 0.5, H - 22);
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.62)';
+            ctx.fillRect(W * 0.5, 0, W * 0.5, H - 22);
+            ctx.fillStyle = '#fde68a';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillText('▶ 第 1 拍：算 A', 10, 22);
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillText('⏸ B 组等待', W * 0.5 + 14, 22);
+          } else if (gpuPhase === 'passB') {
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+            ctx.fillRect(0, 0, W * 0.5, H - 22);
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.24)';
+            ctx.fillRect(W * 0.5, 0, W * 0.5, H - 22);
+            ctx.fillStyle = '#cbd5e1';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillText('⏸ A 组已等', 14, 22);
+            ctx.fillStyle = '#fde68a';
+            ctx.fillText('▶ 第 2 拍：算 B', W * 0.5 + 8, 22);
+          } else {
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
+            ctx.fillRect(0, 0, W * 0.5, H - 22);
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.14)';
+            ctx.fillRect(W * 0.5, 0, W * 0.5, H - 22);
+            ctx.font = 'bold 10.5px sans-serif';
+            ctx.fillStyle = '#bae6fd';
+            ctx.fillText('路径 A (第1拍)', 10, 18);
+            ctx.fillStyle = '#fde68a';
+            ctx.fillText('路径 B (第2拍)', W * 0.5 + 10, 18);
+          }
+        }
+
+        // GPU 选中显微镜格子高亮框
         const [sx, sy] = selectedCell;
         ctx.strokeStyle = '#fde047';
         ctx.lineWidth = 2.5;
         ctx.strokeRect(sx * cellW + 1, sy * cellH + 1, cellW - 2, cellH - 2);
-      }
 
-      if (showPaths) {
-        ctx.fillStyle = isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.9)';
-        ctx.fillRect(0, H - 21, W, 21);
-        ctx.font = '11px sans-serif';
-        ctx.fillStyle = isDark ? '#fff' : '#1e293b';
-        ctx.fillText(recipeMode === 'branch' ? '假设分组：左半 A，右半 B' : '假设分组：全组 A', 5, H - 6);
+        ctx.fillStyle = isDark ? 'rgba(15,23,42,0.88)' : 'rgba(255,255,255,0.92)';
+        ctx.fillRect(0, H - 22, W, 22);
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillStyle = recipeMode === 'branch' ? (isDark ? '#fde68a' : '#b45309') : isDark ? '#6ee7b7' : '#047857';
+        ctx.fillText(
+          recipeMode === 'branch'
+            ? '⚠️ 组内分歧：第1拍算A → 第2拍算B'
+            : '⚡ 全组统一路径 A · 1 拍齐步完成',
+          6,
+          H - 7
+        );
       }
     };
 
-    drawGridCanvas(cpuCanvasRef.current, cpuCount, false, false);
-    drawGridCanvas(
-      gpuCanvasRef.current,
-      GRID_N * GRID_N,
-      true,
-      true
-    );
-  }, [cpuCount, sunDeg, selectedCell, recipeMode, isDark]);
+    drawGridCanvas(cpuCanvasRef.current, cpuCount, false);
+    drawGridCanvas(gpuCanvasRef.current, GRID_N * GRID_N, true);
+  }, [cpuCount, sunDeg, selectedCell, recipeMode, gpuPhase, isDark]);
 
   const handleGpuCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1114,8 +1205,8 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
       {stepIndex === 4 && (
         <PitfallCompareBar
           isPitfall={recipeMode === 'branch'}
-          pitfallLabel="假设同一组线程分别走 A、B 两条路径"
-          correctLabel="假设同一组线程走相同路径 A"
+          pitfallLabel="踩坑：同一小队被 if 拆成左半 A、右半 B 两条路，被迫分 2 拍轮流排队"
+          correctLabel="正解：全小队统一走路径 A，所有像素齐步 1 拍瞬间完成"
           onToggle={(p) => {
             setRecipeMode(p ? 'branch' : 'clean');
             setRaceRunId((n) => n + 1);
@@ -1161,7 +1252,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
             }}
           />
           <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-            擅长算复杂剧情背包，挨个涂 368 万像素会累趴！
+            擅长算复杂剧情背包，挨个涂 369 万像素会累趴！
           </span>
         </div>
 
@@ -1179,8 +1270,8 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
         >
           <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
             <span>🧒 GPU 小学生方阵（点击任意格放大！）</span>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-sage-deep)' }}>
-              并行网格已显示
+            <span style={{ fontFamily: 'var(--font-mono)', color: recipeMode === 'branch' ? 'var(--accent-amber-deep, #d97706)' : 'var(--accent-sage-deep)' }}>
+              {recipeMode === 'branch' ? '分 2 拍排队' : '1 拍齐步完成'}
             </span>
           </div>
           <canvas
@@ -1197,7 +1288,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
             }}
           />
           <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-            👆 点选上面任意一个黄色小方格，偷看它的专属算草纸
+            👆 点选上面任意一个小方格，偷看它的专属算草纸（黄框为当前格）
           </span>
         </div>
       </div>
@@ -1221,13 +1312,13 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, lineHeight: 1.65, color: 'var(--text-secondary)' }}>
             <div>• 屏幕座位号 Pixel = ({selectedCell[0]}, {selectedCell[1]})</div>
-            <div>• 橘子皮坐标 UV = ({slip.u.toFixed(2)}, {slip.v.toFixed(2)})</div>
+            <div>• 橘子皮坐标 UV = ({slip.u.toFixed(2)}, {slip.v.toFixed(2)}) <span style={{ opacity: 0.72 }}>(2.3 课详讲)</span></div>
             <div>
               • 朝向小牙签 Normal = (
               {slip.insideSphere
                 ? `${slip.normal[0].toFixed(2)}, ${slip.normal[1].toFixed(2)}, ${slip.normal[2].toFixed(2)}`
                 : '球外背景像素'}
-              )
+              ) <span style={{ opacity: 0.72 }}>(1.3 课详讲)</span>
             </div>
           </div>
         </div>
@@ -1304,7 +1395,7 @@ const CpuVsGpuStage: React.FC<LessonStageProps> = ({
           />
 
           <StageSegmented<'clean' | 'branch'>
-            label="线程组的假设输入"
+            label="GPU 小队执行方式"
             value={recipeMode}
             options={[
               { value: 'clean', label: '全组相同路径 A' },
@@ -1336,8 +1427,8 @@ const lesson1_2: LessonDefinition = {
       tag: 'phenomenon',
       title: '算一笔吓一跳的账：玩游戏时电脑一秒钟要涂多少个格子？',
       paragraphs: [
-        '凑近看你的电脑显示器，画面其实是由几百万个发光小方格拼成的，每个小方格叫一个 **像素（Pixel）**。一块主流 2K 屏幕足足有 `2560 × 1440 ≈ 368 万` 个像素！',
-        '若按每秒 60 帧刷新，2560 × 1440 × 60 ≈ 2.21 亿个显示像素/秒。以下逐格与整组显示均为教学动画。',
+        '凑近看你的电脑显示器，画面其实是由几百万个发光小方格拼成的，每个小方格叫一个 **像素（Pixel）**。一块主流 2K 屏幕足足有 `2560 × 1440 ≈ 369 万` 个像素！',
+        '如果游戏以流畅的每秒 60 帧运行，电脑一秒钟就要重新涂色 `2560 × 1440 × 60 ≈ 2.21 亿` 次！这么庞大的涂色工程，只靠电脑大脑挨个去涂早就卡成 PPT 了。下面的教学动画把屏幕浓缩成 256 个像素格，带你直观感受差距。',
       ],
       tryItPrompt:
         '点击舞台左下角的【🎺 重新吹哨！看 CPU vs GPU 分组示意】，直观感受“挨个格子串行涂色”与“全屏一瞬间并行显形”的震撼差距！',
@@ -1349,10 +1440,10 @@ const lesson1_2: LessonDefinition = {
       title: '8 个博学老教授（CPU） vs 10000 个算术小学生（GPU）',
       paragraphs: [
         '因为 CPU 和显卡（GPU）天生的性格完全不同：**CPU 就像 8 位绝顶聪明的老教授**，最擅长处理前因后果盘根错节的逻辑（比如算怪物怎么寻路、背包道具怎么排序、剧情对话往哪跳），但让老教授一格一格去涂两亿个色块，涂完第二行天都黑了！',
-        'GPU 把许多片元分组成线程组，用同一段程序处理各自的输入。右侧 256 格一起显示，示意同一份食谱可以处理许多输入。实际硬件会分批调度，CPU 也可以并行。',
+        '而 **显卡（GPU）就像操场上坐着的一万名算术小学生**！他们不擅长解复杂奥数题，但个个都能极快地算加减乘除。只要体育老师（显卡调度器）吹一声哨，把同一份简单涂色公式发给所有人，成千上万个小学生就会分成整齐的小队（专业叫 SIMD 线程组）**齐刷刷同时动笔**——老教授才涂完两行，小学生方阵已经一拍交卷！（注：真实硬件会分批调度，CPU 也可多核并行，这里用动画呈现核心分工差异。）',
       ],
       tryItPrompt:
-        '试着来回拖动「转动太阳方向」滑块，你会看到右侧 GPU 的 256 个像素在同一瞬间毫不费力地改完了光影！',
+        '试着来回拖动「转动示意光源」滑块，你会看到右侧 GPU 的 256 个像素在同一瞬间毫不费力地改完了光影！',
       callout: {
         tone: 'tip',
         title: '颠覆认知的顿悟时刻：材质到底是什么？',
@@ -1377,8 +1468,8 @@ const lesson1_2: LessonDefinition = {
       tag: 'ue5',
       title: '走进 UE 5.8：你在材质画布连的每一根线，都是在往食谱里加菜！',
       paragraphs: [
-        '理解了这一点，UE 5.8 的材质编辑器在你眼里就彻底透明了：左侧那些 `TexCoord（UV）`、`PixelNormalWS（像素法线）` 节点，就是在读取每个小学生手里的**专属小纸条**；中间的加减乘除节点，就是你编写的**算术步骤**。',
-        '2560×1440、60 帧/秒约对应 2.21 亿个显示像素/秒。覆盖率、过度绘制和编译优化都会改变实际工作量。打开 Material Editor 的 Platform Stats，选同一目标平台与质量级别，记录实际编译的指令与纹理采样统计。',
+        '理解了这一点，UE 5.8 的材质编辑器在你眼里就彻底透明了：左侧那些 `TexCoord`（UV 坐标，2.3 课详讲）、`PixelNormalWS`（像素朝向，1.3 课详讲）节点，就是在读取每个小学生手里的**专属小纸条**；中间的加减乘除节点，就是你编写的**算术步骤**。',
+        '所以你每次在画布里多加几个节点，相当于让全屏几百万个小学生**每人都多算几步**！在 2K 60 帧下每秒要算上亿个像素，连线越简洁、画面自然越流畅。另外提前埋一个伏笔：老教授（CPU）每次给小学生（GPU）下达一批作画任务、通知换哪套画笔与颜料，中间都有沟通与切换成本（专业叫 **`Draw Call`**）——到了第 **9.4 ~ 9.8 课**，我们会系统带你掌握性能统计、Draw Call、GPU 实例化、LOD 与全局调优！',
       ],
       tryItPrompt:
         '切换到舞台右上角的【原理图】视图，顺着从左到右的箭头看清“专属纸条输入 → 统一算术食谱 → 百万像素同时交卷”的完整流水线。',
@@ -1387,37 +1478,38 @@ const lesson1_2: LessonDefinition = {
       stepNumber: 5,
       shortLabel: '忌写分叉题',
       tag: 'pitfall',
-      title: '如何判断分支的实际开销？',
+      title: '防坑口诀：全班最怕“拆队做不同卷子”——少写让像素分叉的判断！',
       paragraphs: [
-        '同一组线程若实际走了不同的动态路径，硬件可能分段处理；着色器编译器也可能将判断变成选择指令。网页的分组动画仅描述两种假设输入。',
-        '用同一网格、灯光和相机对比两个输出相同的版本。分别记录 Platform Stats，再在目标设备用 GPU Visualizer 多帧测量同一渲染 pass 的耗时。Lerp 也可能需要计算两个输入。',
+        '小学生方阵为什么这么快？核心秘诀是**“齐步走”**——同一小队的像素小学生每个节拍都必须执行一模一样的算术指令。如果你在食谱里写了复杂的条件分支（比如 `if` 判断：左半边走复杂公式 A，右半边走另一套公式 B），这支小队就**不能同时做两套不同的题**了！',
+        '硬件只好先让 A 组算、B 组在旁边干等；等第一拍算完，再反过来让 B 组算、A 组干等——原本 1 拍搞定的活硬生生拖成 2 拍！日常做材质时，尽量用平滑统一的数学运算（比如第 2.2 课会学的混水阀）代替复杂分叉；至于精确的 GPU 耗时测量工具，第 9.4 课会手把手带你实操。',
       ],
       tryItPrompt:
-        '切换两种路径，读画布底部的假设分组。将自己测得的 GPU 时间和编译统计分别记下。',
+        '切换顶部避坑对比条（或下方「GPU 小队执行方式」切到【组内分歧 A / B】），亲眼看看右侧方阵如何被迫拆成「第 1 拍算 A → 第 2 拍算 B」两轮排队完成！',
       callout: {
         tone: 'warn',
         title: '一句话防坑口诀',
-        body: '记录平台、着色器质量和测试场景，才能复查性能差异。',
+        body: '“全班齐步一拍完，最怕组内各算各；简洁食谱人人跑，复杂分叉拖两拍！（精确测速与性能调优详见第 9.4 ~ 9.8 课）”',
       },
     },
   ],
   takeaways: [
-    '2560×1440、60 帧/秒约对应 2.21 亿个显示像素/秒；实际着色次数由覆盖、过度绘制等决定',
-    '材质编译为着色器，GPU 分组并行处理大量片元，各片元有自己的输入',
-    '虽然食谱完全相同，但每个像素领到的专属小纸条（坐标、UV、法线朝向）不同，从而算出丰富光影',
-    '组内路径分歧可能增加工作量。编译统计与目标设备 GPU 计时回答不同的问题',
+    '2K 60 帧屏幕每秒需刷新约 2.21 亿个像素，单靠 CPU 串行逐格计算会严重卡顿',
+    'GPU 像一万名算术小学生分组齐步并行计算；材质（Shader）就是发给所有像素人手一份的同步算术食谱',
+    '虽然食谱完全相同，但每个像素领到的专属小纸条（座位号、UV、朝向法线）不同，从而算出丰富立体光影',
+    '同一像素小队若走不同分支路径会被迫分拍排队；日常尽量保持公式简洁统一，真实耗时将在 9.4 课用引擎工具实测',
   ],
   schematic: {
-    "title": "用 Unlit 材质查看 Lambert 明暗",
-    "caption": "传统 Surface 根节点选择 Unlit。创建向量参数 LightDirWS，填入从表面指向光源的世界空间单位向量 (0,0,1)。这个手动参数独立于关卡灯光。",
+    "title": "像素的“算术食谱”流水线（UE 5.8 Unlit 预览）",
+    "caption": "每个像素从左侧领到自己的专属纸条（朝向），经中间统一的算术食谱算出明暗，最后全屏百万像素同时交卷涂色。在 UE 5.8 里测试纯明暗时可把根节点设为 Unlit 接 Emissive Color。",
     "nodes": [
       {
         "id": "normal",
         "title": "PixelNormalWS",
+        "subtitle": "① 领专属小纸条（像素朝向）",
         "category": "input",
         "x": 18,
         "y": 20,
-        "width": 167,
+        "width": 175,
         "outputs": [
           {
             "id": "p0",
@@ -1429,10 +1521,11 @@ const lesson1_2: LessonDefinition = {
       {
         "id": "light",
         "title": "LightDirWS",
+        "subtitle": "① 给定示意太阳方向",
         "category": "param",
         "x": 18,
         "y": 170,
-        "width": 167,
+        "width": 175,
         "outputs": [
           {
             "id": "p0",
@@ -1440,15 +1533,16 @@ const lesson1_2: LessonDefinition = {
             "color": "#38bdf8"
           }
         ],
-        "note": "Vector Parameter"
+        "note": "手动参数 (0, 0, 1)"
       },
       {
         "id": "dot",
         "title": "DotProduct",
+        "subtitle": "② 统一食谱：算受光角度",
         "category": "math",
-        "x": 233,
+        "x": 238,
         "y": 80,
-        "width": 167,
+        "width": 175,
         "inputs": [
           {
             "id": "p0",
@@ -1472,10 +1566,11 @@ const lesson1_2: LessonDefinition = {
       {
         "id": "sat",
         "title": "Saturate",
+        "subtitle": "② 统一食谱：锁在 0~1",
         "category": "math",
-        "x": 442,
+        "x": 452,
         "y": 80,
-        "width": 167,
+        "width": 168,
         "inputs": [
           {
             "id": "p0",
@@ -1494,10 +1589,11 @@ const lesson1_2: LessonDefinition = {
       {
         "id": "root",
         "title": "Unlit 材质根节点",
+        "subtitle": "③ 百万像素同时交卷涂色",
         "category": "output",
-        "x": 653,
+        "x": 658,
         "y": 80,
-        "width": 167,
+        "width": 175,
         "inputs": [
           {
             "id": "p0",
@@ -1958,9 +2054,12 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
 
     const projected: ProjectedTri[] = [];
     for (const tri of activeTris) {
-      const r0 = meshKind === 'triangle' ? tri.v0 : rotateYawPitch(tri.v0, rot.yaw, rot.pitch);
-      const r1 = meshKind === 'triangle' ? tri.v1 : rotateYawPitch(tri.v1, rot.yaw, rot.pitch);
-      const r2 = meshKind === 'triangle' ? tri.v2 : rotateYawPitch(tri.v2, rot.yaw, rot.pitch);
+      // 单三角形对照给一个温和固定 3D 倾角，确保正面/扎反法线小牙签都有清晰的立体长度
+      const yawUse = meshKind === 'triangle' ? 0.42 : rot.yaw;
+      const pitchUse = meshKind === 'triangle' ? -0.22 : rot.pitch;
+      const r0 = rotateYawPitch(tri.v0, yawUse, pitchUse);
+      const r1 = rotateYawPitch(tri.v1, yawUse, pitchUse);
+      const r2 = rotateYawPitch(tri.v2, yawUse, pitchUse);
 
       const faceNormal = norm3(cross3(sub3(r1, r0), sub3(r2, r0)));
       let n = faceNormal;
@@ -2026,7 +2125,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
 
     // 第二遍绘制所有朝前或扎反的“法线小牙签”，保证针尖清晰可见
     if (showNormals) {
-      const needleLen = 0.28;
+      const needleLen = meshKind === 'triangle' ? 0.58 : 0.28;
       for (const item of projected) {
         // 只画上半圈可见附近的牙签避免过密重叠
         if (item.backfacing) continue;
@@ -2040,7 +2139,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
         const tScr = toScreen(tip3);
 
         ctx.strokeStyle = flippedPitfall ? '#f87171' : '#38bdf8';
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = meshKind === 'triangle' ? 2.4 : 1.8;
         ctx.beginPath();
         ctx.moveTo(cScr[0], cScr[1]);
         ctx.lineTo(tScr[0], tScr[1]);
@@ -2048,8 +2147,13 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
 
         ctx.fillStyle = flippedPitfall ? '#fca5a5' : '#bae6fd';
         ctx.beginPath();
-        ctx.arc(tScr[0], tScr[1], 2.3, 0, Math.PI * 2);
+        ctx.arc(tScr[0], tScr[1], meshKind === 'triangle' ? 3.5 : 2.3, 0, Math.PI * 2);
         ctx.fill();
+
+        if (meshKind === 'triangle') {
+          ctx.font = 'bold 11px sans-serif';
+          ctx.fillText(flippedPitfall ? '扎反法线 -N' : '朝外法线 N', tScr[0] + 6, tScr[1] + 4);
+        }
       }
     }
 
@@ -2182,7 +2286,7 @@ const MeshTriangleNormalStage: React.FC<LessonStageProps> = ({
       <div className="stage-controls-panel">
         <div className="control-grid">
           <StageSlider
-            label="上下掰动右上角 C 钉子高度"
+            label="上下掰动前角 C 钉子高度"
             value={cornerHeight}
             min={-0.95}
             max={0.95}
@@ -2266,7 +2370,7 @@ const lesson1_3: LessonDefinition = {
         '那什么又是吓退无数新手的 **法线（Normal）** 呢？把它翻译成人话就是：**垂直插在每个三角形面（或顶点）正中心、笔直朝外指的一根蓝色隐形小牙签**！它的唯一使命就是向太阳汇报：“报告太阳！我这张脸正朝着这个方向！”',
       ],
       tryItPrompt:
-        '在左侧实验舱把切分方式切到【❌ 硬当 1 个四边形】并拉动「掰动右上角 C 钉子高度」，看它如何瞬间扭曲报警；再切回【✅ 切成 2 个三角形】看两根蓝色小牙签稳稳立住！',
+        '在左侧实验舱把切分方式切到【❌ 硬当 1 个四边形】并拉动「上下掰动前角 C 钉子高度」，看它如何瞬间扭曲报警；再切回【✅ 切成 2 个三角形】看两根蓝色小牙签稳稳立住！',
       callout: {
         tone: 'tip',
         title: '记住“小牙签”比喻，后面十章全通了！',
@@ -2291,15 +2395,15 @@ const lesson1_3: LessonDefinition = {
       tag: 'ue5',
       title: '走进 UE 5.8：为什么钻进石头肚子里往外看，石头竟然消失了？',
       paragraphs: [
-        '默认单面材质会做背面剔除。光栅器检查三角形投影后的顶点绕序，交换两个索引就会调换正反面。着色法线决定光照方向。',
-        '从内部看封闭单面网格，朝外的面会被剔除。薄叶片、披风若需要两面可见，可在材质 Details 中启用 Two Sided。',
+        '玩游戏穿模钻进大石头肚子里时，为什么从外面看结结实实，钻进里面石头却像隐身了一样全透明？秘密在于显卡的省电绝活——**背面剔除（Backface Culling）**。',
+        '显卡靠**顶点绕序（Winding Order）**来认正反面：按顺时针还是逆时针依次连接 A、B、C 三个钉子，就决定了三角形哪面是正面。钻进石头肚子里看到的正是背面，显卡默认把背面省掉不画，省下一半算力！如果是树叶、披风这种两面都要露出来的薄片，只需在 UE 5.8 材质 `Details` 面板勾选 **`Two Sided（双面）`** 即可。',
       ],
       tryItPrompt:
-        '点击右上角切到【原理图】视图，追踪顶点绕序与着色法线分别在哪一步生效。',
+        '点击右上角切到【原理图】视图，看清“先按顶点绕序决定画不画，再用着色法线决定亮不亮”的两步分工。',
       callout: {
         tone: 'ue58',
         title: 'UE 5.8 常用法线节点预告',
-        body: '`VertexNormalWS` 读取模型自带的骨架小牙签；而 `PixelNormalWS` 则连同后面要学的“法线贴图凹凸细节”一起读出来，做积雪和边缘光最常用它！',
+        body: '`VertexNormalWS`（`WS` 即世界空间，下一课 1.4 详讲）读取模型自带的骨架小牙签；而 `PixelNormalWS` 则连同后面要学的“法线贴图凹凸细节”一起读出来，做积雪和边缘光最常用它！',
       },
     },
     {
@@ -2309,10 +2413,10 @@ const lesson1_3: LessonDefinition = {
       title: '防坑口诀：导入模型破洞隐身或莫名全黑？分别检查绕序和着色法线',
       paragraphs: [
         '新手从 Blender 或 Maya 导出模型进 UE 5.8 时，十个人里有八个遇到过这种灵异事件：明明建模软件里好好的盔甲，一进虚幻引擎，正面整块消失露出了后背内壁，或者打光怎么照都是死黑的！',
-        '选“单三角形对照”。保持相机与光源固定，只翻转着色法线，图形仍在但亮度改变。再还原法线、只翻转绕序，同一三角形被剔除。遇到破面查索引绕序，形状完整而明暗异常时查顶点法线、切线和法线图。',
+        '把右侧模型切到 **`单三角形对照`** 试一下就全通了：**只翻转着色法线**，三角形还在，但小牙签朝里扎反了，受光瞬间变暗；**还原法线再只翻转顶点绕序**，正面变成了背面，三角形直接被剔除“隐身”了！实战里遇到**破洞隐身**去建模软件统一面朝向（重算绕序），遇到**形状完整但明暗发黑**则检查法线方向。',
       ],
       tryItPrompt:
-        '让两个开关各取开、关两种状态，记录四次可见三角形数。原始绕序应为 1，反转绕序应为 0。',
+        '把右侧模型切到【单三角形对照】，轮流开关【翻转着色法线】和【翻转顶点绕序】，亲眼对比“变暗但还在”与“隐身变 0 个”的区别！',
       callout: {
         tone: 'warn',
         title: '一句话防坑口诀',
@@ -2516,6 +2620,8 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
   const snowWeight = saturate(snowPitfallLocal ? 1 : headWorldZ);
   const headGray = lerp(0.2, 0.9, snowWeight);
 
+  const showSnowTelemetry = snowTest || stepIndex >= 3;
+
   useEffect(() => {
     onKpiUpdate([
       {
@@ -2524,12 +2630,19 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
         sub: meta.originDesc,
         tone: 'accent',
       },
-      {
-        label: '头顶采样点 · 积雪权重',
-        value: `${snowWeight.toFixed(2)} → 灰度 ${headGray.toFixed(2)}`,
-        sub: `世界法线 Z = ${headWorldZ.toFixed(2)}，${snowPitfallLocal ? '误用局部 Z = 1' : '权重 = Saturate(Z)'}`,
-        tone: 'neutral',
-      },
+      showSnowTelemetry
+        ? {
+            label: '头顶采样点 · 积雪权重',
+            value: `${snowWeight.toFixed(2)} → 灰度 ${headGray.toFixed(2)}`,
+            sub: `世界法线 Z = ${headWorldZ.toFixed(2)}，${snowPitfallLocal ? '误用局部 Z = 1' : '权重 = Saturate(Z)'}`,
+            tone: 'neutral',
+          }
+        : {
+            label: '木偶当前姿态',
+            value: `身体 ${bodyTiltDeg}° · 右臂 ${armSwingDeg}°`,
+            sub: '拖动滑块看蓝色 +Z 轴跟谁走',
+            tone: 'neutral',
+          },
       {
         label: '蓝色 +Z 轴当前指向',
         value:
@@ -2538,14 +2651,14 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
             : space === 'local'
             ? `随脊椎偏转 (${bodyTiltDeg}°)`
             : space === 'tangent'
-            ? `垂直肩膀皮肤朝外`
-            : '指向镜头外 (平面UV)',
+            ? '垂直肩膀皮肤朝外'
+            : '无 Z 轴（仅 2D 屏幕 UV）',
         sub: snowPitfallLocal ? '⚠️ 局部积雪踩坑：倒立时雪贴在头顶朝地！' : '✅ 坐标定义清晰',
         tone: snowPitfallLocal ? 'bad' : 'good',
       },
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [space, bodyTiltDeg, armSwingDeg, snowPitfallLocal]);
+  }, [space, bodyTiltDeg, armSwingDeg, snowPitfallLocal, showSnowTelemetry]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2887,10 +3000,36 @@ const FourCoordinateSpacesStage: React.FC<LessonStageProps> = ({
           onChange={setSpace}
         />
 
-        <div>头顶采样点 · 岩石 0.20 与雪 0.90 的线性混合
-          <span style={{ display: 'inline-block', width: 28, height: 14, margin: '0 8px', backgroundColor: `rgb(${Math.round(headGray * 255)} ${Math.round(headGray * 255)} ${Math.round(headGray * 255)})` }} />
-          世界 Z {headWorldZ.toFixed(2)} · 权重 {snowWeight.toFixed(2)} · 灰度 {headGray.toFixed(2)}
-        </div>
+        {showSnowTelemetry && (
+          <div
+            style={{
+              fontSize: 12,
+              padding: '5px 10px',
+              borderRadius: 8,
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--border-soft)',
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 6,
+            }}
+          >
+            <span>❄️ 头顶采样点（岩石 0.20 ↔ 白雪 0.90 混合）：</span>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 24,
+                height: 14,
+                borderRadius: 3,
+                border: '1px solid var(--border-strong)',
+                backgroundColor: `rgb(${Math.round(headGray * 255)} ${Math.round(headGray * 255)} ${Math.round(headGray * 255)})`,
+              }}
+            />
+            <span style={{ fontFamily: 'var(--font-mono)' }}>
+              世界 Z = {headWorldZ.toFixed(2)} · 权重 = {snowWeight.toFixed(2)} · 灰度 = {headGray.toFixed(2)}
+            </span>
+          </div>
+        )}
         <div className="control-grid">
           <StageSlider
             label="木偶身体翻滚角（拉到 180° 观察朝下权重）"
@@ -2973,11 +3112,11 @@ const lesson1_4: LessonDefinition = {
       tag: 'background',
       title: '先认前两个空间：雷打不动的「世界」与跟人走的「局部」',
       paragraphs: [
-        '• **世界空间（World Space）**：把原点钉死在整个关卡大地的中心。在 UE 5.8 里，**天空正上方永远是蓝色的 `+Z` 轴**！不管场景里的石头怎么 360° 乱滚、角色怎么翻跟头，“天空在头顶上方”永远不变——后面做“石头朝天那一面自动落白雪”全靠它！',
+        '• **世界空间（World Space）**：把原点钉死在整个关卡大地的中心。UE 5.8 采用**左手坐标系、Z 轴朝上（Z-Up）**，并用红绿蓝三色帮你记坐标轴（**RGB 对应 XYZ**）：**红色 `+X` 朝前、绿色 `+Y` 朝右、蓝色 `+Z` 永远笔直指着头顶天空**！不管石头怎么 360° 乱滚，“天空在头顶上方”永远不变——做“石头朝天一面自动落白雪”全靠它！',
         '• **局部/物体空间（Local Space）**：把原点钉在木偶自己的**肚脐眼**上！不管木偶跳多高、歪多少度，他的脑袋永远在他局部空间的 `+Z` 方向 0.5 米处——想给宝剑从剑柄到剑尖涂一道固定渐变色，选局部空间最稳当。',
       ],
       tryItPrompt:
-        '勾选底部的【❄️ 开启头顶积雪实验】并随意翻滚木偶，观察在世界空间规则下，白雪是不是随每个采样点的朝向变化；对照头顶权重？',
+        '勾选底部的【❄️ 开启头顶积雪实验】并随意翻滚木偶，观察在世界空间规则下，白雪是不是随朝向自动变化，并对照观察头顶的积雪权重！',
     },
     {
       stepNumber: 3,
@@ -3002,10 +3141,10 @@ const lesson1_4: LessonDefinition = {
       tag: 'ue5',
       title: '走进 UE 5.8：四个空间在节点库里分别叫什么名字？',
       paragraphs: [
-        '把大白话和 UE 5.8 节点名字对上号，以后搜节点稳准狠：\n1. **世界空间**：`Absolute World Position`（世界位置）与 `PixelNormalWS`（末尾的 `WS` 就是 World Space 缩写！）；\n2. **局部空间**：`Local Position`（物体自身坐标）；\n3. **切线空间**：材质层板上的 `Normal` 插孔默认接收的就是切线空间数据！如需把创可贴方向翻译成世界方向，只需连一颗 **`TransformVector（空间转换翻译官）`** 节点；\n4. **屏幕空间**：`ScreenPosition`（常用于全屏特效与瞄准镜）。',
+        '把大白话和 UE 5.8 节点名字对上号，以后搜节点稳准狠：\n1. **世界空间**：`Absolute World Position`（世界位置）与 `PixelNormalWS`（末尾的 `WS` 就是 World Space 缩写！）；\n2. **局部空间**：`LocalPosition`（UE 内置的材质函数 Material Function，读取物体自身坐标）；\n3. **切线空间**：材质的 `Normal` 插孔默认接收的就是切线空间数据！如需把创可贴方向翻译成世界方向，只需连一颗 **`TransformVector（空间转换翻译官）`** 节点；\n4. **屏幕空间**：`ScreenPosition`（常用于全屏特效与瞄准镜）。',
       ],
       tryItPrompt:
-        '切换到右上角【原理图】视图，查看 PixelNormalWS → ComponentMask B → Saturate → Lerp Alpha。将木偶转至 180°，头顶 Z = −1，世界空间积雪权重为 0，灰度回到岩石的 0.20。',
+        '切换到右上角【原理图】视图先混个脸熟：通过 `PixelNormalWS` 取出蓝色 Z 通道（`ComponentMask`），再经 `Saturate` 和 `Lerp`（第 2.2 课详讲）混合岩石与雪色；把木偶转到 180° 倒立，头顶世界 Z 变成 -1，积雪权重归零！',
     },
     {
       stepNumber: 5,
@@ -3048,7 +3187,8 @@ const lesson1_4: LessonDefinition = {
             "label": "XYZ",
             "color": "#38bdf8"
           }
-        ]
+        ],
+        "note": "若为切线法线，先经 TransformVector 转世界空间"
       },
       {
         "id": "mask",
@@ -3236,6 +3376,13 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
     }
   }, [resetSignal]);
 
+  // 切换到第 4、5 步（UE 节点与超界避坑）时自动退出 0~1 法线解码模式，避免滑块被锁住
+  useEffect(() => {
+    if (stepIndex >= 3) {
+      setNormalEncoded(false);
+    }
+  }, [stepIndex]);
+
   const maxChannel = Math.max(valR, valG, valB);
   const minChannel = Math.min(valR, valG, valB);
   const x = normalEncoded ? valR * 2 - 1 : valR;
@@ -3264,7 +3411,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
           ? '颜色预览将负分量截为 0'
           : isHdr
           ? '超过白纸 1.0 上限，触发霓虹泛光'
-          : `相当于旧版 (${Math.round(clamp(valR) * 255)}, ${Math.round(clamp(valG) * 255)}, ${Math.round(clamp(valB) * 255)})`,
+          : `相当于 8 位色值 (${Math.round(clamp(valR) * 255)}, ${Math.round(clamp(valG) * 255)}, ${Math.round(clamp(valB) * 255)})`,
         tone: hasNegative ? 'bad' : isHdr ? 'warn' : 'good',
       },
       {
@@ -3347,10 +3494,13 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
           const nz = Math.sqrt(1 - r2);
           const ndotl = Math.max(0.18, dot3([nx, ny, nz], L));
 
-          // 当值 > 1 时球核趋向炽白（真实 ACES 高光漂白感）
+          // 当值 > 1 且走 Emissive 时趋向炽白泛光；误连进底色 Albedo 时各通道被截断 <= 1.0，不发光且发生严重偏色
           const mapHdr = (v: number) => {
             if (v <= 0) return 0;
-            if (albedoOverflowPitfall && v > 1) return 1 - Math.exp(-ndotl * 1.15);
+            if (albedoOverflowPitfall) {
+              const clampedAlb = clamp(v, 0, 1);
+              return clamp(1 - Math.exp(-(clampedAlb * ndotl) * 1.15), 0, 1);
+            }
             const lit = v <= 1 ? v * ndotl : v * 0.85;
             return clamp(1 - Math.exp(-lit * 1.15), 0, 1);
           };
@@ -3389,7 +3539,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
         ? '负分量可表示方向；普通显示颜色截到 0'
         : isHdr
         ? albedoOverflowPitfall
-          ? '❌ 误连进底色 Albedo：本预览将反射率限幅至 1'
+          ? '❌ 误连进底色 Albedo：被截断在 1.0，不发光且橙红偏成扁黄！'
           : '✨ 超出 1.0：化身自发光霓虹灯 (HDR)！'
         : '0~1 区间：正常反射的物理表面颜色',
       56,
@@ -3505,8 +3655,8 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
       {stepIndex === 4 && (
         <PitfallCompareBar
           isPitfall={albedoOverflowPitfall}
-          pitfallLabel="踩坑：把 3.5 的超界高亮直接塞进 Diffuse Albedo 底色（反射 350% 阳光，预览按反射率上限显示）"
-          correctLabel="正解：底色守在 0~1 以内，超界 3.5 送进 Emissive 自发光口（柔和霓虹泛光）"
+          pitfallLabel="踩坑：把 (3.5, 1.2, 0.2) 塞进底色 Albedo——被引擎截断成 (1, 1, 0.2)，既不发光又从橙红偏成扁黄！"
+          correctLabel="正解：底色守在 0~1 以内，超界 (3.5, 1.2, 0.2) 送进 Emissive 自发光口绽放柔和霓虹泛光"
           onToggle={(p) => {
             setAlbedoOverflowPitfall(p);
             if (p && maxChannel <= 1) {
@@ -3659,6 +3809,21 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
 
       {/* 三通道超界滑块 */}
       <div className="stage-controls-panel">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+          <StageToggle
+            label="法线贴图解码模式 (2 × RGB − 1)"
+            checked={normalEncoded}
+            onChange={(checked) => {
+              setNormalEncoded(checked);
+              if (checked) {
+                setValR((v) => clamp(v, 0, 1));
+                setValG((v) => clamp(v, 0, 1));
+                setValB((v) => clamp(v, 0, 1));
+              }
+            }}
+            hint={normalEncoded ? '已开启：滑块限定 0~1，右侧自动解码成 -1~+1 方向' : '关闭：滑块自由调节 -1~+4（支持负方向与 HDR）'}
+          />
+        </div>
         <div className="control-grid">
           <StageSlider
             label="第 1 个数：红 R / 空间 X"
@@ -3677,7 +3842,7 @@ const NormalizedNumbersVectorsStage: React.FC<LessonStageProps> = ({
             onChange={setValG}
           />
           <StageSlider
-            label="第 3 个数：蓝 B / 空间 Z (朝天)"
+            label="第 3 个数：蓝 B / 空间 Z (朝天/表皮外)"
             value={valB}
             min={normalEncoded ? 0 : -1}
             max={normalEncoded ? 1 : 4}
@@ -3718,14 +3883,14 @@ const lesson2_1: LessonDefinition = {
       title: '0~1 百分比乘法的爽快感，以及“颜色 = 方向”的底层大揭秘',
       paragraphs: [
         '先看改成 **`0~1` 百分比（专业名叫归一化）** 有多爽：假如用 `255` 做乘法，`255 × 255 = 65025` 当场爆表！而换成 `0~1` 后，任何颜色 **`× 1` 原封不动，`× 0` 瞬间归黑，`× 0.5` 刚好减半**！而且小数没有天花板：**超过 `1.0`（比如 `3.5`）代表它比反光白纸亮 3.5 倍，就是刺眼的霓虹灯与太阳（HDR 高动态范围）**；方向分量可小于 0，普通显示色将负分量截为 0。',
-        '再揭开第二个让新手拍大腿的秘密：为什么材质里同一个 `(0, 0, 1)`，连进颜色口是**纯蓝色**，连进法线口就变成了**朝天竖立的小牙签**？因为在显卡内存里，根本不区分什么“颜色”或“坐标”，它只存了**一模一样的三个小数 `float3`**！',
+        '再揭开第二个让新手拍大腿的秘密：为什么材质里同一个 `(0, 0, 1)`，连进颜色口是**纯蓝色**，连进切线空间法线口就代表**垂直表皮笔直朝外的小牙签**（而在世界空间里代表**正指天空**）？因为在显卡内存里，根本不区分什么“颜色”或“坐标”，它只存了**一模一样的三个小数 `float3`**！',
       ],
       tryItPrompt:
         '点击舞台上方的【🔵 (0,0,1) 纯蓝/朝天】和【🕳️ (-0.8,0.2,0.4) 负分量】预设钮，左右对照看看同一串数字在颜色眼中和空间眼中的双胞胎身份！',
       callout: {
         tone: 'tip',
         title: '一秒看懂通道外号对应表',
-        body: '第 1 个数：红 `R` = 横坐标 `X` = 贴图 `U`\n第 2 个数：绿 `G` = 纵坐标 `Y` = 贴图 `V`\n第 3 个数：蓝 `B` = 高度朝天 `Z` = 切线朝外 `W/N`',
+        body: '第 1 个数：红 `R` = 横坐标 `X` = 贴图 `U`\n第 2 个数：绿 `G` = 纵坐标 `Y` = 贴图 `V`\n第 3 个数：蓝 `B` = 高度朝天 `Z` = 垂直表皮朝外 `N`（切线空间 Z）',
       },
     },
     {
@@ -3757,10 +3922,10 @@ const lesson2_1: LessonDefinition = {
       tag: 'pitfall',
       title: '防坑口诀：自发光尽管超 1，漫反射底色千万别超 1！',
       paragraphs: [
-        '新手学会填大于 `1` 的数字后，常犯两个致命错误：\n1. **把 `3.5` 这种超界值误连进 `Diffuse Albedo（漫反射底色）`**：底色代表反射阳光的百分比，填 `3.5` 等于射进来 1 份阳光弹出去 3.5 份，严重违背物理能量守恒，超出漫反射率的物理范围；本预览把底色限幅至 1。想发光一定要连进 **`Emissive Color`**。\n2. **拿 2 个数硬加 3 个数**：在 UE 5.8 中，`2Vector` 直接加 `3Vector` 会当场红字报错（维度不对齐），只有单独 `1` 个数（标量）才能和任意维度的向量自由加减乘除！',
+        '新手学会填大于 `1` 的数字后，常犯两个经典错误：\n1. **把 `(3.5, 1.2, 0.2)` 这种超界橙红误连进 `Base Color / Diffuse Albedo（漫反射底色）`**：底色代表反射阳光的百分比，物理上不可能超过 `1.0`。UE 5.8 会直接把底色截断到 `<= 1.0`——结果不仅**根本不会产生 HDR 发光**，而且红通道 `3.5` 和绿通道 `1.2` 双双被一刀切平在 `1.0`，原本鲜艳的橙红色瞬间坍缩成 `(1.0, 1.0, 0.2)` 的**死板偏黄色**！想要发光一定要连进 **`Emissive Color（自发光）`**。\n2. **拿 2 个数硬加 3 个数**：在 UE 5.8 中，`2Vector` 直接加 `3Vector` 会当场红字报错（维度不对齐），只有单独 `1` 个数（标量）才能和任意维度的向量自由加减乘除！',
       ],
       tryItPrompt:
-        '点击顶部避坑对比条切换【看踩坑现象】，对比“把 3.5 误塞进底色在预览中被限幅”与“正确连入 Emissive 产生柔美辉光”的区别！',
+        '点击顶部避坑对比条切换【看踩坑现象】，对比把 `(3.5, 1.2, 0.2)` 误塞进底色后“不发光还偏成扁黄”，与正确连入 `Emissive` 产生柔美霓虹辉光的区别！',
       callout: {
         tone: 'warn',
         title: '一句话防坑口诀',
@@ -3770,59 +3935,81 @@ const lesson2_1: LessonDefinition = {
   ],
   takeaways: [
     '材质统一使用 0~1 归一化小数：乘 1 不变、乘 0 归黑；超过 1.0 代表 HDR 高亮自发光，小于 0 可表示方向的反向分量',
-    '底层内存中 RGB 颜色与 XYZ 空间向量完全等价，同一个 (0, 0, 1) 既是纯蓝色也是朝正上方的单位箭头',
+    '底层内存中 RGB 颜色与 XYZ 空间向量完全等价，同一个 (0, 0, 1) 既是纯蓝色，也是切线空间里垂直表皮朝外（或世界空间朝天）的单位箭头',
     'UE 5.8 快捷键 1 / 2 / 3 + 左键分别生成一维灰度、二维 UV 向量与三维颜色/方向向量',
-    'Diffuse Albedo（底色）必须严格守在 0~1 内守住能量守恒，需要霓虹辉光请连入 Emissive Color',
+    'Diffuse Albedo（底色）必须严格守在 0~1 内守住能量守恒，超界会被截断导致严重偏色；需要霓虹辉光请连入 Emissive Color',
   ],
   schematic: {
     title: 'UE 5.8 标准底色 (0~1) 与 HDR 自发光 (>1) 正确接线法',
-    caption: '漫反射底色经 Clamp/Saturate 守住物理上限，超界高倍数值专走 Emissive 通道触发镜头泛光。',
+    caption: '漫反射底色经 Saturate 锁死 0~1 上限，超界高亮色通过 Multiply 放大后专走 Emissive Color 通道触发镜头泛光。',
     nodes: [
       {
         id: 'base_c3',
-        title: 'Constant3Vector [快捷键3]',
+        title: 'Constant3Vector [3]',
         subtitle: '标准表面色 (0.15, 0.45, 0.85)',
         category: 'param',
-        x: 30,
-        y: 55,
-        width: 205,
+        x: 15,
+        y: 35,
+        width: 175,
         previewColor: '#2563eb',
-        outputs: [{ id: 'rgb', label: 'RGB (0~1)', color: '#3b82f6' }],
+        outputs: [{ id: 'rgb', label: 'RGB', color: '#3b82f6' }],
+      },
+      {
+        id: 'sat_base',
+        title: 'Saturate',
+        subtitle: '锁死 0~1 防偏色',
+        category: 'math',
+        x: 222,
+        y: 35,
+        width: 140,
+        inputs: [{ id: 'in', label: 'Input', color: '#3b82f6' }],
+        outputs: [{ id: 'out', label: '0~1', color: '#3b82f6' }],
       },
       {
         id: 'hdr_c3',
-        title: 'Constant3Vector × 4.0',
-        subtitle: '超界霓虹发光 (3.5, 1.2, 0.2)',
-        category: 'math',
-        x: 30,
-        y: 195,
-        width: 205,
+        title: 'Constant3Vector [3]',
+        subtitle: '橙红底色 (0.88, 0.30, 0.05)',
+        category: 'param',
+        x: 15,
+        y: 190,
+        width: 175,
         previewColor: '#f97316',
-        outputs: [{ id: 'hdr', label: 'HDR (>1.0)', color: '#fb923c' }],
-        note: '亮度超过 1.0，触发 Bloom 辉光',
+        outputs: [{ id: 'rgb', label: 'RGB', color: '#fb923c' }],
+      },
+      {
+        id: 'mul_hdr',
+        title: 'Multiply (× 4.0)',
+        subtitle: '放大至 (3.5, 1.2, 0.2)',
+        category: 'math',
+        x: 222,
+        y: 190,
+        width: 140,
+        inputs: [{ id: 'a', label: 'A', color: '#fb923c' }],
+        outputs: [{ id: 'hdr', label: 'HDR >1', color: '#fb923c' }],
+        note: '超界触发 Bloom 辉光',
       },
       {
         id: 'slab',
         title: 'Substrate Slab BSDF',
         subtitle: '底色与自发光各司其职',
         category: 'substrate',
-        x: 315,
-        y: 110,
-        width: 220,
+        x: 398,
+        y: 100,
+        width: 192,
         inputs: [
-          { id: 'albedo', label: 'Diffuse Albedo (限 0~1)', color: '#3b82f6' },
-          { id: 'emissive', label: 'Emissive Color (允许 >1)', color: '#fb923c' },
+          { id: 'albedo', label: 'Diffuse Albedo (0~1)', color: '#3b82f6' },
+          { id: 'emissive', label: 'Emissive Color (>1)', color: '#fb923c' },
         ],
-        outputs: [{ id: 'out', label: 'Front Material', color: '#a855f7' }],
+        outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
       },
       {
         id: 'root',
         title: '材质根节点',
         subtitle: '送入后期泛光管线',
         category: 'output',
-        x: 605,
-        y: 120,
-        width: 170,
+        x: 628,
+        y: 112,
+        width: 152,
         inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
       },
     ],
@@ -3830,6 +4017,13 @@ const lesson2_1: LessonDefinition = {
       {
         fromNode: 'base_c3',
         fromPin: 'rgb',
+        toNode: 'sat_base',
+        toPin: 'in',
+        color: '#3b82f6',
+      },
+      {
+        fromNode: 'sat_base',
+        fromPin: 'out',
         toNode: 'slab',
         toPin: 'albedo',
         color: '#3b82f6',
@@ -3837,6 +4031,13 @@ const lesson2_1: LessonDefinition = {
       },
       {
         fromNode: 'hdr_c3',
+        fromPin: 'rgb',
+        toNode: 'mul_hdr',
+        toPin: 'a',
+        color: '#fb923c',
+      },
+      {
+        fromNode: 'mul_hdr',
         fromPin: 'hdr',
         toNode: 'slab',
         toPin: 'emissive',
@@ -3845,7 +4046,7 @@ const lesson2_1: LessonDefinition = {
       },
       {
         fromNode: 'slab',
-        fromPin: 'out',
+        fromPin: 'bsdf',
         toNode: 'root',
         toPin: 'front',
         color: '#a855f7',
@@ -4129,8 +4330,14 @@ const FiveMathNodesStage: React.FC<LessonStageProps> = ({
 
           const N: Vec3 = [nx, ny, nz];
           const ndotl = Math.max(0, dot3(N, L));
-          const shininess = lerp(42, 6, rustFactor);
-          const specStr = lerp(0.55, 0.05, rustFactor);
+          // 仅在 Lerp 模式下用遮罩切换精钢光滑/铁锈哑光；Multiply 抠图时被抠黑区域 (m=0) 高光也归零
+          const shininess = opMode === 'lerp' ? lerp(42, 6, rustFactor) : opMode === 'multiply' ? 42 : 32;
+          const specStr =
+            opMode === 'lerp'
+              ? lerp(0.55, 0.05, rustFactor)
+              : opMode === 'multiply'
+              ? 0.55 * rustFactor
+              : 0.35;
           const spec = Math.pow(Math.max(0, dot3(N, Hvec)), shininess) * specStr;
 
           const litR = col[0] * (ndotl * 0.95 + 0.22) + spec;
@@ -4475,14 +4682,14 @@ const lesson2_2: LessonDefinition = {
       tag: 'ue5',
       title: '走进 UE 5.8：左手四个黄金快捷键，连线快得像弹钢琴！',
       paragraphs: [
-        '在 UE 5.8 材质画布里，老手从来不右键打字搜这几个节点，左手往键盘上一搭点左键就出来了：\n• 按住 **`A` + 左键** = `Add（加）`\n• 按住 **`M` + 左键** = `Multiply（乘）`\n• 按住 **`O` + 左键** = `OneMinus（1-x 反转）`\n• 按住 **`L` + 左键** = `LinearInterpolate（即 Lerp 混水阀）`\n至于 `0~1` 护栏，在 UE 5.8 中推荐搜 **`Saturate`**（它专门锁死 `0~1`，目标编译器有时可将限幅合入指令，可用 Platform Stats 查看目标平台结果。）。',
+        '在 UE 5.8 材质画布里，老手从来不右键打字搜这几个节点，左手往键盘上一搭点左键就出来了：\n• 按住 **`A` + 左键** = `Add（加）`\n• 按住 **`M` + 左键** = `Multiply（乘）`\n• 按住 **`O` + 左键** = `OneMinus（1-x 反转）`\n• 按住 **`L` + 左键** = `LinearInterpolate（即 Lerp 混水阀）`\n至于 `0~1` 护栏，在 UE 5.8 中推荐搜 **`Saturate`**（它在大多数现代 GPU 上开销极低，常可由编译器直接合并进指令修饰符，比通用 `Clamp` 更推荐用于 `0~1` 限幅）。',
       ],
       tryItPrompt:
         '切换到右上角【原理图】视图，看清 `好铁 A`、`铁锈 B` 与经过 `OneMinus → Saturate` 处理的遮罩是如何接入 `Lerp` 的三个插孔的。',
       callout: {
         tone: 'ue58',
-        title: 'UE 5.8 省性能冷知识：优先用 Saturate 代替 Clamp',
-        body: '如果你只是想把数字锁在标准的 `0.0 ~ 1.0` 之间，用 `Saturate` 节点不仅不用填 Min/Max，在 GPU 硬件指令里还能顺手免费捎带完成！只有锁 `0.2 ~ 0.8` 这种特殊范围才需要 `Clamp`。',
+        title: 'UE 5.8 省性能小贴士：0~1 限幅优先用 Saturate 代替 Clamp',
+        body: '如果你只是想把数字锁在标准的 `0.0 ~ 1.0` 之间，优先使用 `Saturate` 节点——不仅省去了填写 Min/Max 的麻烦，在大多数现代 GPU 上开销极低，常能由编译器直接合并进指令修饰符里；只有锁 `0.2 ~ 0.8` 这种特殊范围时再用 `Clamp`。',
       },
     },
     {
@@ -4511,16 +4718,16 @@ const lesson2_2: LessonDefinition = {
   ],
   schematic: {
     title: '算术五件套实战：精钢铁板与斑驳铁锈遮罩混合节点图',
-    caption: '遮罩经 OneMinus 与 Saturate 安全护栏整备后控制 Lerp 混水阀，精准驱动底色混合。',
+    caption: '黑白污渍遮罩依次经过 OneMinus（反转）与 Saturate（0~1 护栏）后接入 Lerp 混水阀，再经 Substrate Slab BSDF 连入材质根节点。',
     nodes: [
       {
         id: 'tex_iron',
         title: 'Texture Sample (精钢铁板)',
         subtitle: '连入冷水口 A (Alpha=0)',
         category: 'texture',
-        x: 25,
-        y: 30,
-        width: 195,
+        x: 12,
+        y: 20,
+        width: 162,
         previewColor: '#94a3b8',
         outputs: [{ id: 'rgb', label: 'RGB', color: '#cbd5e1' }],
       },
@@ -4529,32 +4736,54 @@ const lesson2_2: LessonDefinition = {
         title: 'Texture Sample (斑驳铁锈)',
         subtitle: '连入热水口 B (Alpha=1)',
         category: 'texture',
-        x: 25,
-        y: 145,
-        width: 195,
+        x: 12,
+        y: 122,
+        width: 162,
         previewColor: '#c2410c',
         outputs: [{ id: 'rgb', label: 'RGB', color: '#fb923c' }],
       },
       {
         id: 'tex_mask',
-        title: '污渍遮罩 → OneMinus [O]',
-        subtitle: '再串 Saturate 锁死 0~1',
-        category: 'math',
-        x: 25,
-        y: 260,
-        width: 195,
+        title: 'Texture Sample (污渍遮罩)',
+        subtitle: '黑白遮罩原图',
+        category: 'texture',
+        x: 12,
+        y: 228,
+        width: 162,
         previewColor: '#e5e7eb',
-        outputs: [{ id: 'alpha', label: 'Clamped 0~1', color: '#f8fafc' }],
-        note: '护栏防止 >1 反向爆色！',
+        outputs: [{ id: 'r', label: 'R (灰度)', color: '#f8fafc' }],
+      },
+      {
+        id: 'oneminus',
+        title: 'OneMinus [O]',
+        subtitle: '1 - x 黑白反转',
+        category: 'math',
+        x: 196,
+        y: 228,
+        width: 118,
+        inputs: [{ id: 'in', label: 'Input', color: '#f8fafc' }],
+        outputs: [{ id: 'out', label: '1 - x', color: '#f8fafc' }],
+      },
+      {
+        id: 'sat_mask',
+        title: 'Saturate',
+        subtitle: '锁死 0~1 护栏',
+        category: 'math',
+        x: 334,
+        y: 228,
+        width: 112,
+        inputs: [{ id: 'in', label: 'Input', color: '#f8fafc' }],
+        outputs: [{ id: 'alpha', label: '0~1', color: '#f8fafc' }],
+        note: '防 >1 反向爆色',
       },
       {
         id: 'lerp_node',
-        title: 'LinearInterpolate (Lerp) [L]',
+        title: 'LinearInterpolate [L]',
         subtitle: '冷热水混水阀核心',
         category: 'math',
-        x: 295,
-        y: 130,
-        width: 210,
+        x: 468,
+        y: 88,
+        width: 162,
         inputs: [
           { id: 'a', label: 'A (好铁)', color: '#cbd5e1' },
           { id: 'b', label: 'B (铁锈)', color: '#fb923c' },
@@ -4565,13 +4794,23 @@ const lesson2_2: LessonDefinition = {
       {
         id: 'slab_out',
         title: 'Substrate Slab BSDF',
-        subtitle: '输出生锈精钢材质',
+        subtitle: '输出生锈精钢层板',
         category: 'substrate',
-        x: 575,
-        y: 135,
-        width: 195,
+        x: 652,
+        y: 98,
+        width: 162,
         inputs: [{ id: 'diff', label: 'Diffuse Albedo', color: '#34d399' }],
-        outputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
+        outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+      },
+      {
+        id: 'root_out',
+        title: '材质根节点',
+        subtitle: '最终表面输出',
+        category: 'output',
+        x: 836,
+        y: 104,
+        width: 132,
+        inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
       },
     ],
     edges: [
@@ -4591,6 +4830,20 @@ const lesson2_2: LessonDefinition = {
       },
       {
         fromNode: 'tex_mask',
+        fromPin: 'r',
+        toNode: 'oneminus',
+        toPin: 'in',
+        color: '#e5e7eb',
+      },
+      {
+        fromNode: 'oneminus',
+        fromPin: 'out',
+        toNode: 'sat_mask',
+        toPin: 'in',
+        color: '#e5e7eb',
+      },
+      {
+        fromNode: 'sat_mask',
         fromPin: 'alpha',
         toNode: 'lerp_node',
         toPin: 'al',
@@ -4603,6 +4856,13 @@ const lesson2_2: LessonDefinition = {
         toNode: 'slab_out',
         toPin: 'diff',
         color: '#34d399',
+      },
+      {
+        fromNode: 'slab_out',
+        fromPin: 'bsdf',
+        toNode: 'root_out',
+        toPin: 'front',
+        color: '#a855f7',
       },
     ],
   },
@@ -4663,10 +4923,11 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
   }, [resetSignal]);
 
   useEffect(() => {
-    if (stepIndex === 4 && uvSquash === 1.0) {
+    if (stepIndex === 4) {
       setUvSquash(3.2);
+    } else {
+      setUvSquash(1.0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
   useEffect(() => {
@@ -4748,12 +5009,12 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
       }
     }
 
-    // Show squashed UV island grid lines
+    // Show squashed UV island grid lines (matches 3D sphere sampling u = rawU^(1 / uvSquash))
     uctx.strokeStyle = isDark ? 'rgba(196, 223, 178, 0.45)' : 'rgba(21, 128, 61, 0.4)';
     uctx.lineWidth = 1;
     for (let i = 0; i <= 8; i++) {
       const t = i / 8;
-      const warpedU = Math.pow(t, uvSquash);
+      const warpedU = Math.pow(t, 1 / uvSquash);
       const x = padL + warpedU * boxW;
       uctx.beginPath();
       uctx.moveTo(x, padT);
@@ -4932,6 +5193,12 @@ const UvUnwrapOrangeStage: React.FC<LessonStageProps> = ({
               setHoverUv(clientToUv(e.currentTarget, e.clientX, e.clientY));
               if (e.buttons === 1) paintAt(e.clientX, e.clientY);
             }}
+            onTouchStart={(e) => {
+              if (e.touches[0]) paintAt(e.touches[0].clientX, e.touches[0].clientY);
+            }}
+            onTouchMove={(e) => {
+              if (e.touches[0]) paintAt(e.touches[0].clientX, e.touches[0].clientY);
+            }}
             style={{ width: '100%', maxWidth: 360, height: 'auto', margin: '0 auto', borderRadius: 8, cursor: 'crosshair', display: 'block', touchAction: 'none' }}
           />
         </div>
@@ -5004,7 +5271,7 @@ const lesson2_3: LessonDefinition = {
   number: '2.3',
   title: '把 3D 橘子皮剥平 —— 什么是 UV 坐标（TexCoord）与接缝拉伸？',
   subtitle: '亲手在 2D 橘子皮上画笑脸同步贴回立体圆球，彻底搞懂 TexCoord 原点、剪刀接缝与棋盘格拉伸',
-  duration: '9 min',
+  duration: '9 分钟',
   difficulty: '零基础',
   steps: [
     {
@@ -5047,7 +5314,7 @@ const lesson2_3: LessonDefinition = {
       title: '走进 UE 5.8：按住快捷键 U 召唤 TexCoord 节点',
       paragraphs: [
         '在 UE 5.8 材质编辑器里，你不需要自己算橘子皮怎么剥（建模软件导出模型时已经把每个顶点的 UV 算好存进模型里了）。',
-        '你只需按住键盘 **`U` 键点鼠标左键**，就能召唤出红色的 **`TexCoord (TextureCoordinate)`** 节点！它吐出来的双通道数据（红 `R = U`，绿 `G = V`）默认会自动连进每一张 `Texture Sample` 贴图的 `UVs` 插孔里，指挥每个像素去正确位置取颜色。',
+        '其实 **`Texture Sample`** 节点的 `UVs` 插孔留空时，默认就会隐式使用第 `0` 套 UV（`TexCoord [0]`）去贴图上查颜色；当你想要平铺缩放、流动偏移，或切换到其他 UV 通道时，再按住键盘 **`U` 键点鼠标左键**召唤出红色的 **`TexCoord (TextureCoordinate)`** 节点（红 `R = U`，绿 `G = V`），加工后连进 `UVs` 插孔即可！',
       ],
       tryItPrompt: '点击右上角切换到【UE5.8 节点/原理图】视图，看看红色的 `TexCoord [0]` 节点是如何把 UV 坐标喂给纹理采样器的。',
       callout: {
@@ -5063,7 +5330,7 @@ const lesson2_3: LessonDefinition = {
       title: '防坑口诀：为什么建模师总爱给模型贴一张黑白棋盘格？',
       paragraphs: [
         '你肯定见过美术师给没上色的白模贴满像国际象棋一样的方格子——那可不是为了好看，而是**拉伸照妖镜**！',
-        '如果模型上很大一块脸蛋，在 2D UV 图纸上被委屈地挤成了窄窄一条缝，那么只有几个纹素能分给整张脸，贴图贴上去就会像拉面一样糊成面条！只有当全身棋盘格都接近**大小均匀的正方形**时，贴图清晰度才最完美。',
+        '如果模型上很大一块脸蛋，在 2D UV 图纸上被委屈地挤成了窄窄一条缝，那么只有几个纹素（贴图上的颜色小格，第 5.1 课详讲）能分给整张脸，贴图贴上去就会像拉面一样糊成面条！只有当全身棋盘格都接近**大小均匀的正方形**时，贴图清晰度才最完美。',
       ],
       tryItPrompt: '拖动「局部 UV 挤压程度」滑块到 `3.0x`（或点顶部踩坑对比按钮），亲眼看看圆球上的正方形格子是如何被拉成扁长面条的！',
       callout: {
@@ -5077,20 +5344,20 @@ const lesson2_3: LessonDefinition = {
     'UV 坐标就是把 3D 立体表皮剪开摊平在 0~1 正方形图纸上的二维坐标（横轴 U，纵轴 V）',
     'UE 5.8 遵循 DirectX 标准，UV 原点 (0, 0) 位于左上角，U 向右递增、V 向下递增',
     '剪开表皮的边界称为 UV 接缝（Seam），实战中应尽量藏在角色后背、腋下等隐蔽处',
-    '在材质中按 U + 左键可创建 TexCoord 节点；展 UV 时需用棋盘格检查，防止局部挤压导致贴图拉糊',
+    'Texture Sample 留空 UVs 时隐式读取 TexCoord [0]，按 U + 左键可显式创建它做平铺或切通道；展 UV 需用棋盘格检查拉伸',
   ],
   schematic: {
     title: 'UE 5.8 标准 UV 坐标读取与贴图采样链路',
-    caption: 'TexCoord 读取模型自带的 0~1 橘子皮坐标，送入 Texture Sample 查出颜色后交由 Substrate Slab 渲染。',
+    caption: 'TexCoord 读取模型自带的 0~1 橘子皮坐标，送入 Texture Sample 查出颜色后经 Substrate Slab BSDF 连入材质根节点。',
     nodes: [
       {
         id: 'texcoord',
         title: 'TexCoord [0] (快捷键 U)',
         subtitle: '读取模型 UV 坐标',
         category: 'input',
-        x: 30,
+        x: 15,
         y: 95,
-        width: 185,
+        width: 175,
         outputs: [{ id: 'uv', label: 'UV (RG)', color: '#eab308' }],
         note: '左上(0,0) → 右下(1,1)',
       },
@@ -5099,9 +5366,9 @@ const lesson2_3: LessonDefinition = {
         title: 'Texture Sample (快捷键 T)',
         subtitle: '按 UV 坐标去贴图查颜色',
         category: 'texture',
-        x: 270,
+        x: 225,
         y: 95,
-        width: 200,
+        width: 185,
         inputs: [{ id: 'uvs', label: 'UVs', color: '#eab308' }],
         outputs: [{ id: 'rgb', label: 'RGB 颜色', color: '#f97316' }],
       },
@@ -5110,16 +5377,27 @@ const lesson2_3: LessonDefinition = {
         title: 'Substrate Slab BSDF',
         subtitle: 'UE 5.8 物质层板',
         category: 'substrate',
-        x: 525,
+        x: 445,
         y: 95,
-        width: 205,
+        width: 180,
         inputs: [{ id: 'albedo', label: 'Diffuse Albedo', color: '#f97316' }],
-        outputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
+        outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+      },
+      {
+        id: 'root',
+        title: '材质根节点',
+        subtitle: '最终表面输出',
+        category: 'output',
+        x: 660,
+        y: 100,
+        width: 145,
+        inputs: [{ id: 'front', label: 'Front Material', color: '#a855f7' }],
       },
     ],
     edges: [
       { fromNode: 'texcoord', fromPin: 'uv', toNode: 'tex_sample', toPin: 'uvs', color: '#eab308', label: '(U, V)' },
       { fromNode: 'tex_sample', fromPin: 'rgb', toNode: 'slab', toPin: 'albedo', color: '#f97316' },
+      { fromNode: 'slab', fromPin: 'bsdf', toNode: 'root', toPin: 'front', color: '#a855f7' },
     ],
   },
   StageComponent: UvUnwrapOrangeStage,
@@ -5132,7 +5410,11 @@ const lesson2_3: LessonDefinition = {
 const FIRST_SURFACE_COLORS = { 青绿: '#35a6a1', 橙色: '#e18244', 紫色: '#a682d1' };
 type FirstTint = keyof typeof FIRST_SURFACE_COLORS;
 
-const Ue58EditorTourStage: React.FC<LessonStageProps> = ({ onKpiUpdate, resetSignal }) => {
+const Ue58EditorTourStage: React.FC<LessonStageProps> = ({
+  stepIndex,
+  onKpiUpdate,
+  resetSignal,
+}) => {
   const [tint, setTint] = useState<FirstTint>('青绿');
   const [connected, setConnected] = useState(false);
   const [converted, setConverted] = useState(false);
@@ -5141,190 +5423,577 @@ const Ue58EditorTourStage: React.FC<LessonStageProps> = ({ onKpiUpdate, resetSig
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setTint('青绿');
-    setConnected(false);
-    setConverted(false);
-    setApplied(null);
-    setAssigned(false);
-    setSaved(false);
+    if (resetSignal > 0) {
+      setTint('青绿');
+      setConnected(false);
+      setConverted(false);
+      setApplied(null);
+      setAssigned(false);
+      setSaved(false);
+    }
   }, [resetSignal]);
+
+  const needsApply = connected && applied !== tint;
+  const needsSave = connected && !saved;
 
   useEffect(() => {
     onKpiUpdate([
-      { label: '当前资产', value: 'M_FirstSurface', sub: converted ? '已另存 Substrate 副本' : '传统根节点', tone: 'accent' },
-      { label: '材质预览', value: connected ? tint : '空白图', sub: saved ? '已保存' : '编辑中', tone: 'neutral' },
-      { label: '关卡 Cube · Element 0', value: assigned && applied ? applied : '默认材质', sub: '关卡显示已应用的版本', tone: assigned ? 'good' : 'neutral' },
+      {
+        label: '当前资产状态',
+        value: `M_FirstSurface${needsSave ? ' *' : ''}`,
+        sub: converted ? '已另存 Substrate 副本' : saved ? '已保存至硬盘' : '传统根节点 · 有未保存改动',
+        tone: needsSave ? 'warn' : 'accent',
+      },
+      {
+        label: '编辑器预览 vs Apply',
+        value: connected ? `${tint} ${needsApply ? '(未 Apply)' : '(已同步)'}` : '未连线 (默认灰)',
+        sub: needsApply ? '⚠️ 预览已变，点 Apply 才同步关卡' : connected ? '✅ 材质已编译生效' : '等待创建 Tint 节点',
+        tone: needsApply ? 'warn' : connected ? 'good' : 'neutral',
+      },
+      {
+        label: '关卡 Cube · Element 0',
+        value: assigned && applied ? `${applied} (M_FirstSurface)` : 'DefaultMaterial',
+        sub: assigned ? (needsApply ? '仍显示上次 Apply 版本' : '✅ 与编辑器完全一致') : '尚未把材质赋给立方体',
+        tone: assigned && !needsApply ? 'good' : assigned ? 'warn' : 'neutral',
+      },
     ]);
-  }, [converted, connected, tint, saved, applied, assigned, onKpiUpdate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [converted, connected, tint, saved, applied, assigned, needsApply, needsSave]);
 
   const previewColor = connected ? FIRST_SURFACE_COLORS[tint] : '#62676b';
   const levelColor = assigned && applied ? FIRST_SURFACE_COLORS[applied] : '#62676b';
-  return <div className="stage-controls-panel">
-    <p><strong>M_FirstSurface · Surface / Opaque</strong></p>
-    <div className="control-grid">
-      <div><div aria-label="材质预览球" style={{ width: 94, height: 94, borderRadius: '50%', background: `radial-gradient(at 35% 30%, ${previewColor} 15%, #242831 110%)` }} />材质预览 · {connected ? tint : '默认'}</div>
-      <div><div aria-label="关卡立方体" style={{ width: 94, height: 94, background: levelColor, border: '9px outset rgba(0,0,0,.18)' }} />关卡 Cube · {assigned && applied ? applied : '默认'}</div>
+
+  const stepHints = [
+    '第 1 步认门：认识顶部工具栏、左上预览、左下 Details 与中间画布。',
+    '第 2 步连色：点击下方【① 创建 Tint 并连接 Base Color】并切换颜色试看预览球。',
+    '第 3 步入场景：依次点【Apply】→【Save】→【赋给 Cube】，再换个颜色测试不点 Apply 会怎样！',
+    '第 4 步看 Substrate：点击【⑤ 复制副本并 Convert to Substrate】，观察节点图如何切换为 Slab → Front Material。',
+    '第 5 步避坑验收：试试改颜色但不点 Apply，感受星号 * 未存盘提醒，再点 Apply + Save 完美收官！',
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* 顶部模拟 UE 5.8 工具栏 */}
+      <div
+        style={{
+          background: 'var(--bg-card)',
+          border: '1.5px solid var(--border-strong)',
+          borderRadius: 11,
+          padding: '7px 11px',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          fontSize: 12,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 800 }}>
+            🧩 UE 5.8 材质编辑器 · <code style={{ fontSize: 12 }}>M_FirstSurface{needsSave ? '*' : ''}</code>
+          </span>
+          {converted && (
+            <span
+              style={{
+                fontSize: 11,
+                padding: '1px 7px',
+                borderRadius: 999,
+                background: 'rgba(168, 85, 247, 0.16)',
+                border: '1px solid rgba(168, 85, 247, 0.45)',
+                fontWeight: 700,
+              }}
+            >
+              + 副本 M_FirstSurface_Sub (Substrate)
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`brutal-btn ${needsApply ? 'primary' : ''}`}
+            style={{ padding: '4px 10px', fontSize: 11.5 }}
+            disabled={!connected}
+            onClick={() => {
+              setApplied(tint);
+              setSaved(false);
+            }}
+          >
+            ✅ Apply 编译应用{needsApply ? ' ●' : ''}
+          </button>
+          <button
+            type="button"
+            className={`brutal-btn ${connected && !needsApply && !saved ? 'primary' : ''}`}
+            style={{ padding: '4px 10px', fontSize: 11.5 }}
+            disabled={!connected || saved}
+            onClick={() => setSaved(true)}
+          >
+            💾 Save 存盘{needsSave ? ' *' : ''}
+          </button>
+        </div>
+      </div>
+
+      {/* 步骤同步提示条 */}
+      <div
+        style={{
+          fontSize: 11.5,
+          padding: '6px 10px',
+          borderRadius: 8,
+          background: 'var(--bg-subtle)',
+          border: '1px solid var(--border-soft)',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        🧭 <strong>当前指引：</strong>
+        {stepHints[stepIndex] || stepHints[0]}
+      </div>
+
+      {/* UE 5.8 四大区块 + 右侧关卡视口迷你布局 */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(215px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {/* 区块 1 & 2：左上预览视口 + 左下 Details 属性栏 */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1.5px solid var(--border-strong)',
+            borderRadius: 11,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 800, display: 'flex', justifyContent: 'space-between' }}>
+            <span>① 实时预览视口 (Viewport)</span>
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Lit</span>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              background: 'var(--bg-subtle)',
+              borderRadius: 9,
+              padding: 10,
+            }}
+          >
+            <div
+              aria-label="材质预览球"
+              style={{
+                width: 68,
+                height: 68,
+                borderRadius: '50%',
+                flexShrink: 0,
+                background: `radial-gradient(circle at 32% 28%, #ffffff66 0%, ${previewColor} 28%, #1d222b 115%)`,
+                border: '1.5px solid var(--border-strong)',
+              }}
+            />
+            <div style={{ fontSize: 11.5, lineHeight: 1.55 }}>
+              <div style={{ fontWeight: 800 }}>预览色：{connected ? tint : '默认灰'}</div>
+              <div style={{ color: 'var(--text-secondary)' }}>
+                {connected ? '拖动引脚连线后这里立刻刷新' : '尚未给 Base Color 接线'}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              borderTop: '1px dashed var(--border-soft)',
+              paddingTop: 7,
+              fontSize: 11,
+              lineHeight: 1.6,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <div style={{ fontWeight: 800, color: 'var(--text-primary)', marginBottom: 2 }}>
+              ② Details 属性栏（普通不透明固体）
+            </div>
+            <div>• Material Domain: <code>Surface</code></div>
+            <div>• Blend Mode: <code>Opaque</code> · Shading: <code>Default Lit</code></div>
+          </div>
+        </div>
+
+        {/* 区块 3：中间材质节点画布 */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1.5px solid var(--border-strong)',
+            borderRadius: 11,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 800, display: 'flex', justifyContent: 'space-between' }}>
+            <span>③ 材质节点画布 (Graph)</span>
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Alt+左键断线</span>
+          </div>
+
+          <div
+            style={{
+              background: 'var(--bg-subtle)',
+              borderRadius: 9,
+              padding: '10px 8px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              fontSize: 11,
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <div
+                style={{
+                  padding: '5px 7px',
+                  borderRadius: 7,
+                  border: `1.5px solid ${connected ? previewColor : 'var(--border-soft)'}`,
+                  background: 'var(--bg-card)',
+                  opacity: connected ? 1 : 0.45,
+                }}
+              >
+                <div style={{ fontWeight: 800 }}>Tint [V]</div>
+                <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                  {connected ? `${tint} · RGB ●` : '未创建'}
+                </div>
+              </div>
+              <div style={{ flex: 1, textAlign: 'center', fontWeight: 800, color: connected ? '#38bdf8' : 'var(--text-muted)' }}>
+                {connected ? '━━━━▶' : '· · ·'}
+              </div>
+              <div
+                style={{
+                  padding: '5px 7px',
+                  borderRadius: 7,
+                  border: '1.5px solid var(--border-strong)',
+                  background: 'var(--bg-card)',
+                }}
+              >
+                <div style={{ fontWeight: 800 }}>M_FirstSurface</div>
+                <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>● Base Color</div>
+              </div>
+            </div>
+
+            {converted ? (
+              <div
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: 7,
+                  border: '1.5px solid rgba(168, 85, 247, 0.5)',
+                  background: 'rgba(168, 85, 247, 0.1)',
+                  fontSize: 10.5,
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong>副本 M_FirstSurface_Sub（已转 Substrate）：</strong>
+                <br />
+                Tint → <code>Substrate Slab BSDF</code> (<code>BSDF</code>) → <code>Front Material</code>
+              </div>
+            ) : (
+              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                提示：UE 5.8 新建材质默认显示传统根节点，副本右键可 <code>Convert to Substrate</code>。
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 区块 4：右侧主关卡视口（Basic Level Cube） */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1.5px solid var(--border-strong)',
+            borderRadius: 11,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 800, display: 'flex', justifyContent: 'space-between' }}>
+            <span>④ 主关卡视口 (Basic · Lit)</span>
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>右键+WASD</span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              background: 'var(--bg-subtle)',
+              borderRadius: 9,
+              padding: 10,
+            }}
+          >
+            <div
+              aria-label="关卡立方体"
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 7,
+                flexShrink: 0,
+                background: levelColor,
+                border: '8px outset rgba(0,0,0,0.2)',
+              }}
+            />
+            <div style={{ fontSize: 11.5, lineHeight: 1.55 }}>
+              <div style={{ fontWeight: 800 }}>
+                Cube · Element 0
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                {assigned ? 'M_FirstSurface' : 'DefaultMaterial'}
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: assigned && needsApply ? '#d97706' : assigned ? '#059669' : 'var(--text-muted)',
+                }}
+              >
+                {assigned && needsApply
+                  ? '⚠️ 材质已改，尚未 Apply！'
+                  : assigned && applied
+                  ? `✅ 关卡已显 ${applied}`
+                  : '等待拖入 M_FirstSurface'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+            关卡只显示最近一次 <strong>Apply</strong> 的版本，未 Apply 前改色不会影响场景！
+          </div>
+        </div>
+      </div>
+
+      {/* 底部一步步操作按钮栏 */}
+      <div className="stage-controls-panel">
+        <div className="control-grid">
+          <button
+            type="button"
+            className={`brutal-btn ${!connected ? 'primary' : ''}`}
+            onClick={() => {
+              setConnected(true);
+              setSaved(false);
+            }}
+            disabled={connected}
+          >
+            {connected ? '✅ ① 已连 Tint → Base Color' : '① 创建 Tint 并连接 Base Color'}
+          </button>
+
+          <StageSegmented<FirstTint>
+            label="切换 Tint 参数默认颜色"
+            value={tint}
+            options={(Object.keys(FIRST_SURFACE_COLORS) as FirstTint[]).map((value) => ({
+              value,
+              label: value,
+            }))}
+            onChange={(v) => {
+              setTint(v);
+              setSaved(false);
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            type="button"
+            className={`brutal-btn ${applied && !assigned ? 'primary' : ''}`}
+            disabled={!applied || assigned}
+            onClick={() => setAssigned(true)}
+          >
+            {assigned ? '✅ ④ 已赋给 Cube · Element 0' : '④ 把材质赋给 Cube · Element 0'}
+          </button>
+          <button
+            type="button"
+            className={`brutal-btn ${assigned && saved && !converted ? 'primary' : ''}`}
+            disabled={!connected || converted}
+            onClick={() => setConverted(true)}
+          >
+            {converted ? '✅ ⑤ 副本已 Convert to Substrate' : '⑤ 复制副本并 Convert to Substrate'}
+          </button>
+        </div>
+      </div>
     </div>
-    <p>{connected ? 'Tint (Vector Parameter) → Base Color' : '图中只有传统材质根节点。Base Color、Roughness 等输入可见，Front Material 未连接。'}</p>
-    {converted && <p><strong>M_FirstSurface_Sub · 转换后的副本</strong>：Tint → 转换的表面网络 → Substrate Slab BSDF → Front Material。下方的颜色和应用操作仍控制原资产。</p>}
-    <div className="control-grid">
-      <button className="brutal-btn" onClick={() => { setConnected(true); setSaved(false); }} disabled={connected}>创建 Tint 并连接 Base Color</button>
-      <StageSegmented<FirstTint> label="Tint 参数" value={tint} options={(Object.keys(FIRST_SURFACE_COLORS) as FirstTint[]).map(value => ({ value, label: value }))} onChange={v => { setTint(v); setSaved(false); }} />
-      <button className="brutal-btn" disabled={!connected} onClick={() => { setApplied(tint); setSaved(false); }}>Apply 应用</button>
-      <button className="brutal-btn" disabled={!connected || applied !== tint || saved} onClick={() => setSaved(true)}>Save 保存</button>
-      <button className="brutal-btn" disabled={!applied || assigned} onClick={() => setAssigned(true)}>赋给 Cube · Element 0</button>
-      <button className="brutal-btn" disabled={!saved || converted || !assigned} onClick={() => setConverted(true)}>复制资产，在副本根节点 Convert to Substrate</button>
-    </div>
-  </div>;
+  );
 };
 
 const lesson2_4: LessonDefinition = {
   id: 'ue58-editor-tour',
   moduleId: '02',
   number: '2.4',
-  title: '第一次进引擎 · 给关卡里的立方体换色',
-  subtitle: '创建 M_FirstSurface，验证材质预览、Apply 与关卡赋材质的区别，再在副本中观察 Substrate 转换。',
-  duration: '10 分钟',
+  title: '第一次进 UE 5.8 · 认门四大面板并给关卡立方体换色',
+  subtitle: '零基础手把手建工程、创建 M_FirstSurface、分清 Apply 与 Save，并在副本初见 Substrate 转换',
+  duration: '12 分钟',
   difficulty: '零基础',
   steps: [
-  {
-    "stepNumber": 1,
-    "shortLabel": "创建材质",
-    "tag": "phenomenon",
-    "title": "从空工程创建 M_FirstSurface",
-    "paragraphs": [
-      "打开一个带默认光照的 Basic 关卡（File → New Level → Basic）。在 Content Browser 空白处右键，选择 Material，命名为 M_FirstSurface，双击打开。"
-    ],
-    "tryItPrompt": "看预览球和画布。普通新建材质只有传统根节点，表达式数量为 0，Front Material 尚未连接。"
-  },
-  {
-    "stepNumber": 2,
-    "shortLabel": "连接颜色",
-    "tag": "background",
-    "title": "让预览球变成青绿色",
-    "paragraphs": [
-      "选中根节点，在 Details 确认 Material Domain 为 Surface、Blend Mode 为 Opaque、Shading Model 为 Default Lit。在画布空白处右键搜索 Vector Parameter，命名 Tint，把默认值设成青绿色。将它的 RGB 输出连到根节点 Base Color。"
-    ],
-    "tryItPrompt": "在舞台创建 Tint 并接线，更换颜色。此时预览球上的颜色会变，右侧关卡立方体仍用默认材质。"
-  },
-  {
-    "stepNumber": 3,
-    "shortLabel": "赋给网格",
-    "tag": "experiment",
-    "title": "在关卡验证颜色",
-    "paragraphs": [
-      "点击材质编辑器 Apply 并等待编译完成，然后 Save。在关卡中从 Place Actors → Shapes 放一个 Cube，把 M_FirstSurface 从内容浏览器拖到 Cube 上，或在 Details → Materials → Element 0 指定该资产。"
-    ],
-    "tryItPrompt": "关卡用 Lit 模式观察 Cube。将 Tint 由青绿改为橙色，Apply 后立方体也应变橙，再 Save。若未变化，核对 Element 0 指向的资产与是否完成编译。"
-  },
-  {
-    "stepNumber": 4,
-    "shortLabel": "转换副本",
-    "tag": "ue5",
-    "title": "检查项目设置，在副本中转换",
-    "paragraphs": [
-      "UE 5.8 新工程默认启用 Substrate；从旧版升级的项目沿用原配置，可在 Project Settings → Rendering 检查 Substrate materials。启用后按提示重启。启用此框架的项目仍可用传统根节点编写材质。"
-    ],
-    "tryItPrompt": "复制 M_FirstSurface 为 M_FirstSurface_Sub，只在副本上右键根节点选择 Convert to Substrate。找到新增的 Slab 以及通往 Front Material 的 BSDF 连线，核对转换前后的外观。"
-  },
-  {
-    "stepNumber": 5,
-    "shortLabel": "留给实例",
-    "tag": "pitfall",
-    "title": "保留父材质与关卡中的立方体",
-    "paragraphs": [
-      "保存关卡和 M_FirstSurface。后面的实例练习会从这个父材质创建 MI_FirstSurface，通过 Tint 参数在保持同一套接线时获得另一种颜色。"
-    ],
-    "tryItPrompt": "验收时指出预览球、材质图和 Details，在关卡中选中 Cube 读出 Element 0 的父材质名，并能从青绿切换到橙色。"
-  }
-],
+    {
+      stepNumber: 1,
+      shortLabel: '建工程与认门',
+      tag: 'phenomenon',
+      title: '第一次打开 UE 5.8：建工程、建材质，认识编辑器四大区块',
+      paragraphs: [
+        '恭喜你修完所有底层常识！现在打开 Epic Games Launcher 安装并启动 **UE 5.8**，新建一个 **`Games → Blank`** 空白工程；进入后点击左上角 **`File → New Level → Basic`**，打开自带天空与太阳光的默认关卡。',
+        '接着按快捷键 **`Ctrl + Space`** 呼出左下角 **`Content Drawer（内容抽屉）`**，空白处右键选 **`Material`**，命名为 **`M_FirstSurface`** 并双击打开！只需认准四个区块：**左上实时预览视口**、**中间节点画布**、**左下 `Details` 属性栏**、**顶部 `Apply / Save` 工具栏**。操作口诀超简单：右键拖动画布、滚轮缩放、左键拖引脚连线、按住 **`Alt + 左键`** 点击引脚即可剪断连线！',
+      ],
+      tryItPrompt:
+        '先对照上方迷你模拟器认清 UE 5.8 材质编辑器的四大区块：刚新建的 `M_FirstSurface` 画布里只有传统根节点，预览球呈默认灰。',
+      callout: {
+        tone: 'tip',
+        title: '专业团队命名习惯：M_ 与 MI_',
+        body: '给父材质起名时习惯加 `M_` 前缀（如 `M_FirstSurface`），后续派生的材质实例加 `MI_` 前缀，资产一多也能一秒认出谁是父材质！',
+      },
+    },
+    {
+      stepNumber: 2,
+      shortLabel: '连上第一抹色',
+      tag: 'background',
+      title: '给预览球涂上青绿色：认识 Details 基础设置与 Vector Parameter',
+      paragraphs: [
+        '点击画布右侧的材质根节点，在左下角 `Details` 面板确认三项默认设置：`Material Domain = Surface`、`Blend Mode = Opaque`、`Shading Model = Default Lit`——翻译成人话就是：**“最普通的实心不透明固体表面，正常接收关卡灯光”**。',
+        '接着在空白画布按住 **`V + 左键`**（或右键搜 `Vector Parameter`）放一颗颜色参数节点，命名为 **`Tint`** 并把默认值设为青绿色，把它的 `RGB` 引脚拖到根节点的 **`Base Color`**。为什么用 `Vector Parameter` 而不是死板的 `Constant3Vector`？因为它带有参数名，后续第 9.3 课做材质实例时，不用改连线就能直接换色！',
+      ],
+      tryItPrompt:
+        '在模拟器点击【① 创建 Tint 并连接 Base Color】，再轮流切换青绿 / 橙色 / 紫色，观察左上预览球立刻变色，而右侧关卡立方体为什么还纹丝不动？',
+    },
+    {
+      stepNumber: 3,
+      shortLabel: '应用并赋方块',
+      tag: 'experiment',
+      title: '点 Apply 编译、点 Save 存盘，把材质穿到关卡立方体身上！',
+      paragraphs: [
+        '预览球变色只代表“编辑器草稿变了”，必须点击顶部 **`Apply（编译并同步到场景）`** 等待右下角编译完成，再点 **`Save（写入硬盘存盘防丢失）`**！',
+        '切回主关卡视口（按住**右键 + WASD** 自由漫游，确认左上角视图为 **`Lit`** 光照模式），点击顶部 **`+（Quickly Add）→ Shapes → Cube`**（或从 `Place Actors` 拖出）放一个立方体。把 `M_FirstSurface` 拖到立方体上，或在 `Details → Materials → Element 0` 槽位里选中它，方块立刻换上新衣！',
+      ],
+      tryItPrompt:
+        '在模拟器依次点击【Apply 编译应用】→【Save 存盘】→【④ 把材质赋给 Cube · Element 0】，再把 Tint 改成橙色并点一次 Apply，验证关卡同步更新！',
+    },
+    {
+      stepNumber: 4,
+      shortLabel: '初见Substrate',
+      tag: 'ue5',
+      title: 'UE 5.8 重要认知：默认启用 Substrate，为什么新建材质仍是传统根节点？',
+      paragraphs: [
+        'UE 5.8 新工程默认启用新一代 **Substrate** 材质框架（从旧版本升级的项目可在 `Project Settings → Rendering` 核对 `Substrate materials` 并按提示重启），但为了兼顾易用性，普通新建材质仍以传统根节点打开。',
+        '想一睹 Substrate 真容很简单：在内容抽屉复制一份 **`M_FirstSurface_Sub`**（原资产不动），打开副本后右键材质根节点选择 **`Convert to Substrate`**——引擎会自动生成 **`Substrate Slab BSDF`** 层板，并通过 **`BSDF`** 引脚连到根节点的 **`Front Material`**！',
+      ],
+      tryItPrompt:
+        '点击模拟器里的【⑤ 复制副本并 Convert to Substrate】，再切换右上角【原理图】视图，对比上下两排“传统根节点”与“Substrate 层板”的完整连线！',
+      callout: {
+        tone: 'ue58',
+        title: '什么时候用传统节点、什么时候切 Substrate？',
+        body: '前几章用传统根节点就能流畅完成全部基础实验；到第 8.4 课进阶制作车漆双层清漆、丝绒与多层复合材质时，Substrate 的真正威力就会全面展现！',
+      },
+    },
+    {
+      stepNumber: 5,
+      shortLabel: '三大新手避坑',
+      tag: 'pitfall',
+      title: '新手初进引擎三大必避坑 + 把 M_FirstSurface 留给第 9.3 课！',
+      paragraphs: [
+        '第一次实操 UE 5.8 材质编辑器，90% 的卡壳都出在这三个小细节：\n1. **改完颜色忘了点 `Apply`**：预览球变了但关卡 Cube 纹丝不动，其实只是没编译应用；\n2. **只点 `Apply` 忘了点 `Save`**（标签页还挂着小星号 `*`）：关掉软件重启后辛苦改的颜色全部丢失；\n3. **拖错或没选对 `Element 0` 槽位**：复杂模型有多个材质槽，确认 `Element 0` 指向的正是 `M_FirstSurface`。',
+        '请把关卡和带有 **`Tint`** 参数的 **`M_FirstSurface`** 一起保存好！恭喜你正式迈过 UE 5.8 材质的第一道大门——后面第 9.3 课学材质实例时，我们会直接请出它派生出 `MI_FirstSurface`，体验零编译秒换色！',
+      ],
+      tryItPrompt:
+        '试试在模拟器里改个颜色但不点 Apply，看看上方状态栏如何发出黄色预警；最后点完 Apply 和 Save 消除星号 `*`，完成第二模块圆满通关！',
+      callout: {
+        tone: 'warn',
+        title: '一句话防坑口诀',
+        body: '“连完线先 Apply，看到星号记着 Save；场景不变查编译，贴错面片看 Element 0！”',
+      },
+    },
+  ],
   takeaways: [
-    '常规新建材质先从传统根节点接线，项目启用 Substrate 与资产显式转换是两个操作。',
-    'Apply 编译并更新资产的场景用法，Save 将修改写入资产。网格 Element 0 决定关卡中使用的材质。',
-    '保留带 Tint 参数的 M_FirstSurface，后续作为实例的父材质。',
+    '按 Ctrl + Space 打开 Content Drawer 新建 Material（M_FirstSurface），认准预览、画布、Details 与顶部工具栏四大区块',
+    '用 V + 左键创建带名字的 Vector Parameter（Tint）连入 Base Color，比固定常量更方便后续派生材质实例',
+    'Apply 负责编译并同步到关卡，Save 负责写入硬盘防丢失；模型表面材质由 Details 中的 Element 0 槽位决定',
+    'UE 5.8 默认启用 Substrate 框架但新建材质仍以传统根节点打开，可在副本右键 Convert to Substrate 观察 BSDF → Front Material',
   ],
   schematic: {
-    "title": "首个材质与转换后的副本",
-    "caption": "上排可直接照接。下排显示副本转换后的终点；转换器会按原材质的属性建立相应的表面网络。",
-    "nodes": [
+    title: '首个材质 M_FirstSurface 与 Substrate 副本连线对照',
+    caption: '上排为传统根节点直接连线；下排为副本执行 Convert to Substrate 后的完整链路（Tint → Substrate Slab BSDF → Front Material）。',
+    nodes: [
       {
-        "id": "param",
-        "title": "Tint · Vector Parameter",
-        "category": "param",
-        "x": 20,
-        "y": 40,
-        "width": 167,
-        "outputs": [
-          {
-            "id": "p0",
-            "label": "RGB",
-            "color": "#38bdf8"
-          }
-        ]
+        id: 'param',
+        title: 'Tint · Vector Parameter [V]',
+        subtitle: '传统材质颜色参数',
+        category: 'param',
+        x: 20,
+        y: 32,
+        width: 190,
+        previewColor: '#35a6a1',
+        outputs: [{ id: 'p0', label: 'RGB', color: '#38bdf8' }],
       },
       {
-        "id": "root",
-        "title": "M_FirstSurface",
-        "category": "output",
-        "x": 263,
-        "y": 40,
-        "width": 167,
-        "inputs": [
-          {
-            "id": "p0",
-            "label": "Base Color",
-            "color": "#38bdf8"
-          }
-        ]
+        id: 'root',
+        title: 'M_FirstSurface',
+        subtitle: '传统 Surface / Opaque 根节点',
+        category: 'output',
+        x: 270,
+        y: 32,
+        width: 195,
+        inputs: [{ id: 'p0', label: 'Base Color', color: '#38bdf8' }],
       },
       {
-        "id": "slab",
-        "title": "Substrate Slab BSDF",
-        "category": "substrate",
-        "x": 20,
-        "y": 215,
-        "width": 167,
-        "outputs": [
-          {
-            "id": "p0",
-            "label": "BSDF",
-            "color": "#38bdf8"
-          }
-        ],
-        "note": "转换后观察此输出"
+        id: 'param_sub',
+        title: 'Tint · Vector Parameter (副本)',
+        subtitle: '转换后保留的原颜色参数',
+        category: 'param',
+        x: 20,
+        y: 195,
+        width: 190,
+        previewColor: '#35a6a1',
+        outputs: [{ id: 'p0', label: 'RGB', color: '#38bdf8' }],
       },
       {
-        "id": "sub",
-        "title": "M_FirstSurface_Sub",
-        "category": "output",
-        "x": 263,
-        "y": 215,
-        "width": 167,
-        "inputs": [
-          {
-            "id": "p0",
-            "label": "Front Material",
-            "color": "#38bdf8"
-          }
-        ]
-      }
+        id: 'slab',
+        title: 'Substrate Slab BSDF',
+        subtitle: 'Convert to Substrate 自动生成',
+        category: 'substrate',
+        x: 270,
+        y: 195,
+        width: 195,
+        inputs: [{ id: 'albedo', label: 'Diffuse Albedo', color: '#38bdf8' }],
+        outputs: [{ id: 'bsdf', label: 'BSDF', color: '#a855f7' }],
+        note: '转换后观察 BSDF 输出',
+      },
+      {
+        id: 'sub',
+        title: 'M_FirstSurface_Sub',
+        subtitle: 'Substrate 材质根节点',
+        category: 'output',
+        x: 525,
+        y: 195,
+        width: 185,
+        inputs: [{ id: 'p0', label: 'Front Material', color: '#a855f7' }],
+      },
     ],
-    "edges": [
+    edges: [
       {
-        "fromNode": "param",
-        "fromPin": "p0",
-        "toNode": "root",
-        "toPin": "p0",
-        "color": "#38bdf8"
+        fromNode: 'param',
+        fromPin: 'p0',
+        toNode: 'root',
+        toPin: 'p0',
+        color: '#38bdf8',
       },
       {
-        "fromNode": "slab",
-        "fromPin": "p0",
-        "toNode": "sub",
-        "toPin": "p0",
-        "color": "#38bdf8"
-      }
-    ]
+        fromNode: 'param_sub',
+        fromPin: 'p0',
+        toNode: 'slab',
+        toPin: 'albedo',
+        color: '#38bdf8',
+      },
+      {
+        fromNode: 'slab',
+        fromPin: 'bsdf',
+        toNode: 'sub',
+        toPin: 'p0',
+        color: '#a855f7',
+      },
+    ],
   },
   StageComponent: Ue58EditorTourStage,
 };
