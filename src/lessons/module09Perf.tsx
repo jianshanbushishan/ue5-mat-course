@@ -22,7 +22,6 @@ const Stage9_5_DrawCallPipeline: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [propCount, setPropCount] = useState<number>(480);
   const [matSlots, setMatSlots] = useState<number>(4);
@@ -30,7 +29,6 @@ const Stage9_5_DrawCallPipeline: React.FC<LessonStageProps> = ({
   const [cullingOn, setCullingOn] = useState<boolean>(false);
   const [batchMode, setBatchMode] = useState<SubmitBatchMode>('separate');
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevStepRef = useRef(stepIndex);
   const prevResetRef = useRef(resetSignal);
 
@@ -148,316 +146,22 @@ const Stage9_5_DrawCallPipeline: React.FC<LessonStageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frameMs, fps, totalDrawCalls, bottleneck, effectiveSlots, batchMode, gameMs, drawMs, gpuMs]);
 
-  // Render Timeline & Dispatch Queue Canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const maxScaleMs = Math.max(28, frameMs * 1.12);
+  const pctOfScale = (ms: number) => Math.min(100, (ms / maxScaleMs) * 100);
 
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
+  const threadRows = [
+    { label: 'Game (逻辑线程)', ms: gameMs, color: '#3b82f6', desc: '物理解算 / 移动 / AI' },
+    { label: 'Draw (渲染+RHI)', ms: drawMs, color: drawMs > 16.67 ? '#ef4444' : '#f59e0b', desc: `剔除 & 提交 ${totalDrawCalls} 张派工单` },
+    { label: 'GPU (显卡绘制)', ms: gpuMs, color: gpuMs > 16.67 ? '#dc2626' : '#10b981', desc: '顶点 + 光栅化 + 像素着色' },
+  ];
 
-    const bg = isDark ? '#11141b' : '#f8f6f1';
-    const cardBg = isDark ? '#181c26' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-    const grid = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(23,22,20,0.08)';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // --- TOP PANEL: 16.67ms 3-Thread Frame Pipeline ---
-    ctx.fillStyle = cardBg;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(12, 10, W - 24, 152, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 12.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('⏱️ 单帧三线程接力时间轴（目标红线：60 FPS = 16.67 ms）', 24, 31);
-
-    const barLeft = 148;
-    const barMaxW = W - 184;
-    const maxScaleMs = Math.max(28, frameMs * 1.12);
-    const msToX = (ms: number) => barLeft + (ms / maxScaleMs) * barMaxW;
-
-    // 16.67ms target line
-    const targetX = msToX(16.67);
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 1.6;
-    ctx.setLineDash([5, 4]);
-    ctx.beginPath();
-    ctx.moveTo(targetX, 42);
-    ctx.lineTo(targetX, 150);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = '#ef4444';
-    ctx.font = '700 10.5px "JetBrains Mono", monospace';
-    ctx.fillText('60 FPS (16.67ms)', targetX - 42, 41);
-
-    // 33.33ms line if in range
-    if (maxScaleMs >= 34) {
-      const x30 = msToX(33.33);
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.55)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.moveTo(x30, 44);
-      ctx.lineTo(x30, 150);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#d97706';
-      ctx.fillText('30 FPS (33.3ms)', x30 - 40, 41);
-    }
-
-    const rows = [
-      {
-        label: 'Game (逻辑线程)',
-        ms: gameMs,
-        color: '#3b82f6',
-        desc: '物理解算 / 移动 / AI',
-      },
-      {
-        label: 'Draw (渲染+RHI)',
-        ms: drawMs,
-        color: drawMs > 16.67 ? '#ef4444' : '#f59e0b',
-        desc: `剔除 & 提交 ${totalDrawCalls} 张派工单`,
-      },
-      {
-        label: 'GPU (显卡绘制)',
-        ms: gpuMs,
-        color: gpuMs > 16.67 ? '#dc2626' : '#10b981',
-        desc: '顶点 + 光栅化 + 像素着色',
-      },
-    ];
-
-    rows.forEach((row, idx) => {
-      const y = 54 + idx * 32;
-      ctx.fillStyle = ink;
-      ctx.font = '600 11.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(row.label, 24, y + 15);
-
-      // Track
-      ctx.fillStyle = grid;
-      ctx.beginPath();
-      ctx.roundRect(barLeft, y, barMaxW, 21, 5);
-      ctx.fill();
-
-      // Filled bar
-      const fillW = Math.max(8, (row.ms / maxScaleMs) * barMaxW);
-      ctx.fillStyle = row.color;
-      ctx.beginPath();
-      ctx.roundRect(barLeft, y, Math.min(barMaxW, fillW), 21, 5);
-      ctx.fill();
-
-      // GPU idle bubble when Draw > GPU
-      if (idx === 2 && drawMs > gpuMs + 1.2) {
-        const startX = barLeft + (gpuMs / maxScaleMs) * barMaxW;
-        const endX = Math.min(barLeft + barMaxW, barLeft + (drawMs / maxScaleMs) * barMaxW);
-        const bw = endX - startX;
-        if (bw > 24) {
-          ctx.fillStyle = isDark ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.16)';
-          ctx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
-          ctx.setLineDash([4, 3]);
-          ctx.beginPath();
-          ctx.roundRect(startX + 2, y + 1, bw - 2, 19, 4);
-          ctx.fill();
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.fillStyle = isDark ? '#fca5a5' : '#b91c1c';
-          ctx.font = '700 10px "Noto Sans SC", sans-serif';
-          if (bw > 86) {
-            ctx.fillText('💤 GPU 闲等派工单!', startX + 8, y + 14);
-          }
-        }
-      }
-
-      // Value text
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '700 10.5px "JetBrains Mono", monospace';
-      ctx.fillText(`${row.ms.toFixed(1)} ms`, barLeft + 8, y + 14.5);
-
-      if (fillW > 135) {
-        ctx.fillStyle = 'rgba(255,255,255,0.88)';
-        ctx.font = '500 10px "Noto Sans SC", sans-serif';
-        ctx.fillText(row.desc, barLeft + 64, y + 14.5);
-      }
-    });
-
-    // --- BOTTOM LEFT: Draw Call Pass Breakdown & PSO Switches ---
-    const botY = 172;
-    const botH = H - botY - 12;
-    const leftW = 365;
-    ctx.fillStyle = cardBg;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-    ctx.beginPath();
-    ctx.roundRect(12, botY, leftW, botH, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 12px "Noto Sans SC", sans-serif';
-    ctx.fillText('📋 派工单队列与渲染状态 (PSO) 切换', 24, botY + 22);
-
-    const passBars = [
-      { name: 'Depth Prepass (深度预通)', count: depthPrepassDraws, color: '#64748b' },
-      { name: 'Base Pass (写入 GBuffer)', count: basePassDraws, color: '#0f766e' },
-      { name: 'Shadow / VSM Pass (阴影)', count: shadowPassDraws, color: '#7c3aed' },
-    ];
-    const maxPass = Math.max(100, basePassDraws, 1200);
-
-    passBars.forEach((pb, i) => {
-      const py = botY + 38 + i * 36;
-      ctx.fillStyle = muted;
-      ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(pb.name, 24, py + 9);
-
-      ctx.fillStyle = ink;
-      ctx.font = '700 11px "JetBrains Mono", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`${pb.count} calls`, 12 + leftW - 14, py + 9);
-      ctx.textAlign = 'left';
-
-      const trackW = leftW - 28;
-      ctx.fillStyle = grid;
-      ctx.beginPath();
-      ctx.roundRect(24, py + 14, trackW, 13, 4);
-      ctx.fill();
-
-      const segW = Math.min(trackW, Math.max(pb.count > 0 ? 6 : 0, (pb.count / maxPass) * trackW));
-      ctx.fillStyle = pb.color;
-      ctx.beginPath();
-      ctx.roundRect(24, py + 14, segW, 13, 4);
-      ctx.fill();
-
-      // Visualize PSO/material state switches as white ticks when separate
-      if (batchMode === 'separate' && pb.count > 0) {
-        const tickCount = Math.min(34, Math.max(4, Math.floor(pb.count / 60)));
-        ctx.strokeStyle = 'rgba(255,255,255,0.48)';
-        ctx.lineWidth = 1;
-        for (let t = 1; t < tickCount; t++) {
-          const tx = 24 + (t / tickCount) * segW;
-          ctx.beginPath();
-          ctx.moveTo(tx, py + 14);
-          ctx.lineTo(tx, py + 27);
-          ctx.stroke();
-        }
-      }
-    });
-
-    ctx.fillStyle = batchMode === 'merged' ? (isDark ? '#6ee7b7' : '#047857') : (isDark ? '#fca5a5' : '#b91c1c');
-    ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      batchMode === 'merged'
-        ? '✅ 合槽合批后：白色状态切换刻痕几乎消失，Render 线程极度轻松'
-        : `⚠️ 竖纹代表反复切换材质/状态：${visibleProps} 物体 × ${matSlots} 材质槽 × 多 Pass！`,
-      24,
-      botY + botH - 10
-    );
-
-    // --- BOTTOM RIGHT: Frustum Culling Mini-Map ---
-    const rightX = 12 + leftW + 10;
-    const rightW = W - rightX - 12;
-    ctx.fillStyle = cardBg;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-    ctx.beginPath();
-    ctx.roundRect(rightX, botY, rightW, botH, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 12px "Noto Sans SC", sans-serif';
-    ctx.fillText('🎥 视锥剔除与物体分布俯视图', rightX + 12, botY + 22);
-
-    const mapX = rightX + 12;
-    const mapY = botY + 30;
-    const mapW = rightW - 24;
-    const mapH = botH - 46;
-
-    ctx.fillStyle = isDark ? '#0e1117' : '#f1ede4';
-    ctx.beginPath();
-    ctx.roundRect(mapX, mapY, mapW, mapH, 7);
-    ctx.fill();
-
-    // Camera frustum triangle
-    const camX = mapX + 20;
-    const camY = mapY + mapH / 2;
-    ctx.fillStyle = isDark ? 'rgba(45, 212, 191, 0.14)' : 'rgba(15, 118, 110, 0.13)';
-    ctx.strokeStyle = isDark ? 'rgba(45, 212, 191, 0.6)' : 'rgba(15, 118, 110, 0.55)';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(camX, camY);
-    ctx.lineTo(mapX + mapW - 10, mapY + 8);
-    ctx.lineTo(mapX + mapW - 10, mapY + mapH - 8);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Draw deterministic prop dots
-    const dotTotal = Math.min(120, Math.max(24, Math.round(propCount / 8)));
-    for (let i = 0; i < dotTotal; i++) {
-      const sx = ((i * 73 + 17) % 100) / 100;
-      const sy = ((i * 41 + 29) % 100) / 100;
-      const dx = mapX + 28 + sx * (mapW - 42);
-      const dy = mapY + 8 + sy * (mapH - 16);
-      const relX = (dx - camX) / Math.max(1, mapW - 30);
-      const halfSpread = relX * (mapH * 0.44);
-      const inFrustum = Math.abs(dy - camY) <= halfSpread;
-      const isCulled = cullingOn && !inFrustum;
-
-      ctx.fillStyle = isCulled
-        ? isDark
-          ? 'rgba(148,163,184,0.22)'
-          : 'rgba(100,116,139,0.25)'
-        : batchMode === 'merged'
-        ? '#10b981'
-        : matSlots >= 4
-        ? '#ef4444'
-        : '#f59e0b';
-      ctx.beginPath();
-      ctx.arc(dx, dy, isCulled ? 2.1 : 3.0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Camera icon dot
-    ctx.fillStyle = '#0f766e';
-    ctx.beginPath();
-    ctx.arc(camX, camY, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    ctx.fillStyle = muted;
-    ctx.font = '600 10px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      cullingOn ? `已剔除视野外 ${propCount - visibleProps} 个物体（灰点不发单）` : '未开剔除：视野外物体仍在消耗提交预算',
-      mapX,
-      botY + botH - 6
-    );
-  }, [
-    propCount,
-    matSlots,
-    castShadows,
-    cullingOn,
-    batchMode,
-    visibleProps,
-    basePassDraws,
-    depthPrepassDraws,
-    shadowPassDraws,
-    totalDrawCalls,
-    gameMs,
-    drawMs,
-    gpuMs,
-    frameMs,
-    isDark,
-  ]);
+  const passBars = [
+    { name: 'Depth Prepass (深度预通)', count: depthPrepassDraws, color: '#64748b' },
+    { name: 'Base Pass (写入 GBuffer)', count: basePassDraws, color: '#0f766e' },
+    { name: 'Shadow / VSM Pass (阴影)', count: shadowPassDraws, color: '#7c3aed' },
+  ];
+  const maxPass = Math.max(100, basePassDraws, 1200);
+  const dotTotal = Math.min(120, Math.max(24, Math.round(propCount / 8)));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -482,18 +186,271 @@ const Stage9_5_DrawCallPipeline: React.FC<LessonStageProps> = ({
         />
       )}
 
-      <canvas
-        ref={canvasRef}
-        width={680}
-        height={352}
+      <div
         style={{
-          width: '100%',
-          height: 'auto',
-          display: 'block',
-          borderRadius: 11,
+          borderRadius: 12,
           border: '1.5px solid var(--border-strong)',
+          background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          userSelect: 'text',
         }}
-      />
+      >
+        {/* Top Card: 3-Thread Frame Pipeline */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 11,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              ⏱️ 单帧三线程接力时间轴（目标红线：60 FPS = 16.67 ms）
+            </span>
+            <span style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#ef4444' }}>
+              红虚线: 16.67ms (60 FPS){maxScaleMs >= 34 ? ' · 黄线: 33.3ms (30 FPS)' : ''}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, position: 'relative' }}>
+            {threadRows.map((row, idx) => {
+              const fillPct = Math.max(4, pctOfScale(row.ms));
+              const targetPct = pctOfScale(16.67);
+              const idleStartPct = pctOfScale(gpuMs);
+              const idleWidthPct = idx === 2 && drawMs > gpuMs + 1.2 ? Math.max(0, pctOfScale(drawMs) - idleStartPct) : 0;
+              return (
+                <div
+                  key={row.label}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '124px 1fr',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)' }}>{row.label}</span>
+                  <div
+                    style={{
+                      position: 'relative',
+                      height: 22,
+                      borderRadius: 5,
+                      background: 'var(--bg-subtle)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${fillPct}%`,
+                        height: '100%',
+                        background: row.color,
+                        borderRadius: 5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '0 8px',
+                        whiteSpace: 'nowrap',
+                        transition: 'width 0.18s ease',
+                      }}
+                    >
+                      <span style={{ color: '#fff', fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 700 }}>
+                        {row.ms.toFixed(1)} ms
+                      </span>
+                      {fillPct > 36 && (
+                        <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 10 }}>{row.desc}</span>
+                      )}
+                    </div>
+
+                    {idleWidthPct > 6 && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 1,
+                          bottom: 1,
+                          left: `calc(${idleStartPct}% + 2px)`,
+                          width: `calc(${idleWidthPct}% - 3px)`,
+                          borderRadius: 4,
+                          background: 'rgba(239,68,68,0.18)',
+                          border: '1px dashed rgba(239,68,68,0.75)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          paddingLeft: 6,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: 'var(--accent-coral-deep)',
+                          overflow: 'hidden',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {idleWidthPct > 18 ? '💤 GPU 闲等派工单!' : ''}
+                      </div>
+                    )}
+
+                    {/* 16.67ms red dashed line */}
+                    <div
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: `${targetPct}%`,
+                        borderLeft: '1.6px dashed #ef4444',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    {maxScaleMs >= 34 && (
+                      <div
+                        aria-hidden
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          bottom: 0,
+                          left: `${pctOfScale(33.33)}%`,
+                          borderLeft: '1px dashed rgba(245,158,11,0.65)',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Bottom 2-Column Panel */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {/* Bottom Left: Draw Call Pass Breakdown & PSO Switches */}
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-strong)',
+              borderRadius: 10,
+              padding: 11,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+              📋 派工单队列与渲染状态 (PSO) 切换
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, flex: 1 }}>
+              {passBars.map((pb) => {
+                const pct = pb.count > 0 ? Math.min(100, Math.max(3, (pb.count / maxPass) * 100)) : 0;
+                return (
+                  <div key={pb.name}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, marginBottom: 3 }}>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{pb.name}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {pb.count} calls
+                      </span>
+                    </div>
+                    <div style={{ height: 13, borderRadius: 4, background: 'var(--bg-subtle)', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${pct}%`,
+                          height: '100%',
+                          background: pb.color,
+                          borderRadius: 4,
+                          backgroundImage:
+                            batchMode === 'separate' && pb.count > 0
+                              ? 'repeating-linear-gradient(90deg, transparent 0 9px, rgba(255,255,255,0.45) 9px 10.5px)'
+                              : 'none',
+                          transition: 'width 0.18s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: batchMode === 'merged' ? 'var(--accent-sage-deep)' : 'var(--accent-coral-deep)',
+              }}
+            >
+              {batchMode === 'merged'
+                ? '✅ 合槽合批后：白色状态切换刻痕几乎消失，Render 线程极度轻松'
+                : `⚠️ 竖纹代表反复切换材质/状态：${visibleProps} 物体 × ${matSlots} 材质槽 × 多 Pass！`}
+            </div>
+          </div>
+
+          {/* Bottom Right: Frustum Culling Mini-Map */}
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-strong)',
+              borderRadius: 10,
+              padding: 11,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+              🎥 视锥剔除与物体分布俯视图
+            </div>
+            <svg
+              viewBox="0 0 260 116"
+              style={{
+                width: '100%',
+                height: 'auto',
+                borderRadius: 7,
+                background: 'var(--bg-code)',
+                display: 'block',
+              }}
+              role="img"
+              aria-label="视锥剔除俯视图"
+            >
+              <polygon
+                points="20,58 250,8 250,108"
+                fill="rgba(15, 118, 110, 0.15)"
+                stroke="rgba(20, 184, 166, 0.65)"
+                strokeWidth="1.4"
+              />
+              {Array.from({ length: dotTotal }, (_, i) => {
+                const sx = ((i * 73 + 17) % 100) / 100;
+                const sy = ((i * 41 + 29) % 100) / 100;
+                const dx = 28 + sx * 218;
+                const dy = 8 + sy * 100;
+                const relX = (dx - 20) / 230;
+                const halfSpread = relX * 50;
+                const inFrustum = Math.abs(dy - 58) <= halfSpread;
+                const isCulled = cullingOn && !inFrustum;
+                const col = isCulled
+                  ? 'rgba(148,163,184,0.32)'
+                  : batchMode === 'merged'
+                  ? '#10b981'
+                  : matSlots >= 4
+                  ? '#ef4444'
+                  : '#f59e0b';
+                return <circle key={i} cx={dx} cy={dy} r={isCulled ? 2.1 : 3.0} fill={col} />;
+              })}
+              <circle cx="20" cy="58" r="5" fill="#0f766e" stroke="#ffffff" strokeWidth="1.5" />
+            </svg>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-secondary)' }}>
+              {cullingOn
+                ? `已剔除视野外 ${propCount - visibleProps} 个物体（灰点不发单）`
+                : '未开剔除：视野外物体仍在消耗提交预算'}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="stage-controls-panel">
         <div className="control-grid">
@@ -562,7 +519,6 @@ const Stage9_6_GpuInstancingLab: React.FC<LessonStageProps> = ({
   const [highlightedIds, setHighlightedIds] = useState<number[]>([5, 14, 21]);
   const [phaseTick, setPhaseTick] = useState<number>(0);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevStepRef = useRef(stepIndex);
   const prevResetRef = useRef(resetSignal);
 
@@ -652,267 +608,24 @@ const Stage9_6_GpuInstancingLab: React.FC<LessonStageProps> = ({
   // Fixed visual grid of 36 trees (6x6) representing the forest batch
   const COLS = 6;
   const ROWS = 6;
-  const VIEW_W = 416;
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const W = canvas.width;
-    const H = canvas.height;
-
-    ctx.clearRect(0, 0, W, H);
-    const bg = isDark ? '#10141c' : '#f4f2ec';
-    const cardBg = isDark ? '#181d28' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Left courtyard forest canvas
-    const meadowGrad = ctx.createLinearGradient(0, 12, 0, H - 12);
-    if (isDark) {
-      meadowGrad.addColorStop(0, '#132028');
-      meadowGrad.addColorStop(1, '#192a22');
-    } else {
-      meadowGrad.addColorStop(0, '#dbeafe');
-      meadowGrad.addColorStop(0.28, '#e6f4ea');
-      meadowGrad.addColorStop(1, '#cde6d2');
-    }
-    ctx.fillStyle = meadowGrad;
-    ctx.beginPath();
-    ctx.roundRect(12, 12, VIEW_W, H - 24, 10);
-    ctx.fill();
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(23,22,20,0.14)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-
-    // Header badge on left view
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
-    ctx.beginPath();
-    ctx.roundRect(22, 20, 396, 26, 6);
-    ctx.fill();
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      `🌲 实例化林地示意（代表 ${instanceCount} 棵树 · 点击任意树冠触发受击高亮）`,
-      32,
-      37
+  const toggleTree = (id: number) => {
+    setHighlightedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
-
-    // Draw 36 trees with perspective rows
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const id = r * COLS + c;
-        // Deterministic pseudo-random [0, 1) representing PerInstanceRandom!
-        const rand = ((Math.sin(id * 12.9898 + 78.233) * 43758.5453) % 1 + 1) % 1;
-        const depthT = r / (ROWS - 1);
-        const cx = 50 + c * 65 + (r % 2 === 1 ? 14 : -4);
-        const baseY = 92 + r * 42;
-        const scale = (0.72 + depthT * 0.34) * (mode === 'ism_uniform' ? 1.0 : 0.86 + rand * 0.3);
-        const isHit = highlightedIds.includes(id);
-
-        // Wind sway: uniform vs ObjectPositionWS desync!
-        const phase = windDesync ? phaseTick + cx * 0.045 + r * 0.9 : phaseTick;
-        const sway = Math.sin(phase) * (4.5 * scale);
-
-        // Shadow oval
-        ctx.fillStyle = 'rgba(0,0,0,0.16)';
-        ctx.beginPath();
-        ctx.ellipse(cx, baseY + 2, 13 * scale, 4.5 * scale, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Trunk
-        ctx.strokeStyle = isDark ? '#785a46' : '#6b4423';
-        ctx.lineWidth = 4.2 * scale;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(cx, baseY);
-        ctx.quadraticCurveTo(cx + sway * 0.35, baseY - 12 * scale, cx + sway * 0.75, baseY - 22 * scale);
-        ctx.stroke();
-
-        // Foliage color based on mode
-        let fillCol = '#2d8a4e';
-        if (isHit) {
-          fillCol = '#f97316'; // CustomData[0]=1 or MID highlight!
-        } else if (mode === 'ism_uniform') {
-          fillCol = '#2e8b57'; // Identical clone green
-        } else {
-          // PerInstanceRandom autumn/spring palette!
-          const palette = ['#2d8a4e', '#4aa35a', '#74b449', '#c49a2c', '#d97736', '#21704c'];
-          fillCol = palette[Math.floor(rand * palette.length)];
-        }
-
-        // Crown circles
-        const topX = cx + sway;
-        const topY = baseY - 25 * scale;
-        ctx.fillStyle = fillCol;
-        ctx.beginPath();
-        ctx.arc(topX, topY, 13.5 * scale, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.beginPath();
-        ctx.arc(topX - 3.5 * scale, topY - 4 * scale, 5.5 * scale, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Highlight ring if hit
-        if (isHit) {
-          ctx.strokeStyle = '#fde047';
-          ctx.lineWidth = 2.2;
-          ctx.beginPath();
-          ctx.arc(topX, topY, 16 * scale, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-
-        // Draw call badge on first row when actor_mid
-        if (mode === 'actor_mid' && r === 0) {
-          ctx.fillStyle = 'rgba(220, 38, 38, 0.88)';
-          ctx.beginPath();
-          ctx.roundRect(cx - 14, baseY + 4, 28, 13, 3);
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '700 8.5px "JetBrains Mono", monospace';
-          ctx.fillText(`DC#${id + 1}`, cx - 12, baseY + 13.5);
-        }
-      }
-    }
-
-    // Bottom status ribbon on left canvas
-    const statusOk = mode !== 'actor_mid';
-    ctx.fillStyle = statusOk ? 'rgba(15, 118, 110, 0.9)' : 'rgba(185, 28, 28, 0.92)';
-    ctx.beginPath();
-    ctx.roundRect(22, H - 40, 396, 22, 6);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
-    const bannerText =
-      mode === 'actor_mid'
-        ? `❌ 破批警告：${instanceCount} 个独立 Actor + MID = ${instanceCount} 次 Draw Call！`
-        : mode === 'ism_uniform'
-        ? `⚡ 1 次 Draw Call 团购完成，但缺少随机数据显得像复制粘贴克隆人`
-        : mode === 'ism_custom'
-        ? `✅ 1 次 Draw Call！靠 PerInstanceRandom 染色 + CustomData[0] 单棵高亮！`
-        : `🚀 Nanite + HISM：GPU 自动 Cluster 剔除，同材质稳走 1 个 Shading Bin！`;
-    ctx.fillText(bannerText, 30, H - 25);
-
-    // --- RIGHT PANEL: Instance Buffer Table ---
-    const rx = VIEW_W + 22;
-    const rw = W - rx - 12;
-    ctx.fillStyle = cardBg;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(23,22,20,0.14)';
-    ctx.beginPath();
-    ctx.roundRect(rx, 12, rw, H - 24, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 12px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      mode === 'actor_mid' ? '⚠️ 独立派工单 + MID 清单' : '📦 GPU 显存 Instance Buffer',
-      rx + 12,
-      33
-    );
-
-    ctx.fillStyle = muted;
-    ctx.font = '500 10px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      mode === 'actor_mid'
-        ? '每次改色新建 MID → 无法合批'
-        : '1 份材质 + 1 张表按 ID 并发读取',
-      rx + 12,
-      49
-    );
-
-    // Table header
-    const ty0 = 62;
-    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(23,22,20,0.05)';
-    ctx.fillRect(rx + 8, ty0, rw - 16, 20);
-    ctx.fillStyle = muted;
-    ctx.font = '700 9.5px "JetBrains Mono", monospace';
-    ctx.fillText('ID', rx + 14, ty0 + 13);
-    ctx.fillText('Rand', rx + 48, ty0 + 13);
-    ctx.fillText('Custom[0]', rx + 94, ty0 + 13);
-    ctx.fillText('提交归属', rx + 162, ty0 + 13);
-
-    const sampleIds = [0, 5, 11, 14, 21, 28, 35];
-    sampleIds.forEach((sid, idx) => {
-      const y = ty0 + 24 + idx * 28;
-      const rand = ((Math.sin(sid * 12.9898 + 78.233) * 43758.5453) % 1 + 1) % 1;
-      const isHit = highlightedIds.includes(sid);
-
-      if (isHit) {
-        ctx.fillStyle = isDark ? 'rgba(249, 115, 22, 0.16)' : 'rgba(249, 115, 22, 0.12)';
-        ctx.beginPath();
-        ctx.roundRect(rx + 8, y - 4, rw - 16, 23, 4);
-        ctx.fill();
-      }
-
-      ctx.fillStyle = ink;
-      ctx.font = '600 10px "JetBrains Mono", monospace';
-      ctx.fillText(`#${String(sid).padStart(2, '0')}`, rx + 14, y + 11);
-      ctx.fillText(mode === 'ism_uniform' ? '忽略' : rand.toFixed(2), rx + 48, y + 11);
-      ctx.fillStyle = isHit ? '#ea580c' : muted;
-      ctx.fillText(isHit ? '1.00 🔥' : '0.00', rx + 94, y + 11);
-
-      ctx.fillStyle = mode === 'actor_mid' ? '#dc2626' : '#0f766e';
-      ctx.font = '700 9.5px "JetBrains Mono", monospace';
-      ctx.fillText(
-        mode === 'actor_mid' ? `DC #${sid + 1}` : mode === 'nanite_hism' ? 'Bin #1' : 'DC #1',
-        rx + 162,
-        y + 11
-      );
-    });
-
-    // Ellipsis & summary box
-    ctx.fillStyle = muted;
-    ctx.font = '600 10px "JetBrains Mono", monospace';
-    ctx.fillText(`... 共 ${instanceCount} 条实例记录`, rx + 14, H - 56);
-
-    ctx.fillStyle = isDark ? 'rgba(45, 212, 191, 0.12)' : 'rgba(15, 118, 110, 0.09)';
-    ctx.beginPath();
-    ctx.roundRect(rx + 10, H - 44, rw - 20, 24, 6);
-    ctx.fill();
-    ctx.fillStyle = isDark ? '#5eead4' : '#0f766e';
-    ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      mode === 'actor_mid'
-        ? `合计派工单：${instanceCount} 次 (CPU 过载)`
-        : `合计派工单：1 次 (降幅 ${((1 - 1 / instanceCount) * 100).toFixed(1)}%)`,
-      rx + 18,
-      H - 28
-    );
-  }, [instanceCount, mode, windDesync, highlightedIds, phaseTick, isDark]);
-
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const cx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width;
-    const cy = ((e.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height;
-    if (cx > VIEW_W + 12) return;
-
-    let bestId = -1;
-    let bestDist = 28;
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const id = r * COLS + c;
-        const tx = 50 + c * 65 + (r % 2 === 1 ? 14 : -4);
-        const ty = 92 + r * 42 - 20;
-        const d = Math.hypot(cx - tx, cy - ty);
-        if (d < bestDist) {
-          bestDist = d;
-          bestId = id;
-        }
-      }
-    }
-    if (bestId >= 0) {
-      setHighlightedIds((prev) =>
-        prev.includes(bestId) ? prev.filter((x) => x !== bestId) : [...prev, bestId]
-      );
-    }
   };
+
+  const palette = ['#2d8a4e', '#4aa35a', '#74b449', '#c49a2c', '#d97736', '#21704c'];
+  const sampleIds = [0, 5, 11, 14, 21, 28, 35];
+  const statusOk = mode !== 'actor_mid';
+  const bannerText =
+    mode === 'actor_mid'
+      ? `❌ 破批警告：${instanceCount} 个独立 Actor + MID = ${instanceCount} 次 Draw Call！`
+      : mode === 'ism_uniform'
+      ? '⚡ 1 次 Draw Call 团购完成，但缺少随机数据显得像复制粘贴克隆人'
+      : mode === 'ism_custom'
+      ? '✅ 1 次 Draw Call！靠 PerInstanceRandom 染色 + CustomData[0] 单棵高亮！'
+      : '🚀 Nanite + HISM：GPU 自动 Cluster 剔除，同材质稳走 1 个 Shading Bin！';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -925,20 +638,201 @@ const Stage9_6_GpuInstancingLab: React.FC<LessonStageProps> = ({
         />
       )}
 
-      <canvas
-        ref={canvasRef}
-        width={680}
-        height={352}
-        onClick={handleCanvasClick}
+      <div
         style={{
-          width: '100%',
-          height: 'auto',
-          display: 'block',
-          borderRadius: 11,
+          borderRadius: 12,
           border: '1.5px solid var(--border-strong)',
-          cursor: 'pointer',
+          background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 10,
+          userSelect: 'text',
         }}
-      />
+      >
+        {/* Left: Interactive SVG Forest */}
+        <div
+          style={{
+            borderRadius: 10,
+            border: '1px solid var(--border-strong)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            background: isDark
+              ? 'linear-gradient(180deg, #132028 0%, #192a22 100%)'
+              : 'linear-gradient(180deg, #dbeafe 0%, #e6f4ea 28%, #cde6d2 100%)',
+          }}
+        >
+          <div
+            style={{
+              padding: '6px 10px',
+              background: 'rgba(15, 23, 42, 0.84)',
+              color: '#f8fafc',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            🌲 实例化林地示意（代表 {instanceCount} 棵树 · 点击任意树冠触发受击高亮）
+          </div>
+
+          <svg viewBox="0 0 416 254" style={{ width: '100%', height: 'auto', display: 'block', flex: 1 }}>
+            {Array.from({ length: ROWS * COLS }, (_, id) => {
+              const r = Math.floor(id / COLS);
+              const c = id % COLS;
+              const rand = ((Math.sin(id * 12.9898 + 78.233) * 43758.5453) % 1 + 1) % 1;
+              const depthT = r / (ROWS - 1);
+              const cx = 42 + c * 65 + (r % 2 === 1 ? 14 : -4);
+              const baseY = 44 + r * 39;
+              const scale = (0.72 + depthT * 0.34) * (mode === 'ism_uniform' ? 1.0 : 0.86 + rand * 0.3);
+              const isHit = highlightedIds.includes(id);
+              const phase = windDesync ? phaseTick + cx * 0.045 + r * 0.9 : phaseTick;
+              const sway = Math.sin(phase) * (4.5 * scale);
+              const fillCol = isHit
+                ? '#f97316'
+                : mode === 'ism_uniform'
+                ? '#2e8b57'
+                : palette[Math.floor(rand * palette.length)];
+              const topX = cx + sway;
+              const topY = baseY - 24 * scale;
+
+              return (
+                <g key={id} onClick={() => toggleTree(id)} style={{ cursor: 'pointer' }}>
+                  <ellipse cx={cx} cy={baseY + 2} rx={13 * scale} ry={4.5 * scale} fill="rgba(0,0,0,0.16)" />
+                  <path
+                    d={`M ${cx} ${baseY} Q ${cx + sway * 0.35} ${baseY - 12 * scale} ${cx + sway * 0.75} ${baseY - 22 * scale}`}
+                    stroke={isDark ? '#785a46' : '#6b4423'}
+                    strokeWidth={4.2 * scale}
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                  <circle cx={topX} cy={topY} r={13.5 * scale} fill={fillCol} />
+                  <circle cx={topX - 3.5 * scale} cy={topY - 4 * scale} r={5.5 * scale} fill="rgba(255,255,255,0.18)" />
+                  {isHit && (
+                    <circle cx={topX} cy={topY} r={16 * scale} fill="none" stroke="#fde047" strokeWidth="2.2" />
+                  )}
+                  {mode === 'actor_mid' && r === 0 && (
+                    <g>
+                      <rect x={cx - 14} y={baseY + 4} width="28" height="13" rx="3" fill="rgba(220,38,38,0.9)" />
+                      <text x={cx} y={baseY + 13} textAnchor="middle" fill="#fff" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)">
+                        DC#{id + 1}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          <div
+            style={{
+              padding: '6px 10px',
+              background: statusOk ? 'rgba(15, 118, 110, 0.92)' : 'rgba(185, 28, 28, 0.92)',
+              color: '#ffffff',
+              fontSize: 10.5,
+              fontWeight: 700,
+            }}
+          >
+            {bannerText}
+          </div>
+        </div>
+
+        {/* Right: Selectable HTML GPU Instance Buffer Table */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            minWidth: 0,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {mode === 'actor_mid' ? '⚠️ 独立派工单 + MID 清单' : '📦 GPU 显存 Instance Buffer'}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+              {mode === 'actor_mid' ? '每次改色新建 MID → 无法合批' : '1 份材质 + 1 张表按 ID 并发读取（点击行也可切换高亮）'}
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto', flex: 1 }}>
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10.8,
+              }}
+            >
+              <thead>
+                <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                  <th style={{ padding: '5px 6px' }}>ID</th>
+                  <th style={{ padding: '5px 6px' }}>Rand</th>
+                  <th style={{ padding: '5px 6px' }}>Custom[0]</th>
+                  <th style={{ padding: '5px 6px' }}>提交归属</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sampleIds.map((sid) => {
+                  const rand = ((Math.sin(sid * 12.9898 + 78.233) * 43758.5453) % 1 + 1) % 1;
+                  const isHit = highlightedIds.includes(sid);
+                  return (
+                    <tr
+                      key={sid}
+                      onClick={() => toggleTree(sid)}
+                      style={{
+                        cursor: 'pointer',
+                        background: isHit ? 'rgba(249,115,22,0.14)' : 'transparent',
+                        borderBottom: '1px solid var(--border-soft)',
+                      }}
+                    >
+                      <td style={{ padding: '5px 6px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        #{String(sid).padStart(2, '0')}
+                      </td>
+                      <td style={{ padding: '5px 6px', color: 'var(--text-secondary)' }}>
+                        {mode === 'ism_uniform' ? '忽略' : rand.toFixed(2)}
+                      </td>
+                      <td style={{ padding: '5px 6px', fontWeight: 700, color: isHit ? '#ea580c' : 'var(--text-muted)' }}>
+                        {isHit ? '1.00 🔥' : '0.00'}
+                      </td>
+                      <td
+                        style={{
+                          padding: '5px 6px',
+                          fontWeight: 700,
+                          color: mode === 'actor_mid' ? '#dc2626' : '#0f766e',
+                        }}
+                      >
+                        {mode === 'actor_mid' ? `DC #${sid + 1}` : mode === 'nanite_hism' ? 'Bin #1' : 'DC #1'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+            ... 共 {instanceCount} 条实例记录
+          </div>
+          <div
+            style={{
+              padding: '6px 9px',
+              borderRadius: 6,
+              background: mode === 'actor_mid' ? 'var(--accent-coral)' : 'var(--brand-primary-soft)',
+              color: mode === 'actor_mid' ? 'var(--accent-coral-deep)' : 'var(--brand-primary-deep)',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            {mode === 'actor_mid'
+              ? `合计派工单：${instanceCount} 次 (CPU 过载)`
+              : `合计派工单：1 次 (降幅 ${((1 - 1 / instanceCount) * 100).toFixed(1)}%)`}
+          </div>
+        </div>
+      </div>
 
       <div className="stage-controls-panel">
         <div className="control-grid">
@@ -987,7 +881,6 @@ const Stage9_7_LodAndQuadOverdraw: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [distanceM, setDistanceM] = useState<number>(68);
   const [strategy, setStrategy] = useState<LodStrategy>('no_lod');
@@ -995,7 +888,6 @@ const Stage9_7_LodAndQuadOverdraw: React.FC<LessonStageProps> = ({
   const [ditherOn, setDitherOn] = useState<boolean>(false);
   const [hlodOn, setHlodOn] = useState<boolean>(false);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevStepRef = useRef(stepIndex);
   const prevResetRef = useRef(resetSignal);
 
@@ -1121,327 +1013,52 @@ const Stage9_7_LodAndQuadOverdraw: React.FC<LessonStageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [distanceM, strategy, lodLevel, screenSize, activeTris, activeMatSlots, wpoActive, helperWastePct, districtDraws, hlodOn]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
+  const lodColors = ['#f8fafc', '#f87171', '#4ade80', '#60a5fa'];
+  const lodNames = ['LOD 0 (精模)', 'LOD 1 (中模)', 'LOD 2 (简模)', 'LOD 3 (极简)'];
+  const isHlodMerged = hlodOn && distanceM >= 55;
+  const cx = 180;
+  const baseY = lerp(218, 134, (distanceM - 3) / 117);
+  const radius = clamp(screenSize * 94, 15, 88);
+  const segs = strategy === 'nanite' ? Math.max(8, Math.round(screenSize * 20)) : [22, 14, 9, 6][lodLevel];
+  const rings = strategy === 'nanite' ? Math.max(2, Math.round(screenSize * 7)) : [8, 5, 3, 1][lodLevel];
+  const meshFill =
+    viewMode === 'coloration'
+      ? strategy === 'nanite'
+        ? '#a855f7'
+        : lodColors[lodLevel]
+      : viewMode === 'quad'
+      ? helperWastePct >= 55
+        ? '#ffffff'
+        : helperWastePct >= 38
+        ? '#f97316'
+        : helperWastePct >= 22
+        ? '#eab308'
+        : '#22c55e'
+      : activeMatSlots === 1
+      ? '#38bdf8'
+      : '#94a3b8';
 
-    const bg = isDark ? '#10131a' : '#f5f3ed';
-    const cardBg = isDark ? '#171b24' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
+  const outerPts: [number, number][] = Array.from({ length: segs }, (_, i) => {
+    const a = (i / segs) * Math.PI * 2 - Math.PI / 2;
+    const wob = 1 + 0.08 * Math.cos(i * 3);
+    return [cx + Math.cos(a) * radius * wob, baseY - radius * 0.9 + Math.sin(a) * radius * wob];
+  });
+  const wireStroke =
+    viewMode === 'quad'
+      ? 'rgba(185, 28, 28, 0.55)'
+      : viewMode === 'coloration'
+      ? 'rgba(15, 23, 42, 0.5)'
+      : 'rgba(15, 23, 42, 0.72)';
+  const vTitle =
+    viewMode === 'quad'
+      ? '🔥 视口：Quad Overdraw 热图（越白越浪费 2×2 块）'
+      : viewMode === 'coloration'
+      ? '🎨 视口：Mesh LOD Coloration（白0 / 红1 / 绿2 / 蓝3）'
+      : '🕸️ 视口：网格密度 & 底部材质槽色块示意';
 
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // --- LEFT: Viewport Preview ---
-    const leftW = 372;
-    ctx.fillStyle = isDark ? '#0d1118' : '#1c2330';
-    ctx.beginPath();
-    ctx.roundRect(12, 12, leftW, H - 24, 10);
-    ctx.fill();
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(23,22,20,0.22)';
-    ctx.stroke();
-
-    // Horizon & ground perspective grid
-    const horizonY = 124;
-    ctx.fillStyle = isDark ? '#131b29' : '#253147';
-    ctx.fillRect(13, 13, leftW - 2, horizonY - 13);
-    ctx.strokeStyle = 'rgba(148,163,184,0.18)';
-    ctx.lineWidth = 1;
-    for (let i = 1; i <= 5; i++) {
-      const gy = horizonY + i * i * 7.2;
-      if (gy < H - 18) {
-        ctx.beginPath();
-        ctx.moveTo(14, gy);
-        ctx.lineTo(12 + leftW - 2, gy);
-        ctx.stroke();
-      }
-    }
-
-    // UE Coloration palette: LOD0 White, LOD1 Red, LOD2 Green, LOD3 Blue
-    const lodColors = ['#f8fafc', '#f87171', '#4ade80', '#60a5fa'];
-    const lodNames = ['LOD 0 (精模)', 'LOD 1 (中模)', 'LOD 2 (简模)', 'LOD 3 (极简)'];
-
-    // Draw stylized statue/tower mesh scaled by Screen Size!
-    const cx = 12 + leftW / 2;
-    const baseY = lerp(296, 178, (distanceM - 3) / 117);
-    const radius = clamp(screenSize * 112, 16, 106);
-
-    const isHlodMerged = hlodOn && distanceM >= 55;
-
-    const drawStylizedMesh = (mx: number, my: number, r: number, rings: number, segs: number) => {
-      // Determine fill based on viewMode
-      let fill = '#64748b';
-      if (viewMode === 'coloration') {
-        fill = strategy === 'nanite' ? '#a855f7' : lodColors[lodLevel];
-      } else if (viewMode === 'quad') {
-        fill =
-          helperWastePct >= 55
-            ? '#ffffff'
-            : helperWastePct >= 38
-            ? '#f97316'
-            : helperWastePct >= 22
-            ? '#eab308'
-            : '#22c55e';
-      } else {
-        fill = activeMatSlots === 1 ? '#38bdf8' : '#94a3b8';
-      }
-
-      // Outer polyhedral silhouette
-      const pts: [number, number][] = [];
-      for (let i = 0; i < segs; i++) {
-        const a = (i / segs) * Math.PI * 2 - Math.PI / 2;
-        const wob = 1 + 0.08 * Math.cos(i * 3);
-        pts.push([mx + Math.cos(a) * r * wob, my - r * 0.9 + Math.sin(a) * r * wob]);
-      }
-
-      ctx.fillStyle = fill;
-      ctx.globalAlpha = ditherOn && Math.abs(screenSize - 0.28) < 0.05 ? 0.78 : 0.94;
-      ctx.beginPath();
-      pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
-      ctx.closePath();
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
-      // Dithered stipple dots when near LOD boundary and ditherOn
-      if (ditherOn && strategy !== 'no_lod' && strategy !== 'nanite') {
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
-        for (let dy = -r; dy <= r; dy += 6) {
-          for (let dx = -r; dx <= r; dx += 6) {
-            if (dx * dx + dy * dy < r * r * 0.85 && ((Math.floor(dx + dy) & 1) === 0)) {
-              ctx.fillRect(mx + dx, my - r * 0.9 + dy, 1.8, 1.8);
-            }
-          }
-        }
-      }
-
-      // Wireframe lines showing geometric density
-      ctx.strokeStyle =
-        viewMode === 'quad'
-          ? 'rgba(185, 28, 28, 0.55)'
-          : viewMode === 'coloration'
-          ? 'rgba(15, 23, 42, 0.5)'
-          : 'rgba(15, 23, 42, 0.72)';
-      ctx.lineWidth = rings >= 7 ? 0.65 : 1.1;
-
-      // Radial spokes + concentric rings
-      for (let i = 0; i < segs; i++) {
-        ctx.beginPath();
-        ctx.moveTo(mx, my - r * 0.9);
-        ctx.lineTo(pts[i][0], pts[i][1]);
-        ctx.stroke();
-      }
-      for (let k = 1; k <= rings; k++) {
-        const f = k / rings;
-        ctx.beginPath();
-        pts.forEach(([px, py], i) => {
-          const rx = lerp(mx, px, f);
-          const ry = lerp(my - r * 0.9, py, f);
-          if (i === 0) ctx.moveTo(rx, ry);
-          else ctx.lineTo(rx, ry);
-        });
-        ctx.closePath();
-        ctx.stroke();
-      }
-
-      // Material slot color bands when in wireframe mode
-      if (viewMode === 'wireframe' && !isHlodMerged) {
-        const slotPalette = ['#0f766e', '#f59e0b', '#ec4899', '#6366f1'];
-        for (let s = 0; s < activeMatSlots; s++) {
-          ctx.fillStyle = slotPalette[s];
-          ctx.fillRect(mx - r * 0.7 + s * 16, my + 8, 12, 6);
-        }
-      }
-    };
-
-    if (isHlodMerged) {
-      // Draw a merged single HLOD proxy silhouette of a whole district!
-      ctx.fillStyle = viewMode === 'quad' ? '#22c55e' : viewMode === 'coloration' ? '#38bdf8' : '#34d399';
-      ctx.beginPath();
-      ctx.roundRect(cx - 88, baseY - 46, 176, 46, 5);
-      ctx.fill();
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 1.4;
-      ctx.stroke();
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '700 11px "Noto Sans SC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('🏙️ HLOD 合并代理网格（25 栋 → 1 次 Draw Call）', cx, baseY - 19);
-      ctx.textAlign = 'left';
-    } else {
-      const segs =
-        strategy === 'nanite'
-          ? Math.max(8, Math.round(screenSize * 20))
-          : [22, 14, 9, 6][lodLevel];
-      const rings =
-        strategy === 'nanite'
-          ? Math.max(2, Math.round(screenSize * 7))
-          : [8, 5, 3, 1][lodLevel];
-      drawStylizedMesh(cx, baseY, radius, rings, segs);
-    }
-
-    // Viewport top pill
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.86)';
-    ctx.beginPath();
-    ctx.roundRect(22, 20, 352, 26, 6);
-    ctx.fill();
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = '700 11px "Noto Sans SC", sans-serif';
-    const vTitle =
-      viewMode === 'quad'
-        ? '🔥 视口：Quad Overdraw 热图（越白越浪费 2×2 块）'
-        : viewMode === 'coloration'
-        ? '🎨 视口：Mesh LOD Coloration（白0 / 红1 / 绿2 / 蓝3）'
-        : '🕸️ 视口：网格密度 & 底部材质槽色块示意';
-    ctx.fillText(vTitle, 30, 37);
-
-    // Bottom HUD badge on left
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.86)';
-    ctx.beginPath();
-    ctx.roundRect(22, H - 46, 352, 26, 6);
-    ctx.fill();
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = '600 10.5px "JetBrains Mono", monospace';
-    ctx.fillText(
-      `Dist: ${distanceM}m | ScreenSize: ${screenSize.toFixed(2)} | ${
-        strategy === 'nanite' ? 'Nanite' : lodNames[lodLevel]
-      }`,
-      30,
-      H - 29
-    );
-
-    // --- RIGHT: 2×2 Quad Pixel Block Microscope ---
-    const rx = leftW + 22;
-    const rw = W - rx - 12;
-    ctx.fillStyle = cardBg;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(23,22,20,0.14)';
-    ctx.beginPath();
-    ctx.roundRect(rx, 12, rw, H - 24, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 12px "Noto Sans SC", sans-serif';
-    ctx.fillText('🔬 2×2 Quad 像素块放大镜', rx + 12, 33);
-
-    ctx.fillStyle = muted;
-    ctx.font = '500 10px "Noto Sans SC", sans-serif';
-    ctx.fillText('显卡每 4 像素一组执行着色器（算 Mipmap 偏导）', rx + 12, 49);
-
-    // Draw 8x8 pixels = 4x4 Quads
-    const gridSize = 192;
-    const gx0 = rx + Math.floor((rw - gridSize) / 2);
-    const gy0 = 62;
-    const pxCell = gridSize / 8;
-
-    // Simulate triangle coverage pattern based on helperWastePct
-    const isMicroTri = helperWastePct >= 48;
-    const isMidTri = helperWastePct >= 26 && helperWastePct < 48;
-
-    for (let qy = 0; qy < 4; qy++) {
-      for (let qx = 0; qx < 4; qx++) {
-        const quadIdx = qy * 4 + qx;
-        // Decide how many pixels inside this 2x2 quad are actually covered by a triangle
-        const activeCount = isMicroTri
-          ? 1
-          : isMidTri
-          ? quadIdx % 2 === 0
-            ? 2
-            : 3
-          : quadIdx === 0 || quadIdx === 3 || quadIdx === 12 || quadIdx === 15
-          ? 2
-          : 4;
-
-        for (let sy = 0; sy < 2; sy++) {
-          for (let sx = 0; sx < 2; sx++) {
-            const subIdx = sy * 2 + sx;
-            const px = gx0 + (qx * 2 + sx) * pxCell;
-            const py = gy0 + (qy * 2 + sy) * pxCell;
-            const covered = subIdx < activeCount;
-
-            ctx.fillStyle = covered
-              ? isDark
-                ? 'rgba(34, 197, 94, 0.72)'
-                : 'rgba(22, 163, 74, 0.76)'
-              : isDark
-              ? 'rgba(239, 68, 68, 0.56)'
-              : 'rgba(239, 68, 68, 0.45)';
-            ctx.fillRect(px + 1, py + 1, pxCell - 2, pxCell - 2);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '700 9px "JetBrains Mono", monospace';
-            ctx.fillText(covered ? '✓' : '废', px + 6, py + 15);
-          }
-        }
-
-        // Bold 2x2 Quad border
-        ctx.strokeStyle = isDark ? '#e2e8f0' : '#1e293b';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(gx0 + qx * pxCell * 2, gy0 + qy * pxCell * 2, pxCell * 2, pxCell * 2);
-
-        // Draw overlaid tiny triangle inside micro-tri mode
-        if (isMicroTri) {
-          const tx = gx0 + qx * pxCell * 2 + 4;
-          const ty = gy0 + qy * pxCell * 2 + 4;
-          ctx.strokeStyle = '#fde047';
-          ctx.lineWidth = 1.6;
-          ctx.beginPath();
-          ctx.moveTo(tx + 2, ty + 14);
-          ctx.lineTo(tx + 15, ty + 14);
-          ctx.lineTo(tx + 8, ty + 2);
-          ctx.closePath();
-          ctx.stroke();
-        }
-      }
-    }
-
-    // Legend & Waste Readout
-    const ly = gy0 + gridSize + 18;
-    ctx.fillStyle = '#16a34a';
-    ctx.fillRect(rx + 14, ly - 9, 10, 10);
-    ctx.fillStyle = ink;
-    ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('有效像素', rx + 28, ly);
-
-    ctx.fillStyle = '#ef4444';
-    ctx.fillRect(rx + 96, ly - 9, 10, 10);
-    ctx.fillStyle = ink;
-    ctx.fillText('白算丢弃的辅助像素 (Helper)', rx + 110, ly);
-
-    ctx.fillStyle =
-      helperWastePct >= 50
-        ? isDark
-          ? 'rgba(239, 68, 68, 0.18)'
-          : 'rgba(239, 68, 68, 0.12)'
-        : isDark
-        ? 'rgba(34, 197, 94, 0.16)'
-        : 'rgba(22, 163, 74, 0.12)';
-    ctx.beginPath();
-    ctx.roundRect(rx + 12, ly + 10, rw - 24, 40, 7);
-    ctx.fill();
-
-    ctx.fillStyle = helperWastePct >= 50 ? (isDark ? '#fca5a5' : '#b91c1c') : (isDark ? '#6ee7b7' : '#047857');
-    ctx.font = '700 11px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      helperWastePct >= 50
-        ? `⚠️ 微三角形灾难：约 ${helperWastePct}% 着色算力白白浪费！`
-        : `✅ 三角形大小健康：Quad 利用率达 ${100 - helperWastePct}%`,
-      rx + 20,
-      ly + 27
-    );
-    ctx.fillStyle = muted;
-    ctx.font = '500 10px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      `平均三角边长 ≈ ${avgTriEdgePx.toFixed(1)} px · ${ditherOn ? '已开抖动过渡' : '直接切级'}`,
-      rx + 20,
-      ly + 43
-    );
-  }, [distanceM, strategy, viewMode, ditherOn, hlodOn, screenSize, lodLevel, activeMatSlots, helperWastePct, avgTriEdgePx, isDark]);
+  const isMicroTri = helperWastePct >= 48;
+  const isMidTri = helperWastePct >= 26 && helperWastePct < 48;
+  const slotPalette = ['#0f766e', '#f59e0b', '#ec4899', '#6366f1'];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1459,18 +1076,229 @@ const Stage9_7_LodAndQuadOverdraw: React.FC<LessonStageProps> = ({
         />
       )}
 
-      <canvas
-        ref={canvasRef}
-        width={680}
-        height={354}
+      <div
         style={{
-          width: '100%',
-          height: 'auto',
-          display: 'block',
-          borderRadius: 11,
+          borderRadius: 12,
           border: '1.5px solid var(--border-strong)',
+          background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 10,
+          userSelect: 'text',
         }}
-      />
+      >
+        {/* Left: SVG LOD/Quad/HLOD Viewport */}
+        <div
+          style={{
+            borderRadius: 10,
+            border: '1px solid var(--border-strong)',
+            overflow: 'hidden',
+            background: '#1c2330',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div style={{ padding: '6px 10px', background: 'rgba(15, 23, 42, 0.9)', color: '#f8fafc', fontSize: 11, fontWeight: 700 }}>
+            {vTitle}
+          </div>
+
+          <svg viewBox="0 0 360 236" style={{ width: '100%', height: 'auto', display: 'block', flex: 1 }}>
+            <rect width="360" height="84" fill="#253147" />
+            {[1, 2, 3, 4, 5].map((i) => {
+              const gy = 84 + i * i * 5.8;
+              return <line key={i} x1="0" y1={gy} x2="360" y2={gy} stroke="rgba(148,163,184,0.2)" strokeWidth="1" />;
+            })}
+
+            {isHlodMerged ? (
+              <g>
+                <rect
+                  x={cx - 104}
+                  y={baseY - 46}
+                  width="208"
+                  height="46"
+                  rx="6"
+                  fill={viewMode === 'quad' ? '#22c55e' : viewMode === 'coloration' ? '#38bdf8' : '#34d399'}
+                  stroke="#0f172a"
+                  strokeWidth="1.4"
+                />
+                <text x={cx} y={baseY - 19} textAnchor="middle" fill="#0f172a" fontSize="11" fontWeight="700">
+                  🏙️ HLOD 合并代理网格 (25栋→1 Draw)
+                </text>
+              </g>
+            ) : (
+              <g opacity={ditherOn && Math.abs(screenSize - 0.28) < 0.05 ? 0.78 : 0.95}>
+                <polygon points={outerPts.map((p) => p.join(',')).join(' ')} fill={meshFill} />
+                {outerPts.map(([px, py], i) => (
+                  <line
+                    key={`sp-${i}`}
+                    x1={cx}
+                    y1={baseY - radius * 0.9}
+                    x2={px}
+                    y2={py}
+                    stroke={wireStroke}
+                    strokeWidth={rings >= 7 ? 0.65 : 1.1}
+                  />
+                ))}
+                {Array.from({ length: rings }, (_, k) => {
+                  const f = (k + 1) / rings;
+                  const ringPts = outerPts
+                    .map(([px, py]) => `${lerp(cx, px, f)},${lerp(baseY - radius * 0.9, py, f)}`)
+                    .join(' ');
+                  return (
+                    <polygon
+                      key={`rg-${k}`}
+                      points={ringPts}
+                      fill="none"
+                      stroke={wireStroke}
+                      strokeWidth={rings >= 7 ? 0.65 : 1.1}
+                    />
+                  );
+                })}
+                {viewMode === 'wireframe' &&
+                  Array.from({ length: activeMatSlots }, (_, s) => (
+                    <rect key={`sl-${s}`} x={cx - radius * 0.7 + s * 16} y={baseY + 8} width="12" height="6" fill={slotPalette[s]} />
+                  ))}
+              </g>
+            )}
+          </svg>
+
+          <div
+            style={{
+              padding: '6px 10px',
+              background: 'rgba(15, 23, 42, 0.9)',
+              color: '#e2e8f0',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10.8,
+              fontWeight: 600,
+            }}
+          >
+            Dist: {distanceM}m | ScreenSize: {screenSize.toFixed(2)} | {strategy === 'nanite' ? 'Nanite' : lodNames[lodLevel]}
+          </div>
+        </div>
+
+        {/* Right: HTML 2×2 Quad Pixel Block Microscope */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 0,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              🔬 2×2 Quad 像素块放大镜
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+              显卡每 4 像素一组执行着色器（算 Mipmap 偏导）
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 3,
+              maxWidth: 224,
+              width: '100%',
+              margin: '0 auto',
+            }}
+          >
+            {Array.from({ length: 16 }, (_, quadIdx) => {
+              const activeCount = isMicroTri
+                ? 1
+                : isMidTri
+                ? quadIdx % 2 === 0
+                  ? 2
+                  : 3
+                : quadIdx === 0 || quadIdx === 3 || quadIdx === 12 || quadIdx === 15
+                ? 2
+                : 4;
+              return (
+                <div
+                  key={quadIdx}
+                  style={{
+                    position: 'relative',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 1.5,
+                    padding: 1.5,
+                    border: '2px solid var(--text-primary)',
+                    borderRadius: 3,
+                    background: 'var(--bg-canvas)',
+                  }}
+                >
+                  {[0, 1, 2, 3].map((sub) => {
+                    const covered = sub < activeCount;
+                    return (
+                      <div
+                        key={sub}
+                        style={{
+                          aspectRatio: '1',
+                          background: covered ? 'rgba(22, 163, 74, 0.8)' : 'rgba(239, 68, 68, 0.62)',
+                          color: '#fff',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {covered ? '✓' : '废'}
+                      </div>
+                    );
+                  })}
+                  {isMicroTri && (
+                    <svg
+                      viewBox="0 0 24 24"
+                      style={{ position: 'absolute', inset: 2, width: 'calc(100% - 4px)', height: 'calc(100% - 4px)', pointerEvents: 'none' }}
+                    >
+                      <polygon points="3,11 12,11 7,3" fill="none" stroke="#fde047" strokeWidth="1.8" />
+                    </svg>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', fontSize: 10.5, fontWeight: 600, color: 'var(--text-primary)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 10, height: 10, background: '#16a34a', display: 'inline-block', borderRadius: 2 }} />
+              有效像素
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 10, height: 10, background: '#ef4444', display: 'inline-block', borderRadius: 2 }} />
+              白算丢弃的辅助像素 (Helper)
+            </span>
+          </div>
+
+          <div
+            style={{
+              padding: '7px 10px',
+              borderRadius: 7,
+              background: helperWastePct >= 50 ? 'var(--accent-coral)' : 'var(--accent-sage)',
+              color: helperWastePct >= 50 ? 'var(--accent-coral-deep)' : 'var(--accent-sage-deep)',
+              fontSize: 11,
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ fontWeight: 700 }}>
+              {helperWastePct >= 50
+                ? `⚠️ 微三角形灾难：约 ${helperWastePct}% 着色算力白白浪费！`
+                : `✅ 三角形大小健康：Quad 利用率达 ${100 - helperWastePct}%`}
+            </div>
+            <div style={{ fontSize: 10.2, opacity: 0.88 }}>
+              平均三角边长 ≈ {avgTriEdgePx.toFixed(1)} px · {ditherOn ? '已开抖动过渡' : '直接切级'}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="stage-controls-panel">
         <div className="control-grid">
@@ -1534,7 +1362,6 @@ const Stage9_8_PerfTuningSimulator: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [scenario, setScenario] = useState<PerfScenario>('city_draw');
   const [fixBatch, setFixBatch] = useState<boolean>(false);
@@ -1543,7 +1370,6 @@ const Stage9_8_PerfTuningSimulator: React.FC<LessonStageProps> = ({
   const [fixShaderSlim, setFixShaderSlim] = useState<boolean>(false);
   const [fixCulling, setFixCulling] = useState<boolean>(false);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevStepRef = useRef(stepIndex);
   const prevResetRef = useRef(resetSignal);
 
@@ -1719,219 +1545,22 @@ const Stage9_8_PerfTuningSimulator: React.FC<LessonStageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frameMs, fps, bottleneckTag, gameMs, drawMs, gpuMs, drawCalls, baseGpuMs, offTargetWarning]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
+  const statRows = [
+    { label: 'Frame', val: frameMs, highlight: true },
+    { label: 'Game', val: gameMs, highlight: gameMs === frameMs },
+    { label: 'Draw', val: drawMs, highlight: drawMs === frameMs },
+    { label: 'GPU', val: gpuMs, highlight: gpuMs === frameMs },
+  ];
+  const scaleMs = 30;
+  const line60Pct = (16.67 / scaleMs) * 100;
 
-    const bg = isDark ? '#0e1117' : '#f4f2ec';
-    const cardBg = isDark ? '#161b24' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // --- LEFT: UE 5.8 `stat unit` HUD ---
-    const lw = 314;
-    ctx.fillStyle = '#0f141d';
-    ctx.beginPath();
-    ctx.roundRect(12, 12, lw, H - 24, 10);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-    ctx.stroke();
-
-    ctx.fillStyle = '#5eead4';
-    ctx.font = '700 12px "JetBrains Mono", monospace';
-    ctx.fillText('> stat unit  &  stat scenerendering', 24, 34);
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '500 10px "Noto Sans SC", sans-serif';
-    ctx.fillText(base.name, 24, 51);
-
-    const statRows = [
-      { label: 'Frame', val: frameMs, highlight: true },
-      { label: 'Game', val: gameMs, highlight: gameMs === frameMs },
-      { label: 'Draw', val: drawMs, highlight: drawMs === frameMs },
-      { label: 'GPU', val: gpuMs, highlight: gpuMs === frameMs },
-    ];
-
-    const scaleMs = 30;
-    const bx = 86;
-    const bwMax = lw - 110;
-    const line60 = bx + (16.67 / scaleMs) * bwMax;
-
-    // 16.67ms vertical guide
-    ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
-    ctx.lineWidth = 1.4;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(line60, 64);
-    ctx.lineTo(line60, 220);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#fca5a5';
-    ctx.font = '700 9.5px "JetBrains Mono", monospace';
-    ctx.fillText('16.67ms', line60 - 20, 232);
-
-    statRows.forEach((sr, i) => {
-      const y = 72 + i * 37;
-      const isOver = sr.val > 16.67;
-      ctx.fillStyle = sr.highlight ? '#ffffff' : '#cbd5e1';
-      ctx.font = `${sr.highlight ? 700 : 600} 12px "JetBrains Mono", monospace`;
-      ctx.fillText(sr.label, 24, y + 16);
-
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      ctx.beginPath();
-      ctx.roundRect(bx, y, bwMax, 22, 5);
-      ctx.fill();
-
-      const fw = Math.min(bwMax, Math.max(8, (sr.val / scaleMs) * bwMax));
-      ctx.fillStyle = isOver ? '#ef4444' : sr.val > 13.5 ? '#f59e0b' : '#10b981';
-      ctx.beginPath();
-      ctx.roundRect(bx, y, fw, 22, 5);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '700 11px "JetBrains Mono", monospace';
-      ctx.fillText(`${sr.val.toFixed(1)} ms`, bx + 7, y + 15);
-    });
-
-    // Draw Calls & Verdict box
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    ctx.beginPath();
-    ctx.roundRect(22, 246, lw - 20, 40, 7);
-    ctx.fill();
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '600 10.5px "JetBrains Mono", monospace';
-    ctx.fillText(`Mesh draw calls: ${drawCalls.toLocaleString()}`, 32, 264);
-    ctx.fillStyle = frameMs <= 16.67 ? '#4ade80' : '#f87171';
-    ctx.font = '700 11px "Noto Sans SC", sans-serif';
-    ctx.fillText(`诊断结论：${bottleneckTag}（${fps} FPS）`, 32, 280);
-
-    // Formula reminder
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '500 10px "Noto Sans SC", sans-serif';
-    ctx.fillText('木桶定律：Frame ≈ max(Game, Draw, GPU)', 24, H - 24);
-
-    // --- RIGHT: ProfileGPU Breakdown ---
-    const rx = lw + 22;
-    const rw = W - rx - 12;
-    ctx.fillStyle = cardBg;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(23,22,20,0.14)';
-    ctx.beginPath();
-    ctx.roundRect(rx, 12, rw, H - 24, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 12px "Noto Sans SC", sans-serif';
-    ctx.fillText('🔬 ProfileGPU 通道瀑布拆解 (Ctrl + Shift + ,)', rx + 14, 34);
-
-    ctx.fillStyle = muted;
-    ctx.font = '500 10px "Noto Sans SC", sans-serif';
-    ctx.fillText(`GPU 总计 ${gpuMs.toFixed(1)} ms（找出最肥的那根柱子对症开方）`, rx + 14, 51);
-
-    const passes = [
-      { name: 'BasePass (材质/Substrate/Quad)', ms: basePassMs, col: '#0f766e' },
-      { name: 'ShadowDepths / VSM (阴影与 WPO)', ms: shadowMs, col: '#7c3aed' },
-      { name: 'Translucency (半透明 Overdraw)', ms: transMs, col: '#ec4899' },
-      { name: 'Lumen GI & Reflections', ms: lumenMs, col: '#3b82f6' },
-      { name: 'PostProcessing (后处理)', ms: postMs, col: '#64748b' },
-    ];
-
-    const pTrackW = rw - 28;
-    const maxPassMs = 15;
-    passes.forEach((p, idx) => {
-      const py = 68 + idx * 41;
-      ctx.fillStyle = ink;
-      ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(p.name, rx + 14, py + 10);
-
-      ctx.fillStyle = p.ms > 5.5 ? '#ef4444' : ink;
-      ctx.font = '700 11px "JetBrains Mono", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`${p.ms.toFixed(1)} ms`, rx + rw - 14, py + 10);
-      ctx.textAlign = 'left';
-
-      ctx.fillStyle = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(23,22,20,0.08)';
-      ctx.beginPath();
-      ctx.roundRect(rx + 14, py + 15, pTrackW, 14, 4);
-      ctx.fill();
-
-      const pw = Math.min(pTrackW, Math.max(6, (p.ms / maxPassMs) * pTrackW));
-      ctx.fillStyle = p.col;
-      ctx.beginPath();
-      ctx.roundRect(rx + 14, py + 15, pw, 14, 4);
-      ctx.fill();
-    });
-
-    // Contextual feedback banner
-    const fbY = H - 68;
-    const fbBg = offTargetWarning
-      ? isDark
-        ? 'rgba(245, 158, 11, 0.18)'
-        : 'rgba(254, 243, 199, 0.95)'
-      : frameMs <= 16.67
-      ? isDark
-        ? 'rgba(34, 197, 94, 0.18)'
-        : 'rgba(220, 252, 231, 0.95)'
-      : isDark
-      ? 'rgba(56, 189, 248, 0.14)'
-      : 'rgba(224, 242, 254, 0.95)';
-
-    ctx.fillStyle = fbBg;
-    ctx.beginPath();
-    ctx.roundRect(rx + 14, fbY, rw - 28, 44, 8);
-    ctx.fill();
-
-    ctx.fillStyle = offTargetWarning
-      ? isDark
-        ? '#fcd34d'
-        : '#92400e'
-      : frameMs <= 16.67
-      ? isDark
-        ? '#6ee7b7'
-        : '#166534'
-      : isDark
-      ? '#7dd3fc'
-      : '#075985';
-    ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
-    if (offTargetWarning) {
-      ctx.fillText('⚠️ 典型白忙活：GPU 确实降了，但木桶短板是 CPU Draw！', rx + 22, fbY + 18);
-      ctx.font = '500 10px "Noto Sans SC", sans-serif';
-      ctx.fillText('请勾选「合槽+实例化」或「剔除/HLOD」削减 Draw 线程！', rx + 22, fbY + 34);
-    } else if (frameMs <= 16.67) {
-      ctx.fillText('🎉 对症下药成功！三线程全员压进 16.67 ms (60 FPS)！', rx + 22, fbY + 18);
-      ctx.font = '500 10px "Noto Sans SC", sans-serif';
-      ctx.fillText('可切换上方其他翻车场景，继续演练不同瓶颈的诊断思路。', rx + 22, fbY + 34);
-    } else {
-      ctx.fillText('🩺 诊断提示：先看左侧最长红条，再看右侧最肥通道！', rx + 22, fbY + 18);
-      ctx.font = '500 10px "Noto Sans SC", sans-serif';
-      ctx.fillText('勾选下方对应优化药方，观察木桶短板是否真正缩短。', rx + 22, fbY + 34);
-    }
-  }, [
-    scenario,
-    base.name,
-    frameMs,
-    gameMs,
-    drawMs,
-    gpuMs,
-    fps,
-    drawCalls,
-    bottleneckTag,
-    basePassMs,
-    shadowMs,
-    transMs,
-    lumenMs,
-    postMs,
-    offTargetWarning,
-    isDark,
-  ]);
+  const passes = [
+    { name: 'BasePass (材质/Substrate/Quad)', ms: basePassMs, col: '#0f766e' },
+    { name: 'ShadowDepths / VSM (阴影与 WPO)', ms: shadowMs, col: '#7c3aed' },
+    { name: 'Translucency (半透明 Overdraw)', ms: transMs, col: '#ec4899' },
+    { name: 'Lumen GI & Reflections', ms: lumenMs, col: '#3b82f6' },
+    { name: 'PostProcessing (后处理)', ms: postMs, col: '#64748b' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1953,18 +1582,225 @@ const Stage9_8_PerfTuningSimulator: React.FC<LessonStageProps> = ({
         />
       )}
 
-      <canvas
-        ref={canvasRef}
-        width={680}
-        height={356}
+      <div
         style={{
-          width: '100%',
-          height: 'auto',
-          display: 'block',
-          borderRadius: 11,
+          borderRadius: 12,
           border: '1.5px solid var(--border-strong)',
+          background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(265px, 1fr))',
+          gap: 10,
+          userSelect: 'text',
         }}
-      />
+      >
+        {/* Left: Authentic Dark UE 5.8 stat unit HUD */}
+        <div
+          style={{
+            background: '#0f141d',
+            border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: 10,
+            padding: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            color: '#e2e8f0',
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: '#5eead4' }}>
+              &gt; stat unit &amp; stat scenerendering
+            </div>
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2 }}>{base.name}</div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {statRows.map((sr) => {
+              const isOver = sr.val > 16.67;
+              const pct = Math.min(100, Math.max(5, (sr.val / scaleMs) * 100));
+              const barCol = isOver ? '#ef4444' : sr.val > 13.5 ? '#f59e0b' : '#10b981';
+              return (
+                <div
+                  key={sr.label}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '52px 1fr',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11.5,
+                      fontWeight: sr.highlight ? 700 : 600,
+                      color: sr.highlight ? '#ffffff' : '#cbd5e1',
+                    }}
+                  >
+                    {sr.label}
+                  </span>
+                  <div
+                    style={{
+                      position: 'relative',
+                      height: 22,
+                      borderRadius: 5,
+                      background: 'rgba(255,255,255,0.08)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${pct}%`,
+                        height: '100%',
+                        background: barCol,
+                        borderRadius: 5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        paddingLeft: 8,
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#ffffff',
+                        whiteSpace: 'nowrap',
+                        transition: 'width 0.18s ease',
+                      }}
+                    >
+                      {sr.val.toFixed(1)} ms
+                    </div>
+                    <div
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: `${line60Pct}%`,
+                        borderLeft: '1.5px dashed rgba(239,68,68,0.85)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#fca5a5', textAlign: 'right' }}>
+              红虚线目标：16.67 ms (60 FPS)
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: '8px 10px',
+              borderRadius: 7,
+              background: 'rgba(255,255,255,0.06)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 3,
+            }}
+          >
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#cbd5e1' }}>
+              Mesh draw calls: <b>{drawCalls.toLocaleString()}</b>
+            </div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: frameMs <= 16.67 ? '#4ade80' : '#f87171' }}>
+              诊断结论：{bottleneckTag}（{fps} FPS）
+            </div>
+          </div>
+
+          <div style={{ fontSize: 10.5, color: '#94a3b8' }}>
+            木桶定律：Frame ≈ max(Game, Draw, GPU)
+          </div>
+        </div>
+
+        {/* Right: ProfileGPU Pass Breakdown */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              🔬 ProfileGPU 通道瀑布拆解 (Ctrl + Shift + ,)
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>
+              GPU 总计 {gpuMs.toFixed(1)} ms（找出最肥的那根柱子对症开方）
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, flex: 1 }}>
+            {passes.map((p) => {
+              const pct = Math.min(100, Math.max(4, (p.ms / 15) * 100));
+              return (
+                <div key={p.name}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.8, marginBottom: 3 }}>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.name}</span>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: 700,
+                        color: p.ms > 5.5 ? '#ef4444' : 'var(--text-primary)',
+                      }}
+                    >
+                      {p.ms.toFixed(1)} ms
+                    </span>
+                  </div>
+                  <div style={{ height: 13, borderRadius: 4, background: 'var(--bg-subtle)', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        width: `${pct}%`,
+                        height: '100%',
+                        background: p.col,
+                        borderRadius: 4,
+                        transition: 'width 0.18s ease',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: offTargetWarning
+                ? 'var(--accent-amber)'
+                : frameMs <= 16.67
+                ? 'var(--accent-sage)'
+                : 'var(--accent-sky)',
+              color: offTargetWarning
+                ? 'var(--accent-amber-deep)'
+                : frameMs <= 16.67
+                ? 'var(--accent-sage-deep)'
+                : 'var(--accent-sky-deep)',
+              fontSize: 11,
+              lineHeight: 1.5,
+            }}
+          >
+            {offTargetWarning ? (
+              <>
+                <div style={{ fontWeight: 700 }}>⚠️ 典型白忙活：GPU 确实降了，但木桶短板是 CPU Draw！</div>
+                <div>请勾选「合槽+实例化」或「剔除/HLOD」削减 Draw 线程！</div>
+              </>
+            ) : frameMs <= 16.67 ? (
+              <>
+                <div style={{ fontWeight: 700 }}>🎉 对症下药成功！三线程全员压进 16.67 ms (60 FPS)！</div>
+                <div>可切换上方其他翻车场景，继续演练不同瓶颈的诊断思路。</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontWeight: 700 }}>🩺 诊断提示：先看左侧最长红条，再看右侧最肥通道！</div>
+                <div>勾选下方对应优化药方，观察木桶短板是否真正缩短。</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="stage-controls-panel">
         <StageSegmented<PerfScenario>

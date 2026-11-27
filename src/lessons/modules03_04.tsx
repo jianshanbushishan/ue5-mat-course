@@ -1788,6 +1788,90 @@ function evalEmblemTexel(u: number, v: number): [number, number, number, number]
   return [saturate(r), saturate(g), saturate(b), shieldMask];
 }
 
+const EmblemChannelCanvas: React.FC<{
+  mode: 'rgb' | 'r' | 'g' | 'b' | 'a';
+  probeUV: [number, number];
+  borderColor: string;
+  onPickUV: (uv: [number, number]) => void;
+}> = ({ mode, probeUV, borderColor, onPickUV }) => {
+  const cvsRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const cvs = cvsRef.current;
+    if (!cvs) return;
+    const S = 128;
+    cvs.width = S;
+    cvs.height = S;
+    const ctx = cvs.getContext('2d');
+    if (!ctx) return;
+    const img = ctx.createImageData(S, S);
+    const data = img.data;
+    const chIdx = mode === 'r' ? 0 : mode === 'g' ? 1 : mode === 'b' ? 2 : 3;
+
+    for (let py = 0; py < S; py++) {
+      const v = py / (S - 1);
+      for (let px = 0; px < S; px++) {
+        const u = px / (S - 1);
+        const idx = (py * S + px) * 4;
+        const rgba = evalEmblemTexel(u, v);
+        if (mode === 'rgb') {
+          const chk = ((Math.floor(px / 8) + Math.floor(py / 8)) & 1) === 0 ? 0.22 : 0.15;
+          data[idx] = Math.round(lerp(chk, rgba[0], rgba[3]) * 255);
+          data[idx + 1] = Math.round(lerp(chk, rgba[1], rgba[3]) * 255);
+          data[idx + 2] = Math.round(lerp(chk, rgba[2], rgba[3]) * 255);
+        } else {
+          const g = Math.round(rgba[chIdx] * 255);
+          data[idx] = g;
+          data[idx + 1] = g;
+          data[idx + 2] = g;
+        }
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, [mode]);
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const u = clamp((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+    const v = clamp((e.clientY - rect.top) / Math.max(1, rect.height), 0, 1);
+    onPickUV([u, v]);
+  };
+
+  return (
+    <div
+      onClick={handleClick}
+      style={{
+        position: 'relative',
+        width: '100%',
+        aspectRatio: '1',
+        border: `2px solid ${borderColor}`,
+        borderRadius: 6,
+        overflow: 'hidden',
+        cursor: 'crosshair',
+        background: '#171513',
+      }}
+    >
+      <canvas ref={cvsRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+      <span
+        aria-hidden
+        style={{
+          position: 'absolute',
+          left: `${probeUV[0] * 100}%`,
+          top: `${probeUV[1] * 100}%`,
+          width: 11,
+          height: 11,
+          transform: 'translate(-50%, -50%)',
+          borderRadius: '50%',
+          border: '2px solid #facc15',
+          boxShadow: '0 0 0 1px rgba(0,0,0,0.65)',
+          pointerEvents: 'none',
+        }}
+      />
+    </div>
+  );
+};
+
 const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
@@ -1799,7 +1883,6 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
   const [maskClip, setMaskClip] = useState<number>(0.33);
   const [xrayRgb, setXrayRgb] = useState<boolean>(false);
 
-  const singleCvsRef = useRef<HTMLCanvasElement>(null);
   const unpaddedCvsRef = useRef<HTMLCanvasElement>(null);
   const paddedCvsRef = useRef<HTMLCanvasElement>(null);
 
@@ -1875,158 +1958,6 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, chanOpt, pR, pG, pB, pA, maskClip, xrayRgb]);
-
-  // Draw Tab 1: RGBA Four Spreadsheets
-  useEffect(() => {
-    if (tab !== 'cards') return;
-    const cvs = singleCvsRef.current;
-    if (!cvs) return;
-
-    const W = 400;
-    const H = 222;
-    cvs.width = W;
-    cvs.height = H;
-    const ctx = cvs.getContext('2d');
-    if (!ctx) return;
-
-    const img = ctx.createImageData(W, H);
-    const data = img.data;
-
-    if (chanOpt === 'all4') {
-      // Render 4 side-by-side grayscale poker cards!
-      const cardW = 88;
-      const cardH = 148;
-      const gap = 9;
-      const startX = Math.floor((W - (cardW * 4 + gap * 3)) * 0.5);
-      const startY = 42;
-
-      for (let py = 0; py < H; py++) {
-        for (let px = 0; px < W; px++) {
-          const idx = (py * W + px) * 4;
-          data[idx] = 28;
-          data[idx + 1] = 25;
-          data[idx + 2] = 23;
-          data[idx + 3] = 255;
-
-          if (py >= startY && py < startY + cardH) {
-            for (let c = 0; c < 4; c++) {
-              const cx0 = startX + c * (cardW + gap);
-              if (px >= cx0 && px < cx0 + cardW) {
-                const u = (px - cx0) / (cardW - 1);
-                const v = (py - startY) / (cardH - 1);
-                const rgba = evalEmblemTexel(u, v);
-                const gray = Math.round(rgba[c] * 255);
-                data[idx] = gray;
-                data[idx + 1] = gray;
-                data[idx + 2] = gray;
-                break;
-              }
-            }
-          }
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-
-      // Card titles & probe crosshairs
-      const titles = ['🔴 第1页 R (红)', '🟢 第2页 G (绿)', '🔵 第3页 B (蓝)', '⬜ 第4页 A (附)'];
-      const borderCols = ['#ef4444', '#22c55e', '#3b82f6', '#e5e7eb'];
-      ctx.font = 'bold 11px "Noto Sans SC", sans-serif';
-      for (let c = 0; c < 4; c++) {
-        const cx0 = startX + c * (cardW + gap);
-        ctx.strokeStyle = borderCols[c];
-        ctx.lineWidth = 2;
-        ctx.strokeRect(cx0, startY, cardW, cardH);
-        ctx.fillStyle = borderCols[c];
-        ctx.fillText(titles[c], cx0 + 4, startY - 9);
-
-        // Probe dot on each sheet
-        const dotX = cx0 + probeUV[0] * (cardW - 1);
-        const dotY = startY + probeUV[1] * (cardH - 1);
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, 4.5, 0, Math.PI * 2);
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Numeric readout badge at bottom of card
-        const val = [pR, pG, pB, pA][c];
-        ctx.fillStyle = 'rgba(15,14,12,0.86)';
-        ctx.fillRect(cx0 + 8, startY + cardH + 6, cardW - 16, 20);
-        ctx.fillStyle = '#fde68a';
-        ctx.fillText(`数值: ${val.toFixed(2)}`, cx0 + 15, startY + cardH + 20);
-      }
-    } else {
-      // Single large emblem square on left + 4-row ledger card on right
-      const boxSize = 186;
-      const bx0 = 24;
-      const by0 = 18;
-
-      for (let py = 0; py < H; py++) {
-        for (let px = 0; px < W; px++) {
-          const idx = (py * W + px) * 4;
-          data[idx] = 28;
-          data[idx + 1] = 25;
-          data[idx + 2] = 23;
-          data[idx + 3] = 255;
-
-          if (px >= bx0 && px < bx0 + boxSize && py >= by0 && py < by0 + boxSize) {
-            const u = (px - bx0) / (boxSize - 1);
-            const v = (py - by0) / (boxSize - 1);
-            const [r, g, b, a] = evalEmblemTexel(u, v);
-
-            if (chanOpt === 'rgb') {
-              // Checkerboard behind alpha=0
-              const chk = ((Math.floor(px / 10) + Math.floor(py / 10)) % 2 === 0) ? 0.22 : 0.15;
-              data[idx] = Math.round(lerp(chk, r, a) * 255);
-              data[idx + 1] = Math.round(lerp(chk, g, a) * 255);
-              data[idx + 2] = Math.round(lerp(chk, b, a) * 255);
-            } else {
-              const chVal = chanOpt === 'r' ? r : chanOpt === 'g' ? g : chanOpt === 'b' ? b : a;
-              const gByte = Math.round(chVal * 255);
-              data[idx] = gByte;
-              data[idx + 1] = gByte;
-              data[idx + 2] = gByte;
-            }
-          }
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-
-      // Probe reticle
-      const rx = bx0 + probeUV[0] * boxSize;
-      const ry = by0 + probeUV[1] * boxSize;
-      ctx.strokeStyle = '#facc15';
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.arc(rx, ry, 6, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Right-hand spreadsheet readout
-      const lx = 228;
-      ctx.fillStyle = '#f5f0e6';
-      ctx.font = 'bold 12px "Noto Sans SC", sans-serif';
-      ctx.fillText('📖 当前采样点四页账本：', lx, 36);
-
-      const rows = [
-        { name: 'R 红页', val: pR, col: '#f87171' },
-        { name: 'G 绿页', val: pG, col: '#4ade80' },
-        { name: 'B 蓝页', val: pB, col: '#60a5fa' },
-        { name: 'A 附页', val: pA, col: '#e5e7eb' },
-      ];
-      rows.forEach((row, i) => {
-        const yy = 56 + i * 36;
-        ctx.fillStyle = 'rgba(255,255,255,0.1)';
-        ctx.fillRect(lx, yy, 152, 26);
-        ctx.fillStyle = row.col;
-        ctx.fillRect(lx, yy, Math.round(152 * row.val), 26);
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.strokeRect(lx, yy, 152, 26);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 11.5px "JetBrains Mono", monospace';
-        ctx.fillText(`${row.name}: ${row.val.toFixed(2)}`, lx + 8, yy + 17);
-      });
-    }
-  }, [tab, chanOpt, probeUV, pR, pG, pB, pA]);
 
   // Draw Tab 2: Leaf White Halo Bilinear Filtering Microscope
   useEffect(() => {
@@ -2173,33 +2104,12 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
     pCtx.putImageData(pImg, 0, 0);
   }, [tab, maskClip, xrayRgb]);
 
-  const handleCardCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - rect.left) / rect.width) * 400;
-    const py = ((e.clientY - rect.top) / rect.height) * 222;
-    if (chanOpt === 'all4') {
-      const cardW = 88;
-      const cardH = 148;
-      const gap = 9;
-      const startX = Math.floor((400 - (cardW * 4 + gap * 3)) * 0.5);
-      const startY = 42;
-      if (py >= startY && py <= startY + cardH) {
-        for (let c = 0; c < 4; c++) {
-          const cx0 = startX + c * (cardW + gap);
-          if (px >= cx0 && px <= cx0 + cardW) {
-            const u = clamp((px - cx0) / (cardW - 1), 0, 1);
-            const v = clamp((py - startY) / (cardH - 1), 0, 1);
-            setProbeUV([u, v]);
-            break;
-          }
-        }
-      }
-    } else if (px >= 24 && px <= 24 + 186 && py >= 18 && py <= 18 + 186) {
-      const u = clamp((px - 24) / 185, 0, 1);
-      const v = clamp((py - 18) / 185, 0, 1);
-      setProbeUV([u, v]);
-    }
-  };
+  const channelSheets = [
+    { key: 'r' as const, title: '🔴 第1页 R (红)', name: 'R 红页', val: pR, col: '#ef4444', barCol: '#f87171' },
+    { key: 'g' as const, title: '🟢 第2页 G (绿)', name: 'G 绿页', val: pG, col: '#22c55e', barCol: '#4ade80' },
+    { key: 'b' as const, title: '🔵 第3页 B (蓝)', name: 'B 蓝页', val: pB, col: '#3b82f6', barCol: '#60a5fa' },
+    { key: 'a' as const, title: '⬜ 第4页 A (附)', name: 'A 附页', val: pA, col: '#cbd5e1', barCol: '#e5e7eb' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2216,18 +2126,136 @@ const RgbaFourSpreadsheetsStage: React.FC<LessonStageProps> = ({
         <>
           <div
             style={{
-              borderRadius: 11,
+              borderRadius: 12,
               border: '1.5px solid var(--border-strong)',
-              overflow: 'hidden',
-              height: 222,
-              cursor: 'crosshair',
+              background: '#1c1917',
+              padding: 12,
+              userSelect: 'text',
             }}
           >
-            <canvas
-              ref={singleCvsRef}
-              onClick={handleCardCanvasClick}
-              style={{ width: '100%', height: '100%', display: 'block', objectFit: 'fill' }}
-            />
+            {chanOpt === 'all4' ? (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {channelSheets.map((ch) => (
+                  <div
+                    key={ch.key}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        color: ch.col,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {ch.title}
+                    </div>
+                    <EmblemChannelCanvas
+                      mode={ch.key}
+                      probeUV={probeUV}
+                      borderColor={ch.col}
+                      onPickUV={setProbeUV}
+                    />
+                    <div
+                      style={{
+                        width: '100%',
+                        textAlign: 'center',
+                        padding: '3px 6px',
+                        borderRadius: 5,
+                        background: 'rgba(10,10,9,0.88)',
+                        color: '#fde68a',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                      }}
+                    >
+                      数值: {ch.val.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(160px, 196px) 1fr',
+                  gap: 14,
+                  alignItems: 'center',
+                }}
+              >
+                <EmblemChannelCanvas
+                  mode={chanOpt}
+                  probeUV={probeUV}
+                  borderColor={
+                    chanOpt === 'r'
+                      ? '#ef4444'
+                      : chanOpt === 'g'
+                      ? '#22c55e'
+                      : chanOpt === 'b'
+                      ? '#3b82f6'
+                      : '#cbd5e1'
+                  }
+                  onPickUV={setProbeUV}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#f5f0e6' }}>
+                    📖 当前采样点四页账本：
+                  </div>
+                  {channelSheets.map((row) => (
+                    <div
+                      key={row.key}
+                      style={{
+                        position: 'relative',
+                        height: 28,
+                        borderRadius: 6,
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.22)',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '0 10px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: `${row.val * 100}%`,
+                          background: row.barCol,
+                          opacity: 0.72,
+                          transition: 'width 0.15s ease',
+                        }}
+                      />
+                      <span
+                        style={{
+                          position: 'relative',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          color: '#ffffff',
+                          textShadow: '0 1px 2px rgba(0,0,0,0.75)',
+                        }}
+                      >
+                        {row.name}: {row.val.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="stage-controls-panel">
@@ -2515,18 +2543,6 @@ const OrmChannelPackingStage: React.FC<LessonStageProps> = ({
 
     tCtx.putImageData(tImg, 0, 0);
     pCtx.putImageData(pImg, 0, 0);
-
-    if (packMode === 'unpacked') {
-      tCtx.font = 'bold 10.5px "Noto Sans SC", sans-serif';
-      const labels = ['贴图1: AO遮蔽 (2.67 MiB)', '贴图2: 粗糙度 (2.67 MiB)', '贴图3: 金属度 (2.67 MiB)'];
-      labels.forEach((lb, i) => {
-        const yy = Math.floor((TH / 3) * i) + 4;
-        tCtx.fillStyle = 'rgba(15,14,12,0.82)';
-        tCtx.fillRect(5, yy, 134, 17);
-        tCtx.fillStyle = '#fde68a';
-        tCtx.fillText(lb, 9, yy + 12);
-      });
-    }
   }, [packMode, wearAmt, masksNoSrgb]);
 
   return (
@@ -2609,6 +2625,37 @@ const OrmChannelPackingStage: React.FC<LessonStageProps> = ({
             ref={ormTexCvsRef}
             style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
           />
+          {packMode === 'unpacked' && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: '6px 6px 32px 6px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                pointerEvents: 'none',
+              }}
+            >
+              {['贴图1: AO遮蔽 (2.67 MiB)', '贴图2: 粗糙度 (2.67 MiB)', '贴图3: 金属度 (2.67 MiB)'].map((lb) => (
+                <span
+                  key={lb}
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '2px 7px',
+                    borderRadius: 5,
+                    background: 'rgba(15,14,12,0.85)',
+                    color: '#fde68a',
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    pointerEvents: 'auto',
+                    userSelect: 'text',
+                  }}
+                >
+                  {lb}
+                </span>
+              ))}
+            </div>
+          )}
           <span
             style={{
               position: 'absolute',

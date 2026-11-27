@@ -74,14 +74,12 @@ const Stage11_4_PSO: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [strategy, setStrategy] = useState<PsoStrategy>('precaching');
   const [trigger, setTrigger] = useState<PsoTrigger>('skill_vfx');
   const [blendDiff, setBlendDiff] = useState<boolean>(true);
   const [rtHdrDiff, setRtHdrDiff] = useState<boolean>(true);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const kpiRef = useRef(onKpiUpdate);
   kpiRef.current = onKpiUpdate;
   const prevStepRef = useRef(stepIndex);
@@ -170,145 +168,28 @@ const Stage11_4_PSO: React.FC<LessonStageProps> = ({
     ]);
   }, [peakMs, isStutter, effectiveNewPso, trigger, strategy, warmupText, stateMultiplier]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const maxMs = isStutter ? Math.max(180, peakMs * 1.15) : 34;
+  const plotL = 44;
+  const plotR = 590;
+  const plotT = 10;
+  const plotB = 96;
+  const plotW = plotR - plotL;
+  const plotH = plotB - plotT;
+  const msToY = (ms: number) => plotB - Math.min(1, ms / maxMs) * plotH;
+  const y60 = msToY(16.67);
+  const frames = 48;
+  const spikeIdx = 24;
+  const barGap = 2;
+  const barW = plotW / frames - barGap;
 
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-
-    const bg = isDark ? '#11141b' : '#f8f6f1';
-    const card = isDark ? '#181c26' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-    const border = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Top Panel: 60 FPS Frame-Time Heartbeat Oscilloscope
-    const chartX = 16;
-    const chartY = 14;
-    const chartW = W - 32;
-    const chartH = 136;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(chartX, chartY, chartW, chartH, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
-    ctx.fillText(`📈 帧时间心跳示波器（当前事件：${meta.label}）`, chartX + 12, chartY + 21);
-
-    const plotL = chartX + 46;
-    const plotR = chartX + chartW - 16;
-    const plotT = chartY + 32;
-    const plotB = chartY + chartH - 18;
-    const plotW = plotR - plotL;
-    const plotH = plotB - plotT;
-    const maxMs = isStutter ? Math.max(180, peakMs * 1.15) : 34;
-
-    const msToY = (ms: number) => plotB - Math.min(1, ms / maxMs) * plotH;
-
-    // 16.67 ms 60 FPS red dashed budget line
-    const y60 = msToY(16.67);
-    ctx.strokeStyle = 'rgba(239,68,68,0.75)';
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(plotL, y60);
-    ctx.lineTo(plotR, y60);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = '#ef4444';
-    ctx.font = '700 9.5px "JetBrains Mono", monospace';
-    ctx.fillText('16.7ms', chartX + 8, y60 + 3);
-    ctx.fillStyle = muted;
-    ctx.fillText(`${Math.round(maxMs)}ms`, chartX + 8, plotT + 8);
-    ctx.fillText('0ms', chartX + 18, plotB);
-
-    // Draw 48 simulated frames
-    const frames = 48;
-    const spikeIdx = 24;
-    const barGap = 2;
-    const barW = Math.max(4, plotW / frames - barGap);
-    for (let i = 0; i < frames; i++) {
-      let ms = 14.6 + Math.sin(i * 0.7) * 1.1 + (i % 3 === 0 ? 0.4 : 0);
-      if (i === spikeIdx) ms = peakMs;
-      else if (i === spikeIdx + 1 && isStutter) ms = Math.max(16, peakMs * 0.48);
-      else if (i === spikeIdx + 2 && isStutter) ms = Math.max(15.5, peakMs * 0.22);
-
-      const x = plotL + i * (barW + barGap);
-      const y = msToY(ms);
-      const h = plotB - y;
-      ctx.fillStyle = ms > 28 ? '#ef4444' : ms > 16.67 ? '#f59e0b' : '#10b981';
-      ctx.beginPath();
-      ctx.roundRect(x, y, barW, Math.max(2, h), [2, 2, 0, 0]);
-      ctx.fill();
-    }
-
-    // Annotate spike
-    const spX = plotL + spikeIdx * (barW + barGap) + barW / 2;
-    ctx.fillStyle = isStutter ? '#ef4444' : '#10b981';
-    ctx.font = '700 10.5px "JetBrains Mono", monospace';
-    const spikeLabel = isStutter
-      ? `⚡ PSO 现场编译卡死 ${peakMs}ms!`
-      : `✓ 峰值 ${peakMs}ms (丝滑无感)`;
-    ctx.fillText(spikeLabel, Math.min(plotR - 175, Math.max(plotL + 6, spX - 40)), plotT + 14);
-
-    // Bottom Panel: Anatomy of a PSO Box (6 locked fields)
-    const botY = 160;
-    const botH = H - botY - 12;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.beginPath();
-    ctx.roundRect(16, botY, W - 32, botH, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('📦 拆开一个不可变 PSO 快换模具：不只是 Shader，必须把 6 大管线状态焊死在一起！', 28, botY + 22);
-
-    const slots = [
-      { title: '1. VS + PS 字节码', sub: 'DXIL / SPIR-V', col: '#38bdf8', hot: false },
-      { title: '2. 顶点输入布局', sub: 'Static / Skel / ISM', col: '#8b5cf6', hot: false },
-      { title: '3. Blend 混合状态', sub: blendDiff ? 'Opaque + Trans(×2)' : '仅 Opaque', col: blendDiff ? '#f59e0b' : '#10b981', hot: blendDiff },
-      { title: '4. Depth / Stencil', sub: '深度读写与比较规则', col: '#14b8a6', hot: false },
-      { title: '5. Rasterizer 光栅', sub: '双面/背面剔除/线框', col: '#6366f1', hot: false },
-      { title: '6. RenderTarget 格式', sub: rtHdrDiff ? 'GBuffer + HDR(×2)' : '单一 RT 格式', col: rtHdrDiff ? '#f59e0b' : '#10b981', hot: rtHdrDiff },
-    ];
-
-    const sw = 188;
-    const sh = 34;
-    slots.forEach((s, idx) => {
-      const colIdx = idx % 3;
-      const rowIdx = Math.floor(idx / 3);
-      const sx = 28 + colIdx * (sw + 10);
-      const sy = botY + 32 + rowIdx * (sh + 8);
-      ctx.fillStyle = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(23,22,20,0.035)';
-      ctx.strokeStyle = s.col;
-      ctx.lineWidth = s.hot ? 1.8 : 1.1;
-      ctx.beginPath();
-      ctx.roundRect(sx, sy, sw, sh, 6);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = ink;
-      ctx.font = '700 10px "Noto Sans SC", sans-serif';
-      ctx.fillText(s.title, sx + 8, sy + 14);
-      ctx.fillStyle = muted;
-      ctx.font = '600 9.5px "JetBrains Mono", monospace';
-      ctx.fillText(s.sub, sx + 8, sy + 27);
-    });
-  }, [meta, peakMs, isStutter, blendDiff, rtHdrDiff, isDark]);
+  const slots = [
+    { title: '1. VS + PS 字节码', sub: 'DXIL / SPIR-V', col: '#0ea5e9', hot: false },
+    { title: '2. 顶点输入布局', sub: 'Static / Skel / ISM', col: '#8b5cf6', hot: false },
+    { title: '3. Blend 混合状态', sub: blendDiff ? 'Opaque + Trans (×2)' : '仅 Opaque', col: blendDiff ? '#f59e0b' : '#10b981', hot: blendDiff },
+    { title: '4. Depth / Stencil', sub: '深度读写与比较规则', col: '#14b8a6', hot: false },
+    { title: '5. Rasterizer 光栅', sub: '双面/背面剔除/线框', col: '#6366f1', hot: false },
+    { title: '6. RenderTarget 格式', sub: rtHdrDiff ? 'GBuffer + HDR (×2)' : '单一 RT 格式', col: rtHdrDiff ? '#f59e0b' : '#10b981', hot: rtHdrDiff },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -322,17 +203,106 @@ const Stage11_4_PSO: React.FC<LessonStageProps> = ({
       <div
         style={{
           borderRadius: 12,
-          overflow: 'hidden',
           border: '1.5px solid var(--border-strong)',
           background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          userSelect: 'text',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          width={640}
-          height={284}
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        {/* Top Panel: Frame-Time Heartbeat Oscilloscope */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              📈 帧时间心跳示波器（当前事件：{meta.label}）
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 5,
+                background: isStutter ? 'var(--accent-coral)' : 'var(--accent-sage)',
+                color: isStutter ? 'var(--accent-coral-deep)' : 'var(--accent-sage-deep)',
+              }}
+            >
+              {isStutter ? `⚡ PSO 现场编译卡死 ${peakMs}ms!` : `✓ 峰值 ${peakMs}ms (丝滑无感)`}
+            </span>
+          </div>
+
+          <svg viewBox="0 0 600 106" style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="帧耗时示波器">
+            <line x1={plotL} y1={y60} x2={plotR} y2={y60} stroke="rgba(239,68,68,0.8)" strokeWidth="1.3" strokeDasharray="4 4" />
+            <text x="4" y={y60 + 3} fill="#ef4444" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)">16.7ms</text>
+            <text x="4" y={plotT + 8} fill="var(--text-muted)" fontSize="9.5" fontFamily="var(--font-mono)">{Math.round(maxMs)}ms</text>
+            <text x="16" y={plotB} fill="var(--text-muted)" fontSize="9.5" fontFamily="var(--font-mono)">0ms</text>
+
+            {Array.from({ length: frames }, (_, i) => {
+              let ms = 14.6 + Math.sin(i * 0.7) * 1.1 + (i % 3 === 0 ? 0.4 : 0);
+              if (i === spikeIdx) ms = peakMs;
+              else if (i === spikeIdx + 1 && isStutter) ms = Math.max(16, peakMs * 0.48);
+              else if (i === spikeIdx + 2 && isStutter) ms = Math.max(15.5, peakMs * 0.22);
+              const x = plotL + i * (barW + barGap);
+              const y = msToY(ms);
+              const h = Math.max(2, plotB - y);
+              const fill = ms > 28 ? '#ef4444' : ms > 16.67 ? '#f59e0b' : '#10b981';
+              return <rect key={i} x={x} y={y} width={barW} height={h} rx="1.5" fill={fill} />;
+            })}
+          </svg>
+        </div>
+
+        {/* Bottom Panel: 6-Slot PSO Anatomy */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+            📦 拆开一个不可变 PSO 快换模具：不只是 Shader，必须把 6 大管线状态焊死在一起！
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+              gap: 8,
+            }}
+          >
+            {slots.map((s) => (
+              <div
+                key={s.title}
+                style={{
+                  padding: '7px 9px',
+                  borderRadius: 7,
+                  background: 'var(--bg-subtle)',
+                  border: `${s.hot ? 1.8 : 1}px solid ${s.col}`,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>{s.title}</div>
+                <div style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', marginTop: 2 }}>
+                  {s.sub}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <StageSegmented<PsoTrigger>
@@ -474,14 +444,12 @@ const Stage11_5_ShaderDebug: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [bugType, setBugType] = useState<DebugBugType>('nan_div_zero');
   const [debugLine, setDebugLine] = useState<number>(2);
   const [isFixed, setIsFixed] = useState<boolean>(false);
   const [dumpSymbols, setDumpSymbols] = useState<boolean>(true);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const kpiRef = useRef(onKpiUpdate);
   kpiRef.current = onKpiUpdate;
   const prevStepRef = useRef(stepIndex);
@@ -556,196 +524,11 @@ const Stage11_5_ShaderDebug: React.FC<LessonStageProps> = ({
     ]);
   }, [info, debugLine, isFixed, dumpSymbols, curLine]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-
-    const bg = isDark ? '#11141b' : '#f8f6f1';
-    const card = isDark ? '#181c26' : '#ffffff';
-    const codeBg = isDark ? '#0d1017' : '#f3f1eb';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-    const border = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Left: Simulated Viewport + Pixel Crosshair + Pixel History
-    const leftW = 248;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(14, 14, leftW, H - 28, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11px "Noto Sans SC", sans-serif';
-    ctx.fillText(`🎯 RenderDoc 画面探针 ${info.pixelCoord}`, 24, 34);
-
-    // Mini viewport box
-    const vpX = 24;
-    const vpY = 44;
-    const vpW = leftW - 20;
-    const vpH = 92;
-    const grad = ctx.createLinearGradient(vpX, vpY, vpX + vpW, vpY + vpH);
-    grad.addColorStop(0, '#1e293b');
-    grad.addColorStop(1, '#334155');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(vpX, vpY, vpW, vpH, 7);
-    ctx.fill();
-
-    // Draw a stylized lit sphere in viewport
-    const cx = vpX + vpW * 0.5;
-    const cy = vpY + vpH * 0.52;
-    const rad = 34;
-    const sGrad = ctx.createRadialGradient(
-      cx - (bugType === 'tangent_space' && !isFixed ? 0 : 12),
-      cy - (bugType === 'tangent_space' && !isFixed ? 26 : 12),
-      4,
-      cx,
-      cy,
-      rad
-    );
-    if (bugType === 'bloom_blowout' && !isFixed) {
-      sGrad.addColorStop(0, '#ffffff');
-      sGrad.addColorStop(0.55, '#fef08a');
-      sGrad.addColorStop(1, 'rgba(250,204,21,0.2)');
-    } else {
-      sGrad.addColorStop(0, '#f8fafc');
-      sGrad.addColorStop(0.45, '#c28b5e');
-      sGrad.addColorStop(1, '#292524');
-    }
-    ctx.fillStyle = sGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, bugType === 'bloom_blowout' && !isFixed ? rad * 1.45 : rad, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Render NaN black spread square if nan_div_zero fault
-    if (bugType === 'nan_div_zero' && !isFixed) {
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(cx - 10, cy - 10, 22, 22);
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(cx - 10, cy - 10, 22, 22);
-    }
-
-    // Crosshair target
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx - 18, cy);
-    ctx.lineTo(cx + 18, cy);
-    ctx.moveTo(cx, cy - 18);
-    ctx.lineTo(cx, cy + 18);
-    ctx.stroke();
-
-    // Pixel History list below viewport
-    ctx.fillStyle = ink;
-    ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('📜 Pixel History（该像素一帧履历）', 24, 155);
-
-    info.history.forEach((h, i) => {
-      const hy = 165 + i * 26;
-      const isBad = !isFixed && h.alert;
-      ctx.fillStyle = isBad
-        ? isDark
-          ? 'rgba(239,68,68,0.18)'
-          : 'rgba(239,68,68,0.1)'
-        : codeBg;
-      ctx.beginPath();
-      ctx.roundRect(24, hy, vpW, 22, 5);
-      ctx.fill();
-
-      ctx.fillStyle = isBad ? '#ef4444' : muted;
-      ctx.font = '700 9px "JetBrains Mono", monospace';
-      ctx.fillText(h.pass, 29, hy + 10);
-      ctx.fillStyle = isBad ? '#ef4444' : ink;
-      ctx.font = '600 9px "JetBrains Mono", monospace';
-      ctx.fillText(isFixed ? h.outFixed : h.outBug, 29, hy + 20);
-    });
-
-    // Right: HLSL Step-by-Step Debugger + Variable Watch
-    const rightX = 274;
-    const rightW = W - rightX - 14;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.beginPath();
-    ctx.roundRect(rightX, 14, rightW, H - 28, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      dumpSymbols
-        ? '🐞 HLSL 源码级逐行单步调试（已带调试符号）'
-        : '⚠️ 无符号模式（只剩难懂的裸字节码寄存器）',
-      rightX + 12,
-      34
-    );
-
-    info.lines.forEach((ln, idx) => {
-      const ly = 46 + idx * 34;
-      const isCurrent = idx === debugLine;
-      const isCulpritNow = !isFixed && ln.isCulprit;
-
-      ctx.fillStyle = isCurrent
-        ? isCulpritNow
-          ? isDark
-            ? 'rgba(239,68,68,0.24)'
-            : 'rgba(239,68,68,0.14)'
-          : isDark
-          ? 'rgba(56,189,248,0.2)'
-          : 'rgba(56,189,248,0.13)'
-        : codeBg;
-      ctx.strokeStyle = isCurrent ? (isCulpritNow ? '#ef4444' : '#38bdf8') : 'transparent';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.roundRect(rightX + 12, ly, rightW - 24, 30, 6);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = isCurrent ? (isCulpritNow ? '#ef4444' : '#38bdf8') : muted;
-      ctx.font = '700 9.5px "JetBrains Mono", monospace';
-      ctx.fillText(isCurrent ? `▶ L${idx + 1}` : `  L${idx + 1}`, rightX + 18, ly + 13);
-
-      ctx.fillStyle = ink;
-      ctx.font = '500 9.6px "JetBrains Mono", monospace';
-      const displayCode = dumpSymbols
-        ? ln.code
-        : `op_${idx * 4 + 2} %r${idx + 1}, %r${idx}, #imm ; <no symbol>`;
-      ctx.fillText(displayCode, rightX + 52, ly + 13);
-
-      ctx.fillStyle = isCulpritNow ? '#ef4444' : isFixed ? '#10b981' : '#f59e0b';
-      ctx.font = '700 9.2px "JetBrains Mono", monospace';
-      ctx.fillText(`Watch → ${isFixed ? ln.watchFixed : ln.watchBug}`, rightX + 52, ly + 25);
-    });
-
-    // Bottom Fix Box inside right panel
-    ctx.fillStyle = isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.09)';
-    ctx.beginPath();
-    ctx.roundRect(rightX + 12, 222, rightW - 24, 42, 7);
-    ctx.fill();
-    ctx.fillStyle = isDark ? '#6ee7b7' : '#047857';
-    ctx.font = '700 10px "Noto Sans SC", sans-serif';
-    ctx.fillText('🩺 处方：' + info.fixSummary.slice(0, 32), rightX + 20, 239);
-    ctx.fillText(info.fixSummary.slice(32), rightX + 20, 255);
-  }, [bugType, info, debugLine, isFixed, dumpSymbols, isDark]);
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <PitfallCompareBar
         isPitfall={!isFixed}
-        pitfallLabel={`故障复现中：${info.label}（在右侧逐行单步，一眼揪出红色真凶行！）`}
+        pitfallLabel={`故障复现中：${info.label}（点击右侧任意代码行即可单步定位红色真凶！）`}
         correctLabel="已按调试结论修复：数值与 GBuffer/HDR 输出完全恢复健康！"
         onToggle={(p) => setIsFixed(!p)}
       />
@@ -753,17 +536,199 @@ const Stage11_5_ShaderDebug: React.FC<LessonStageProps> = ({
       <div
         style={{
           borderRadius: 12,
-          overflow: 'hidden',
           border: '1.5px solid var(--border-strong)',
           background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(255px, 1fr))',
+          gap: 10,
+          userSelect: 'text',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          width={640}
-          height={284}
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        {/* Left: Viewport Probe + Pixel History */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+            🎯 RenderDoc 画面探针 <code style={{ fontFamily: 'var(--font-mono)' }}>{info.pixelCoord}</code>
+          </div>
+
+          <svg viewBox="0 0 240 96" style={{ width: '100%', height: 'auto', borderRadius: 7, display: 'block' }} role="img" aria-label="RenderDoc 视口像素探针">
+            <defs>
+              <linearGradient id="rdocBg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#1e293b" />
+                <stop offset="100%" stopColor="#334155" />
+              </linearGradient>
+              <radialGradient
+                id="rdocSphere"
+                cx={bugType === 'tangent_space' && !isFixed ? '50%' : '35%'}
+                cy={bugType === 'tangent_space' && !isFixed ? '16%' : '34%'}
+                r="65%"
+              >
+                {bugType === 'bloom_blowout' && !isFixed ? (
+                  <>
+                    <stop offset="0%" stopColor="#ffffff" />
+                    <stop offset="55%" stopColor="#fef08a" />
+                    <stop offset="100%" stopColor="rgba(250,204,21,0.22)" />
+                  </>
+                ) : (
+                  <>
+                    <stop offset="0%" stopColor="#f8fafc" />
+                    <stop offset="46%" stopColor="#c28b5e" />
+                    <stop offset="100%" stopColor="#292524" />
+                  </>
+                )}
+              </radialGradient>
+            </defs>
+            <rect width="240" height="96" fill="url(#rdocBg)" />
+            <circle
+              cx="120"
+              cy="49"
+              r={bugType === 'bloom_blowout' && !isFixed ? 46 : 33}
+              fill="url(#rdocSphere)"
+            />
+            {bugType === 'nan_div_zero' && !isFixed && (
+              <rect x="109" y="38" width="22" height="22" fill="#000000" stroke="#ef4444" strokeWidth="1.4" />
+            )}
+            <line x1="100" y1="49" x2="140" y2="49" stroke="#38bdf8" strokeWidth="1.2" />
+            <line x1="120" y1="29" x2="120" y2="69" stroke="#38bdf8" strokeWidth="1.2" />
+          </svg>
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>
+            📜 Pixel History（该像素一帧履历）
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {info.history.map((h) => {
+              const isBad = !isFixed && h.alert;
+              return (
+                <div
+                  key={h.pass}
+                  style={{
+                    padding: '5px 8px',
+                    borderRadius: 6,
+                    background: isBad ? 'var(--accent-coral)' : 'var(--bg-code)',
+                    border: isBad ? '1px solid var(--accent-coral-border)' : '1px solid transparent',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10.5,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: isBad ? 'var(--accent-coral-deep)' : 'var(--text-muted)' }}>
+                    {h.pass}
+                  </div>
+                  <div style={{ fontWeight: 600, color: isBad ? 'var(--accent-coral-deep)' : 'var(--text-primary)' }}>
+                    {isFixed ? h.outFixed : h.outBug}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right: Clickable HLSL Step-by-Step Debugger */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+            {dumpSymbols
+              ? '🐞 HLSL 源码级逐行单步调试（点击代码行可跳转）'
+              : '⚠️ 无符号模式（只剩难懂的裸字节码寄存器）'}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+            {info.lines.map((ln, idx) => {
+              const isCurrent = idx === debugLine;
+              const isCulpritNow = !isFixed && ln.isCulprit;
+              const displayCode = dumpSymbols
+                ? ln.code
+                : `op_${idx * 4 + 2} %r${idx + 1}, %r${idx}, #imm ; <no symbol>`;
+
+              return (
+                <div
+                  key={idx}
+                  onClick={() => setDebugLine(idx)}
+                  style={{
+                    padding: '6px 8px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: isCurrent
+                      ? isCulpritNow
+                        ? 'var(--accent-coral)'
+                        : 'var(--accent-sky)'
+                      : 'var(--bg-code)',
+                    border: `1.5px solid ${
+                      isCurrent ? (isCulpritNow ? '#ef4444' : '#0ea5e9') : 'transparent'
+                    }`,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10.5,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        color: isCurrent ? (isCulpritNow ? '#ef4444' : '#0284c7') : 'var(--text-muted)',
+                        minWidth: 32,
+                      }}
+                    >
+                      {isCurrent ? `▶ L${idx + 1}` : `L${idx + 1}`}
+                    </span>
+                    <code style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{displayCode}</code>
+                  </div>
+                  <div
+                    style={{
+                      marginLeft: 40,
+                      marginTop: 2,
+                      fontWeight: 700,
+                      fontSize: 10.2,
+                      color: isCulpritNow
+                        ? 'var(--accent-coral-deep)'
+                        : isFixed
+                        ? 'var(--accent-sage-deep)'
+                        : 'var(--accent-amber-deep)',
+                    }}
+                  >
+                    Watch → {isFixed ? ln.watchFixed : ln.watchBug}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              padding: '8px 10px',
+              borderRadius: 7,
+              background: 'var(--accent-sage)',
+              color: 'var(--accent-sage-deep)',
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: 1.5,
+            }}
+          >
+            🩺 处方：{info.fixSummary}
+          </div>
+        </div>
       </div>
 
       <StageSegmented<DebugBugType>
@@ -813,14 +778,12 @@ const Stage11_6_HardwareOpt: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [branchSplit, setBranchSplit] = useState<number>(4); // 0..8 columns in 8x4 Warp
   const [vgprPerThread, setVgprPerThread] = useState<number>(48); // 16..96
   const [branchMode, setBranchMode] = useState<BranchStrategy>('dynamic_if');
   const [useFastMath, setUseFastMath] = useState<boolean>(false);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const kpiRef = useRef(onKpiUpdate);
   kpiRef.current = onKpiUpdate;
   const prevStepRef = useRef(stepIndex);
@@ -866,13 +829,10 @@ const Stage11_6_HardwareOpt: React.FC<LessonStageProps> = ({
     setUseFastMath(false);
   }, [resetSignal]);
 
-  // 8x4 = 32-thread Warp
   const isDivergent = branchMode === 'dynamic_if' && branchSplit > 0 && branchSplit < 8;
-  // Hardware SM/CU register file teaching model: 256 VGPR budget shared across active Waves (max 8 waves)
   const activeWaves = Math.max(1, Math.min(8, Math.floor(256 / vgprPerThread)));
   const occupancyPct = Math.round((activeWaves / 8) * 100);
 
-  // Latency hiding efficiency: needs >=4 waves to hide ~300-cycle texture fetch latency
   const latencyPenalty = activeWaves >= 6 ? 1.0 : activeWaves >= 4 ? 1.15 : activeWaves >= 2 ? 1.48 : 2.1;
   const branchCycles =
     branchMode === 'static_switch'
@@ -880,8 +840,8 @@ const Stage11_6_HardwareOpt: React.FC<LessonStageProps> = ({
       : branchMode === 'lerp_alu'
       ? 32
       : isDivergent
-      ? 56 // Runs BOTH True + False path sequentially!
-      : 28; // Coherent Warp skips the unused branch!
+      ? 56
+      : 28;
   const mathFactor = useFastMath ? 0.72 : 1.0;
   const estPixelCycles = Math.round(branchCycles * mathFactor * latencyPenalty);
 
@@ -935,207 +895,6 @@ const Stage11_6_HardwareOpt: React.FC<LessonStageProps> = ({
     useFastMath,
   ]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-
-    const bg = isDark ? '#11141b' : '#f8f6f1';
-    const card = isDark ? '#181c26' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-    const border = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Left Panel: 8x4 (32-Thread) Warp Lockstep Grid
-    const leftW = 304;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(14, 14, leftW, H - 28, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11.2px "Noto Sans SC", sans-serif';
-    ctx.fillText('👥 1 个 GPU Warp（32 名像素小学生锁步方阵）', 24, 34);
-
-    const cell = 31;
-    const gap = 4;
-    const gx0 = 26;
-    const gy0 = 46;
-
-    for (let r = 0; r < 4; r++) {
-      for (let c = 0; c < 8; c++) {
-        const x = gx0 + c * (cell + gap);
-        const y = gy0 + r * (cell + gap);
-        const isPathA = c < branchSplit;
-
-        let fill = '#38bdf8';
-        let label = 'A';
-        if (branchMode === 'static_switch') {
-          fill = '#10b981';
-          label = '✓';
-        } else if (branchMode === 'lerp_alu') {
-          fill = '#8b5cf6';
-          label = 'L';
-        } else {
-          fill = isPathA ? '#38bdf8' : '#f59e0b';
-          label = isPathA ? 'A' : 'B';
-        }
-
-        ctx.fillStyle = fill;
-        ctx.beginPath();
-        ctx.roundRect(x, y, cell, cell, 5);
-        ctx.fill();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '700 11px "JetBrains Mono", monospace';
-        ctx.fillText(label, x + 11, y + 19);
-      }
-    }
-
-    // Draw split line if dynamic_if
-    if (branchMode === 'dynamic_if' && branchSplit > 0 && branchSplit < 8) {
-      const splitX = gx0 + branchSplit * (cell + gap) - gap / 2;
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(splitX, gy0 - 4);
-      ctx.lineTo(splitX, gy0 + 4 * (cell + gap));
-      ctx.stroke();
-    }
-
-    // Warp execution timeline bar
-    const barY = 198;
-    ctx.fillStyle = muted;
-    ctx.font = '600 10px "Noto Sans SC", sans-serif';
-    ctx.fillText('锁步执行时间轴：', 26, barY + 4);
-
-    if (isDivergent) {
-      ctx.fillStyle = '#38bdf8';
-      ctx.beginPath();
-      ctx.roundRect(26, barY + 12, 134, 22, 5);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = '700 9.5px "Noto Sans SC", sans-serif';
-      ctx.fillText('算分支 A (B组干等)', 34, barY + 26);
-
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.roundRect(164, barY + 12, 138, 22, 5);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.fillText('+ 再算分支 B (A组干等!)', 170, barY + 26);
-    } else {
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath();
-      ctx.roundRect(26, barY + 12, 150, 22, 5);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = '700 9.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(
-        branchMode === 'static_switch'
-          ? '单路直通（编译已剪枝）'
-          : branchMode === 'lerp_alu'
-          ? '无分支短算术一次走完'
-          : '全员齐步单路跳过空分支!',
-        34,
-        barY + 26
-      );
-    }
-
-    ctx.fillStyle = isDivergent ? '#ef4444' : muted;
-    ctx.font = '600 10px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      isDivergent
-        ? '⚠️ 同一方阵跨过分支边界 = 两条路耗时相加！'
-        : '✓ 无线程发散，32 线程算力全部用在刀刃上。',
-      26,
-      barY + 53
-    );
-
-    // Right Panel: VGPR Register File & Active Wave Occupancy
-    const rx = 330;
-    const rw = W - rx - 14;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.beginPath();
-    ctx.roundRect(rx, 14, rw, H - 28, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11.2px "Noto Sans SC", sans-serif';
-    ctx.fillText('🗂️ 寄存器草稿纸 (VGPR) 与 SM 活跃小队槽位', rx + 12, 34);
-
-    // Draw 8 SM Wavefront slots
-    for (let w = 0; w < 8; w++) {
-      const sy = 46 + w * 21;
-      const active = w < activeWaves;
-      ctx.fillStyle = active
-        ? activeWaves >= 4
-          ? isDark
-            ? 'rgba(16,185,129,0.22)'
-            : 'rgba(16,185,129,0.14)'
-          : isDark
-          ? 'rgba(239,68,68,0.22)'
-          : 'rgba(239,68,68,0.14)'
-        : isDark
-        ? 'rgba(255,255,255,0.04)'
-        : 'rgba(23,22,20,0.04)';
-      ctx.strokeStyle = active ? (activeWaves >= 4 ? '#10b981' : '#ef4444') : border;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(rx + 12, sy, rw - 24, 17, 4);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = active ? ink : muted;
-      ctx.font = '600 9.5px "JetBrains Mono", monospace';
-      ctx.fillText(
-        active
-          ? `Wave #${w + 1} · 驻留活跃 (占 ${vgprPerThread} VGPR)`
-          : `Wave #${w + 1} · 🚫 草稿纸满，被迫排队空置!`,
-        rx + 20,
-        sy + 12
-      );
-    }
-
-    // Bottom math optimization comparison badge
-    ctx.fillStyle = isDark ? 'rgba(56,189,248,0.1)' : 'rgba(56,189,248,0.09)';
-    ctx.beginPath();
-    ctx.roundRect(rx + 12, 218, rw - 24, 44, 7);
-    ctx.fill();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 10px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      useFastMath
-        ? '⚡ 数学瘦身已开：x*x 替 pow(x,2) · 标量前置 · Half 精度'
-        : '🐢 新手高耗写法：pow(x,2) + 嵌套 sin + 多次重复采样',
-      rx + 20,
-      235
-    );
-    ctx.fillStyle = muted;
-    ctx.font = '600 9.5px "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      activeWaves >= 4
-        ? '活跃小队充足：A 队等贴图时秒切 B/C/D 队算，延迟完美隐藏！'
-        : '⚠️ 仅剩极少小队：一读贴图全员干等几百周期，GPU 算力大面积闲置！',
-      rx + 20,
-      253
-    );
-  }, [branchSplit, vgprPerThread, branchMode, isDivergent, activeWaves, useFastMath, isDark]);
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <PitfallCompareBar
@@ -1160,17 +919,219 @@ const Stage11_6_HardwareOpt: React.FC<LessonStageProps> = ({
       <div
         style={{
           borderRadius: 12,
-          overflow: 'hidden',
           border: '1.5px solid var(--border-strong)',
           background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(265px, 1fr))',
+          gap: 10,
+          userSelect: 'text',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          width={640}
-          height={284}
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        {/* Left: 8x4 Warp Lockstep Grid */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+            👥 1 个 GPU Warp（32 名像素小学生锁步方阵）
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(8, 1fr)',
+              gap: 4,
+              position: 'relative',
+            }}
+          >
+            {Array.from({ length: 32 }, (_, idx) => {
+              const col = idx % 8;
+              const isPathA = col < branchSplit;
+              let fill = '#0ea5e9';
+              let label = 'A';
+              if (branchMode === 'static_switch') {
+                fill = '#10b981';
+                label = '✓';
+              } else if (branchMode === 'lerp_alu') {
+                fill = '#8b5cf6';
+                label = 'L';
+              } else {
+                fill = isPathA ? '#0ea5e9' : '#f59e0b';
+                label = isPathA ? 'A' : 'B';
+              }
+              const isEdgeLeft = isDivergent && col === branchSplit - 1;
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    height: 30,
+                    borderRadius: 5,
+                    background: fill,
+                    color: '#ffffff',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: isEdgeLeft ? '2px 0 0 0 #ef4444' : 'none',
+                  }}
+                >
+                  {label}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+            锁步执行时间轴：
+          </div>
+          {isDivergent ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+              <div
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: 5,
+                  background: '#0ea5e9',
+                  color: '#fff',
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  textAlign: 'center',
+                }}
+              >
+                算分支 A (B组干等)
+              </div>
+              <div
+                style={{
+                  padding: '5px 8px',
+                  borderRadius: 5,
+                  background: '#ef4444',
+                  color: '#fff',
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  textAlign: 'center',
+                }}
+              >
+                + 再算分支 B (A组干等!)
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '5px 10px',
+                borderRadius: 5,
+                background: '#10b981',
+                color: '#fff',
+                fontSize: 10.5,
+                fontWeight: 700,
+              }}
+            >
+              {branchMode === 'static_switch'
+                ? '单路直通（编译已剪枝）'
+                : branchMode === 'lerp_alu'
+                ? '无分支短算术一次走完'
+                : '全员齐步单路跳过空分支!'}
+            </div>
+          )}
+
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: isDivergent ? 'var(--accent-coral-deep)' : 'var(--text-secondary)',
+            }}
+          >
+            {isDivergent
+              ? '⚠️ 同一方阵跨过分支边界 = 两条路耗时相加！'
+              : '✓ 无线程发散，32 线程算力全部用在刀刃上。'}
+          </div>
+        </div>
+
+        {/* Right: VGPR Register File & Active Wave Occupancy */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+            🗂️ 寄存器草稿纸 (VGPR) 与 SM 活跃小队槽位
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {Array.from({ length: 8 }, (_, w) => {
+              const active = w < activeWaves;
+              const healthy = activeWaves >= 4;
+              return (
+                <div
+                  key={w}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 5,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10.2,
+                    fontWeight: 600,
+                    background: active
+                      ? healthy
+                        ? 'var(--accent-sage)'
+                        : 'var(--accent-coral)'
+                      : 'var(--bg-subtle)',
+                    border: `1px solid ${
+                      active ? (healthy ? '#10b981' : '#ef4444') : 'var(--border-soft)'
+                    }`,
+                    color: active
+                      ? healthy
+                        ? 'var(--accent-sage-deep)'
+                        : 'var(--accent-coral-deep)'
+                      : 'var(--text-muted)',
+                  }}
+                >
+                  {active
+                    ? `Wave #${w + 1} · 驻留活跃 (占 ${vgprPerThread} VGPR)`
+                    : `Wave #${w + 1} · 🚫 草稿纸满，被迫排队空置!`}
+                </div>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              marginTop: 2,
+              padding: '7px 9px',
+              borderRadius: 7,
+              background: 'var(--accent-sky)',
+              color: 'var(--accent-sky-deep)',
+              fontSize: 10.5,
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ fontWeight: 700 }}>
+              {useFastMath
+                ? '⚡ 数学瘦身已开：x*x 替 pow(x,2) · 标量前置 · Half 精度'
+                : '🐢 新手高耗写法：pow(x,2) + 嵌套 sin + 多次重复采样'}
+            </div>
+            <div>
+              {activeWaves >= 4
+                ? '活跃小队充足：A 队等贴图时秒切 B/C/D 队算，延迟完美隐藏！'
+                : '⚠️ 仅剩极少小队：一读贴图全员干等几百周期，GPU 算力大面积闲置！'}
+            </div>
+          </div>
+        </div>
       </div>
 
       <StageSegmented<BranchStrategy>

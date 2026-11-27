@@ -21,7 +21,6 @@ const Stage11_1_ShaderCompile: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [usageSkeletal, setUsageSkeletal] = useState<boolean>(true);
   const [usageInstanced, setUsageInstanced] = useState<boolean>(true);
@@ -32,7 +31,6 @@ const Stage11_1_ShaderCompile: React.FC<LessonStageProps> = ({
   const [backend, setBackend] = useState<CompileBackend>('scw16');
   const [isPitfall, setIsPitfall] = useState<boolean>(false);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const kpiRef = useRef(onKpiUpdate);
   kpiRef.current = onKpiUpdate;
   const prevStepRef = useRef(stepIndex);
@@ -110,15 +108,12 @@ const Stage11_1_ShaderCompile: React.FC<LessonStageProps> = ({
   const effQuality = isPitfall ? 3 : qualityTiers;
   const effBackend: CompileBackend = isPitfall ? 'scw16' : backend;
 
-  // Realistic educational permutation math:
-  // Base StaticMesh VF = 2 (LocalVF + Nanite/GPUScene), each extra Usage adds VFs
   const vfCount =
     2 +
     (effSkel ? 2 : 0) +
     (effInst ? 1 : 0) +
     (effNiag ? 2 : 0) +
     (effSpln ? 1 : 0);
-  // Base passes per VF (Depth, BasePass, ShadowDepth, Velocity, HitProxy, Lightmap/Lumen)
   const passesPerVf = 7;
   const switchCombos = Math.pow(2, effSwitches);
   const totalShaders = vfCount * passesPerVf * effQuality * switchCombos;
@@ -162,176 +157,22 @@ const Stage11_1_ShaderCompile: React.FC<LessonStageProps> = ({
     ]);
   }, [totalShaders, vfCount, effQuality, switchCombos, compileSec, effBackend, effSwitches, shaderMapMB]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const stages = [
+    { title: '1. 材质节点图', sub: '1 份 .uasset', col: '#0ea5e9' },
+    { title: '2. HLSL 翻译', sub: 'MaterialTemplate.ush', col: '#8b5cf6' },
+    { title: '3. 变体乘法展开', sub: `${totalShaders.toLocaleString()} 份`, col: totalShaders > 1500 ? '#ef4444' : '#f59e0b' },
+    { title: '4. 并发编译', sub: effBackend === 'uba' ? 'UBA 农场' : effBackend === 'scw16' ? 'SCW ×16' : '单核 ×1', col: '#10b981' },
+    { title: '5. ShaderMap', sub: `${shaderMapMB} MB`, col: '#14b8a6' },
+  ];
 
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
+  const factors = [
+    { label: 'VertexFactory (网格卡车)', val: `${vfCount} 类`, pct: (vfCount / 8) * 100, col: '#38bdf8' },
+    { label: 'Render Passes (渲染工序)', val: `${passesPerVf} 个`, pct: 72, col: '#8b5cf6' },
+    { label: 'Quality Tiers (画质档位)', val: `${effQuality} 档`, pct: (effQuality / 3) * 100, col: '#14b8a6' },
+    { label: `Static Switch (2^${effSwitches} 指数!)`, val: `${switchCombos} 倍`, pct: Math.min(100, (effSwitches / 6) * 100), col: effSwitches >= 4 ? '#ef4444' : '#f59e0b' },
+  ];
 
-    const bg = isDark ? '#11141b' : '#f8f6f1';
-    const card = isDark ? '#181c26' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-    const border = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.13)';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Top Pipeline: Graph -> HLSL -> Permutation Matrix -> SCW/UBA -> ShaderMap
-    const stages = [
-      { title: '1. 材质节点图', sub: '1 份 .uasset', col: '#0ea5e9' },
-      { title: '2. HLSL 翻译', sub: 'MaterialTemplate', col: '#8b5cf6' },
-      { title: '3. 变体乘法展开', sub: `${totalShaders.toLocaleString()} 份`, col: totalShaders > 1500 ? '#ef4444' : '#f59e0b' },
-      { title: '4. 并发编译', sub: effBackend === 'uba' ? 'UBA 农场' : effBackend === 'scw16' ? 'SCW ×16' : '单核 ×1', col: '#10b981' },
-      { title: '5. ShaderMap', sub: `${shaderMapMB} MB`, col: '#14b8a6' },
-    ];
-
-    const boxW = 108;
-    const boxH = 54;
-    const gap = 16;
-    const startX = 18;
-    const topY = 16;
-
-    stages.forEach((st, idx) => {
-      const x = startX + idx * (boxW + gap);
-      ctx.fillStyle = card;
-      ctx.strokeStyle = st.col;
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.roundRect(x, topY, boxW, boxH, 8);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = st.col;
-      ctx.fillRect(x, topY, boxW, 5);
-
-      ctx.fillStyle = ink;
-      ctx.font = '700 11px "Noto Sans SC", sans-serif';
-      ctx.fillText(st.title, x + 8, topY + 24);
-      ctx.fillStyle = muted;
-      ctx.font = '600 10.5px "JetBrains Mono", monospace';
-      ctx.fillText(st.sub, x + 8, topY + 42);
-
-      if (idx < stages.length - 1) {
-        const ax = x + boxW + 2;
-        const ay = topY + boxH / 2;
-        ctx.strokeStyle = muted;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(ax + gap - 5, ay);
-        ctx.stroke();
-        ctx.fillStyle = muted;
-        ctx.beginPath();
-        ctx.moveTo(ax + gap - 2, ay);
-        ctx.lineTo(ax + gap - 8, ay - 4);
-        ctx.lineTo(ax + gap - 8, ay + 4);
-        ctx.closePath();
-        ctx.fill();
-      }
-    });
-
-    // Bottom Left: 3-Line Node <-> HLSL Demystifier Card
-    const botY = 86;
-    const leftW = 296;
-    const panelH = H - botY - 14;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(16, botY, leftW, panelH, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('🔍 消除神秘感：材质节点本质就是 HLSL 代码', 26, botY + 22);
-
-    // Mini Node -> Code mapping
-    const codeBg = isDark ? '#0d1017' : '#f3f1eb';
-    ctx.fillStyle = codeBg;
-    ctx.beginPath();
-    ctx.roundRect(26, botY + 32, leftW - 20, 102, 7);
-    ctx.fill();
-
-    const codeLines = [
-      { tag: '// 节点: BaseColor × Tint + Lerp', col: '#64748b' },
-      { tag: 'float3 c = Texture2DSample(Tex, S, UV).rgb;', col: '#38bdf8' },
-      { tag: 'float3 lit = c * Material.VectorExpressions[0];', col: '#a78bfa' },
-      { tag: '#if USE_SNOW_SWITCH  // 静态开关→宏裁剪', col: '#f59e0b' },
-      { tag: '  lit = lerp(lit, float3(0.82,0.82,0.82), Mask);', col: '#34d399' },
-      { tag: '#endif', col: '#f59e0b' },
-    ];
-    ctx.font = '500 10px "JetBrains Mono", monospace';
-    codeLines.forEach((line, i) => {
-      ctx.fillStyle = line.col;
-      ctx.fillText(line.tag, 34, botY + 48 + i * 15);
-    });
-
-    ctx.fillStyle = muted;
-    ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('图形 API 分工：引擎产出 HLSL → DX12/Vulkan', 26, botY + 153);
-    ctx.fillText('→ 显卡驱动翻译成硬件机器码交给 GPU 执行。', 26, botY + 170);
-
-    // Bottom Right: Permutation Explosion Matrix Visualizer
-    const rightX = 326;
-    const rightW = W - rightX - 16;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = border;
-    ctx.beginPath();
-    ctx.roundRect(rightX, botY, rightW, panelH, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('💥 为什么 1 个材质球会炸出成百上千个 Shader？', rightX + 12, botY + 22);
-
-    const factors = [
-      { label: 'VertexFactory (网格卡车)', val: `${vfCount} 类`, ratio: vfCount / 8, col: '#38bdf8' },
-      { label: 'Render Passes (渲染工序)', val: `${passesPerVf} 个`, ratio: 0.72, col: '#8b5cf6' },
-      { label: 'Quality Tiers (画质档位)', val: `${effQuality} 档`, ratio: effQuality / 3, col: '#14b8a6' },
-      { label: `Static Switch (2^${effSwitches} 指数!)`, val: `${switchCombos} 倍`, ratio: Math.min(1, effSwitches / 6), col: effSwitches >= 4 ? '#ef4444' : '#f59e0b' },
-    ];
-
-    factors.forEach((f, idx) => {
-      const y = botY + 38 + idx * 30;
-      ctx.fillStyle = muted;
-      ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(f.label, rightX + 12, y + 10);
-      ctx.fillStyle = ink;
-      ctx.font = '700 10.5px "JetBrains Mono", monospace';
-      ctx.fillText(f.val, rightX + rightW - 56, y + 10);
-
-      ctx.fillStyle = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(23,22,20,0.08)';
-      ctx.beginPath();
-      ctx.roundRect(rightX + 12, y + 15, rightW - 24, 8, 4);
-      ctx.fill();
-
-      ctx.fillStyle = f.col;
-      ctx.beginPath();
-      ctx.roundRect(rightX + 12, y + 15, Math.max(8, (rightW - 24) * f.ratio), 8, 4);
-      ctx.fill();
-    });
-
-    // Bottom status pill inside right panel
-    const statusCol = totalShaders <= 320 ? '#10b981' : totalShaders <= 1500 ? '#f59e0b' : '#ef4444';
-    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(23,22,20,0.04)';
-    ctx.beginPath();
-    ctx.roundRect(rightX + 12, botY + 158, rightW - 24, 24, 6);
-    ctx.fill();
-    ctx.fillStyle = statusCol;
-    ctx.font = '700 11px "JetBrains Mono", monospace';
-    ctx.fillText(
-      `Compiling Shaders (${totalShaders.toLocaleString()}) · ≈ ${compileSec}s`,
-      rightX + 20,
-      botY + 174
-    );
-  }, [totalShaders, vfCount, effQuality, effSwitches, switchCombos, effBackend, compileSec, shaderMapMB, isDark]);
+  const statusTone = totalShaders <= 320 ? '#10b981' : totalShaders <= 1500 ? '#f59e0b' : '#ef4444';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -345,17 +186,184 @@ const Stage11_1_ShaderCompile: React.FC<LessonStageProps> = ({
       <div
         style={{
           borderRadius: 12,
-          overflow: 'hidden',
           border: '1.5px solid var(--border-strong)',
           background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          userSelect: 'text',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          width={640}
-          height={284}
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        {/* Top 5-Stage Pipeline */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: 6 }}>
+          {stages.map((st, idx) => (
+            <React.Fragment key={st.title}>
+              <div
+                style={{
+                  flex: '1 1 106px',
+                  minWidth: 0,
+                  background: 'var(--bg-card)',
+                  border: `1.5px solid ${st.col}`,
+                  borderTopWidth: 4,
+                  borderRadius: 8,
+                  padding: '8px 9px',
+                }}
+              >
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.35 }}>
+                  {st.title}
+                </div>
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--text-secondary)',
+                    marginTop: 4,
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {st.sub}
+                </div>
+              </div>
+              {idx < stages.length - 1 && (
+                <div
+                  aria-hidden
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: 'var(--text-muted)',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    userSelect: 'none',
+                  }}
+                >
+                  →
+                </div>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* Bottom 2-Column Panel */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {/* Left: Node <-> HLSL Code Card */}
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-strong)',
+              borderRadius: 10,
+              padding: 11,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              minWidth: 0,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              🔍 消除神秘感：材质节点本质就是 HLSL 代码
+            </div>
+            <pre
+              style={{
+                margin: 0,
+                padding: '9px 10px',
+                borderRadius: 7,
+                background: 'var(--bg-code)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                lineHeight: 1.55,
+                overflowX: 'auto',
+                whiteSpace: 'pre',
+              }}
+            >
+              <span style={{ color: 'var(--text-muted)' }}>{'// 节点: BaseColor × Tint + Lerp\n'}</span>
+              <span style={{ color: '#0284c7' }}>{'float3 c = Texture2DSample(Tex, S, UV).rgb;\n'}</span>
+              <span style={{ color: '#7c3aed' }}>{'float3 lit = c * Material.VectorExpressions[0];\n'}</span>
+              <span style={{ color: '#d97706' }}>{'#if USE_SNOW_SWITCH  // 静态开关→宏裁剪\n'}</span>
+              <span style={{ color: '#059669' }}>{'  lit = lerp(lit, float3(0.82, 0.82, 0.82), Mask);\n'}</span>
+              <span style={{ color: '#d97706' }}>{'#endif'}</span>
+            </pre>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+              图形 API 分工：引擎产出 HLSL → DX12 / Vulkan / Metal 标准字节码 → 显卡驱动翻译成硬件机器码交给 GPU 执行。
+            </div>
+          </div>
+
+          {/* Right: Permutation Explosion Matrix */}
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-strong)',
+              borderRadius: 10,
+              padding: 11,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              minWidth: 0,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              💥 为什么 1 个材质球会炸出成百上千个 Shader？
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, flex: 1 }}>
+              {factors.map((f) => (
+                <div key={f.label}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      fontSize: 11,
+                      marginBottom: 3,
+                    }}
+                  >
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{f.label}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {f.val}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: 8,
+                      borderRadius: 4,
+                      background: 'var(--bg-subtle)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.max(5, f.pct)}%`,
+                        height: '100%',
+                        background: f.col,
+                        borderRadius: 4,
+                        transition: 'width 0.2s ease',
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                padding: '6px 10px',
+                borderRadius: 6,
+                background: 'var(--bg-subtle)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: statusTone,
+              }}
+            >
+              Compiling Shaders ({totalShaders.toLocaleString()}) · ≈ {compileSec}s
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="stage-controls-grid">
@@ -452,14 +460,12 @@ const Stage11_2_ShaderIR: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [platform, setPlatform] = useState<IrPlatform>('dx12');
   const [optimizeOn, setOptimizeOn] = useState<boolean>(true);
   const [includeDeadBranch, setIncludeDeadBranch] = useState<boolean>(true);
   const [focusStage, setFocusStage] = useState<IrStageTab>('all');
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const kpiRef = useRef(onKpiUpdate);
   kpiRef.current = onKpiUpdate;
   const prevStepRef = useRef(stepIndex);
@@ -550,185 +556,66 @@ const Stage11_2_ShaderIR: React.FC<LessonStageProps> = ({
     ]);
   }, [irFormat, isaTarget, finalInstr, optimizeOn, savedPct, vgprCount]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-
-    const bg = isDark ? '#11141b' : '#f8f6f1';
-    const card = isDark ? '#181c26' : '#ffffff';
-    const codeBg = isDark ? '#0d1017' : '#f3f1eb';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    const cols = [
-      {
-        key: 'frontend' as const,
-        title: '① 引擎前端 (Material / HLSL)',
-        badge: 'UE 编辑器 · MIR / HLSL',
-        accent: '#38bdf8',
-        lines: [
-          { t: 'c = 0.5 * 2.0; // 常量表达式', dim: false },
-          { t: 'rough = RoughMap.g * c;', dim: false },
-          {
-            t: includeDeadBranch ? 'unused = sin(UV.x * 9.0);' : '// 无多余死节点',
-            dim: includeDeadBranch && optimizeOn,
-          },
-          { t: 'spec = pow(NdotH, 2.0);', dim: false },
-          { t: 'Out.Rough = saturate(rough);', dim: false },
-        ],
-      },
-      {
-        key: 'bytecode' as const,
-        title: `② 跨硬件字节码 (${platform === 'dx12' ? 'DXIL' : platform === 'vulkan' ? 'SPIR-V' : 'AIR'})`,
-        badge: 'DXC 输出 · 写入 DDC 与包体',
-        accent: '#a855f7',
-        lines: optimizeOn
-          ? [
-              { t: '; 常量折叠: 0.5*2.0 → 1.0', dim: false },
-              { t: '; DCE 删掉未连线的 sin()', dim: false },
-              { t: '%1 = call dx.op.sample(%tex)', dim: false },
-              { t: '%2 = fmul fast %nh, %nh', dim: false },
-              { t: '%3 = call dx.op.saturate(%1)', dim: false },
-            ]
-          : [
-              { t: '; 未优化 (Debug 模式)', dim: false },
-              { t: '%0 = fmul float 0.5, 2.0', dim: false },
-              { t: '%dead = call dx.op.sin(%u9)', dim: false },
-              { t: '%1 = fmul %tex_g, %0', dim: false },
-              { t: '%2 = call dx.op.pow(%nh, 2.0)', dim: false },
-            ],
-      },
-      {
-        key: 'isa' as const,
-        title: '③ GPU 硬件机器码 (ISA)',
-        badge: '显卡驱动在玩家电脑编译',
-        accent: '#10b981',
-        lines: optimizeOn
-          ? [
-              { t: 'SAMPLE   v0, v[2:3], s[0:7]', dim: false },
-              { t: 'V_MUL_F32 v1, v4, v4  ; x*x', dim: false },
-              { t: 'V_MED3_F32 v0, 0, 1, v0', dim: false },
-              { t: '; 仅占 14 VGPR · 9 条指令', dim: false },
-              { t: 'EXP_MRT0  v0, v1  ; 写底片', dim: false },
-            ]
-          : [
-              { t: 'V_MUL_F32 v8, 0.5, 2.0', dim: false },
-              { t: 'V_SIN_F32 v9, v10  ; 废算!', dim: false },
-              { t: 'V_LOG_F32 + V_EXP_F32 (pow)', dim: false },
-              { t: '; 占 32 VGPR · 28 条指令!', dim: false },
-              { t: 'EXP_MRT0  v0, v1', dim: false },
-            ],
-      },
-    ];
-
-    const colW = 194;
-    const gap = 13;
-    const startX = 16;
-    const cardY = 16;
-    const cardH = 196;
-
-    cols.forEach((col, i) => {
-      const x = startX + i * (colW + gap);
-      const isActive = focusStage === 'all' || focusStage === col.key;
-
-      ctx.save();
-      ctx.globalAlpha = isActive ? 1 : 0.42;
-
-      ctx.fillStyle = card;
-      ctx.strokeStyle = isActive ? col.accent : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
-      ctx.lineWidth = isActive ? 1.8 : 1;
-      ctx.beginPath();
-      ctx.roundRect(x, cardY, colW, cardH, 10);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = col.accent;
-      ctx.fillRect(x, cardY, colW, 5);
-
-      ctx.fillStyle = ink;
-      ctx.font = '700 10.8px "Noto Sans SC", sans-serif';
-      ctx.fillText(col.title, x + 8, cardY + 23);
-
-      ctx.fillStyle = muted;
-      ctx.font = '600 9.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(col.badge, x + 8, cardY + 39);
-
-      ctx.fillStyle = codeBg;
-      ctx.beginPath();
-      ctx.roundRect(x + 8, cardY + 48, colW - 16, 138, 6);
-      ctx.fill();
-
-      ctx.font = '500 9.4px "JetBrains Mono", monospace';
-      col.lines.forEach((ln, li) => {
-        const ly = cardY + 68 + li * 24;
-        ctx.fillStyle = ln.dim
-          ? '#ef4444'
-          : ln.t.startsWith(';') || ln.t.startsWith('//')
-          ? '#10b981'
-          : ink;
-        ctx.fillText(ln.t, x + 13, ly);
-        if (ln.dim) {
-          // Strikethrough for DCE eliminated line
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          ctx.moveTo(x + 13, ly - 3);
-          ctx.lineTo(x + colW - 16, ly - 3);
-          ctx.stroke();
-        }
-      });
-
-      ctx.restore();
-
-      if (i < 2) {
-        const ax = x + colW + 2;
-        const ay = cardY + cardH / 2;
-        ctx.fillStyle = muted;
-        ctx.beginPath();
-        ctx.moveTo(ax + gap - 3, ay);
-        ctx.lineTo(ax + 1, ay - 5);
-        ctx.lineTo(ax + 1, ay + 5);
-        ctx.closePath();
-        ctx.fill();
-      }
-    });
-
-    // Bottom Ownership Strip: Who compiles where?
-    const stripY = 224;
-    ctx.fillStyle = card;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(16, stripY, W - 32, 48, 8);
-    ctx.fill();
-    ctx.stroke();
-
-    // Two zones: Developer PC (①+②) vs Player PC (③)
-    ctx.fillStyle = isDark ? 'rgba(56,189,248,0.16)' : 'rgba(56,189,248,0.14)';
-    ctx.beginPath();
-    ctx.roundRect(24, stripY + 8, 396, 32, 6);
-    ctx.fill();
-    ctx.fillStyle = isDark ? '#7dd3fc' : '#0369a1';
-    ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('🏢 开发者电脑 / 构建机完成：①+② 编成标准 IR 写入 DDC 与游戏安装包', 34, stripY + 28);
-
-    ctx.fillStyle = isDark ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.14)';
-    ctx.beginPath();
-    ctx.roundRect(428, stripY + 8, W - 452, 32, 6);
-    ctx.fill();
-    ctx.fillStyle = isDark ? '#6ee7b7' : '#047857';
-    ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('🎮 玩家显卡驱动：③ 译成硬件 ISA', 438, stripY + 28);
-  }, [platform, optimizeOn, includeDeadBranch, focusStage, isDark]);
+  const cols = [
+    {
+      key: 'frontend' as const,
+      title: '① 引擎前端 (Material / HLSL)',
+      badge: 'UE 编辑器 · MIR / HLSL',
+      accent: '#0ea5e9',
+      lines: [
+        { t: 'c = 0.5 * 2.0; // 常量表达式', dim: false },
+        { t: 'rough = RoughMap.g * c;', dim: false },
+        {
+          t: includeDeadBranch ? 'unused = sin(UV.x * 9.0);' : '// 无多余死节点',
+          dim: includeDeadBranch && optimizeOn,
+        },
+        { t: 'spec = pow(NdotH, 2.0);', dim: false },
+        { t: 'Out.Rough = saturate(rough);', dim: false },
+      ],
+    },
+    {
+      key: 'bytecode' as const,
+      title: `② 跨硬件字节码 (${platform === 'dx12' ? 'DXIL' : platform === 'vulkan' ? 'SPIR-V' : 'AIR'})`,
+      badge: 'DXC 输出 · 写入 DDC 与包体',
+      accent: '#8b5cf6',
+      lines: optimizeOn
+        ? [
+            { t: '; 常量折叠: 0.5*2.0 → 1.0', dim: false },
+            { t: '; DCE 删掉未连线的 sin()', dim: false },
+            { t: '%1 = call dx.op.sample(%tex)', dim: false },
+            { t: '%2 = fmul fast %nh, %nh', dim: false },
+            { t: '%3 = call dx.op.saturate(%1)', dim: false },
+          ]
+        : [
+            { t: '; 未优化 (Debug 模式)', dim: false },
+            { t: '%0 = fmul float 0.5, 2.0', dim: false },
+            { t: '%dead = call dx.op.sin(%u9)', dim: false },
+            { t: '%1 = fmul %tex_g, %0', dim: false },
+            { t: '%2 = call dx.op.pow(%nh, 2.0)', dim: false },
+          ],
+    },
+    {
+      key: 'isa' as const,
+      title: '③ GPU 硬件机器码 (ISA)',
+      badge: '显卡驱动在玩家电脑编译',
+      accent: '#10b981',
+      lines: optimizeOn
+        ? [
+            { t: 'SAMPLE     v0, v[2:3], s[0:7]', dim: false },
+            { t: 'V_MUL_F32  v1, v4, v4  ; x*x', dim: false },
+            { t: 'V_MED3_F32 v0, 0, 1, v0', dim: false },
+            { t: '; 仅占 14 VGPR · 9 条指令', dim: false },
+            { t: 'EXP_MRT0   v0, v1  ; 写底片', dim: false },
+          ]
+        : [
+            { t: 'V_MUL_F32  v8, 0.5, 2.0', dim: false },
+            { t: 'V_SIN_F32  v9, v10 ; 废算!', dim: false },
+            { t: 'V_LOG_F32 + V_EXP_F32 (pow)', dim: false },
+            { t: '; 占 32 VGPR · 28 条指令!', dim: false },
+            { t: 'EXP_MRT0   v0, v1', dim: false },
+          ],
+    },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -742,17 +629,125 @@ const Stage11_2_ShaderIR: React.FC<LessonStageProps> = ({
       <div
         style={{
           borderRadius: 12,
-          overflow: 'hidden',
           border: '1.5px solid var(--border-strong)',
           background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          userSelect: 'text',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          width={640}
-          height={284}
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(195px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {cols.map((col) => {
+            const isActive = focusStage === 'all' || focusStage === col.key;
+            return (
+              <div
+                key={col.key}
+                onClick={() => setFocusStage(focusStage === col.key ? 'all' : col.key)}
+                style={{
+                  background: 'var(--bg-card)',
+                  border: `1.5px solid ${isActive ? col.accent : 'var(--border-strong)'}`,
+                  borderTopWidth: 4,
+                  borderRadius: 10,
+                  padding: 10,
+                  opacity: isActive ? 1 : 0.48,
+                  transition: 'opacity 0.18s ease, border-color 0.18s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  minWidth: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {col.title}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 600 }}>
+                  {col.badge}
+                </div>
+                <div
+                  style={{
+                    background: 'var(--bg-code)',
+                    borderRadius: 7,
+                    padding: '8px 9px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10.8,
+                    lineHeight: 1.65,
+                    overflowX: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                  }}
+                >
+                  {col.lines.map((ln, li) => {
+                    const isComment = ln.t.startsWith(';') || ln.t.startsWith('//');
+                    return (
+                      <code
+                        key={li}
+                        style={{
+                          whiteSpace: 'pre',
+                          color: ln.dim
+                            ? '#ef4444'
+                            : isComment
+                            ? '#10b981'
+                            : 'var(--text-primary)',
+                          textDecoration: ln.dim ? 'line-through' : 'none',
+                        }}
+                      >
+                        {ln.t}
+                      </code>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Bottom Ownership Strip */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 8,
+            padding: 8,
+            borderRadius: 8,
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+          }}
+        >
+          <div
+            style={{
+              padding: '6px 10px',
+              borderRadius: 6,
+              background: 'var(--accent-sky)',
+              color: 'var(--accent-sky-deep)',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            🏢 开发者电脑 / 构建机完成：①+② 编成标准 IR 写入 DDC 与游戏安装包
+          </div>
+          <div
+            style={{
+              padding: '6px 10px',
+              borderRadius: 6,
+              background: 'var(--accent-sage)',
+              color: 'var(--accent-sage-deep)',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            🎮 玩家显卡驱动：③ 译成硬件 ISA（点击上方卡片可聚焦）
+          </div>
+        </div>
       </div>
 
       <StageSegmented<IrPlatform>
@@ -858,12 +853,10 @@ const Stage11_3_DDC: React.FC<LessonStageProps> = ({
   stepIndex,
   onKpiUpdate,
   resetSignal,
-  isDark,
 }) => {
   const [eventKey, setEventKey] = useState<DdcEvent>('new_teammate');
   const [hasSharedZen, setHasSharedZen] = useState<boolean>(true);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const kpiRef = useRef(onKpiUpdate);
   kpiRef.current = onKpiUpdate;
   const prevStepRef = useRef(stepIndex);
@@ -954,176 +947,40 @@ const Stage11_3_DDC: React.FC<LessonStageProps> = ({
     ]);
   }, [ev, hitTier, waitLabel, hitRate, hasSharedZen]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const segLabels = ['AssetHash (资产)', 'GraphHash (材质连线)', 'USH_Hash (.ush头文件)', 'EngineVer (引擎版本)'];
 
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-
-    const bg = isDark ? '#11141b' : '#f8f6f1';
-    const card = isDark ? '#181c26' : '#ffffff';
-    const ink = isDark ? '#e6ebf4' : '#181715';
-    const muted = isDark ? '#94a3b8' : '#645e56';
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Top: DDC Key Hash Fingerprint Strip
-    ctx.fillStyle = card;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(16, 14, W - 32, 74, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
-    ctx.fillText('🔑 DDC Key 数字指纹（任意一段哈希变化 = 二维码失效 = 重新查库/重编）', 28, 35);
-
-    const segLabels = ['AssetHash (资产)', 'GraphHash (材质连线)', 'USH_Hash (.ush头文件)', 'EngineVer (引擎版本)'];
-    const segW = 140;
-    segLabels.forEach((lbl, i) => {
-      const x = 28 + i * (segW + 10);
-      const isDiff = ev.changed[i];
-      ctx.fillStyle = isDiff
-        ? isDark
-          ? 'rgba(239,68,68,0.22)'
-          : 'rgba(239,68,68,0.12)'
-        : isDark
-        ? 'rgba(16,185,129,0.14)'
-        : 'rgba(16,185,129,0.1)';
-      ctx.strokeStyle = isDiff ? '#ef4444' : '#10b981';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.roundRect(x, 44, segW, 34, 6);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = muted;
-      ctx.font = '600 9.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(lbl, x + 8, 57);
-      ctx.fillStyle = isDiff ? '#ef4444' : ink;
-      ctx.font = '700 11px "JetBrains Mono", monospace';
-      ctx.fillText(`0x${ev.hashHex[i]} ${isDiff ? '⚡变!' : '✓'}`, x + 8, 72);
-    });
-
-    // Middle: 3-Tier DDC Lookup Waterfall
-    const tiers = [
-      {
-        id: 'local',
-        title: 'L1 · 本地 Local DDC',
-        metaphor: '家门口鞋柜 (本机 SSD)',
-        speed: '~5 ms',
-        active: hitTier === 'local',
-        passed: hitTier !== 'local',
-        enabled: true,
-        col: '#10b981',
-      },
-      {
-        id: 'zen',
-        title: 'L2 · Zen / 共享 DDC',
-        metaphor: '小区丰巢柜 (团队服务器/云)',
-        speed: '~45 ms',
-        active: hitTier === 'zen',
-        passed: hitTier === 'compile',
-        enabled: hasSharedZen,
-        col: '#38bdf8',
-      },
-      {
-        id: 'compile',
-        title: 'L3 · 本地 SCW 现场编译',
-        metaphor: '工厂现做现烤 (CPU 满载)',
-        speed: '数秒 ~ 42 分钟',
-        active: hitTier === 'compile',
-        passed: false,
-        enabled: true,
-        col: '#ef4444',
-      },
-    ];
-
-    const tW = 188;
-    const tH = 112;
-    const tY = 104;
-    tiers.forEach((t, i) => {
-      const x = 16 + i * (tW + 22);
-      ctx.save();
-      if (!t.enabled) ctx.globalAlpha = 0.35;
-
-      ctx.fillStyle = card;
-      ctx.strokeStyle = t.active ? t.col : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-      ctx.lineWidth = t.active ? 2.4 : 1;
-      ctx.beginPath();
-      ctx.roundRect(x, tY, tW, tH, 10);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = t.active ? t.col : muted;
-      ctx.fillRect(x, tY, tW, 6);
-
-      ctx.fillStyle = ink;
-      ctx.font = '700 11.5px "Noto Sans SC", sans-serif';
-      ctx.fillText(t.title, x + 10, tY + 28);
-
-      ctx.fillStyle = muted;
-      ctx.font = '600 10px "Noto Sans SC", sans-serif';
-      ctx.fillText(t.metaphor, x + 10, tY + 46);
-      ctx.font = '600 10.5px "JetBrains Mono", monospace';
-      ctx.fillText(`速度：${t.speed}`, x + 10, tY + 66);
-
-      const badgeText = !t.enabled
-        ? '未配置团队共享'
-        : t.active
-        ? ev.affectedShaders === 0
-          ? '✓ 零编译直通'
-          : t.id === 'compile'
-          ? '🔥 缺失→现场重编并回写'
-          : '🎯 命中！直接读取字节码'
-        : t.passed
-        ? '× Miss → 查下一级'
-        : '— 未触达';
-
-      ctx.fillStyle = t.active ? t.col : muted;
-      ctx.font = '700 10.2px "Noto Sans SC", sans-serif';
-      ctx.fillText(badgeText, x + 10, tY + 95);
-      ctx.restore();
-
-      if (i < 2) {
-        const ax = x + tW + 4;
-        const ay = tY + tH / 2;
-        ctx.strokeStyle = muted;
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(ax + 12, ay);
-        ctx.stroke();
-        ctx.fillStyle = muted;
-        ctx.beginPath();
-        ctx.moveTo(ax + 15, ay);
-        ctx.lineTo(ax + 9, ay - 4);
-        ctx.lineTo(ax + 9, ay + 4);
-        ctx.closePath();
-        ctx.fill();
-      }
-    });
-
-    // Bottom explanation strip
-    ctx.fillStyle = card;
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(23,22,20,0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(16, 230, W - 32, 40, 8);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = ink;
-    ctx.font = '600 11px "Noto Sans SC", sans-serif';
-    ctx.fillText(`💡 诊断结论：${ev.desc}`, 28, 254);
-  }, [ev, hitTier, hasSharedZen, isDark]);
+  const tiers = [
+    {
+      id: 'local' as const,
+      title: 'L1 · 本地 Local DDC',
+      metaphor: '家门口鞋柜 (本机 SSD)',
+      speed: '~5 ms',
+      active: hitTier === 'local',
+      passed: hitTier !== 'local',
+      enabled: true,
+      col: '#10b981',
+    },
+    {
+      id: 'zen' as const,
+      title: 'L2 · Zen / 共享 DDC',
+      metaphor: '小区丰巢柜 (团队服务器/云)',
+      speed: '~45 ms',
+      active: hitTier === 'zen',
+      passed: hitTier === 'compile',
+      enabled: hasSharedZen,
+      col: '#0ea5e9',
+    },
+    {
+      id: 'compile' as const,
+      title: 'L3 · 本地 SCW 现场编译',
+      metaphor: '工厂现做现烤 (CPU 满载)',
+      speed: '数秒 ~ 42 分钟',
+      active: hitTier === 'compile',
+      passed: false,
+      enabled: true,
+      col: '#ef4444',
+    },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1137,17 +994,139 @@ const Stage11_3_DDC: React.FC<LessonStageProps> = ({
       <div
         style={{
           borderRadius: 12,
-          overflow: 'hidden',
           border: '1.5px solid var(--border-strong)',
           background: 'var(--bg-canvas)',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          userSelect: 'text',
         }}
       >
-        <canvas
-          ref={canvasRef}
-          width={640}
-          height={284}
-          style={{ width: '100%', height: 'auto', display: 'block' }}
-        />
+        {/* Top: DDC Key Hash Fingerprint Strip */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 10,
+            padding: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+            🔑 DDC Key 数字指纹（任意一段哈希变化 = 二维码失效 = 重新查库/重编）
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+              gap: 8,
+            }}
+          >
+            {segLabels.map((lbl, i) => {
+              const isDiff = ev.changed[i];
+              return (
+                <div
+                  key={lbl}
+                  style={{
+                    padding: '7px 9px',
+                    borderRadius: 7,
+                    background: isDiff ? 'var(--accent-coral)' : 'var(--accent-sage)',
+                    border: `1.5px solid ${isDiff ? '#ef4444' : '#10b981'}`,
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-secondary)' }}>{lbl}</div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: 'var(--font-mono)',
+                      color: isDiff ? 'var(--accent-coral-deep)' : 'var(--accent-sage-deep)',
+                      marginTop: 2,
+                    }}
+                  >
+                    0x{ev.hashHex[i]} {isDiff ? '⚡变!' : '✓'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Middle: 3-Tier DDC Lookup Waterfall */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {tiers.map((t) => {
+            const badgeText = !t.enabled
+              ? '未配置团队共享'
+              : t.active
+              ? ev.affectedShaders === 0
+                ? '✓ 零编译直通'
+                : t.id === 'compile'
+                ? '🔥 缺失→现场重编并回写'
+                : '🎯 命中！直接读取字节码'
+              : t.passed
+              ? '× Miss → 查下一级'
+              : '— 未触达';
+
+            return (
+              <div
+                key={t.id}
+                style={{
+                  background: 'var(--bg-card)',
+                  border: `${t.active ? 2 : 1}px solid ${t.active ? t.col : 'var(--border-strong)'}`,
+                  borderTopWidth: 5,
+                  borderTopColor: t.active ? t.col : 'var(--text-muted)',
+                  borderRadius: 10,
+                  padding: '10px 11px',
+                  opacity: t.enabled ? 1 : 0.42,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{t.title}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t.metaphor}</div>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                  速度：{t.speed}
+                </div>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: t.active ? t.col : 'var(--text-muted)',
+                  }}
+                >
+                  {badgeText}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Bottom Diagnosis Strip */}
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 8,
+            padding: '8px 11px',
+            fontSize: 11.5,
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+            lineHeight: 1.5,
+          }}
+        >
+          💡 诊断结论：{ev.desc}
+        </div>
       </div>
 
       <StageSegmented<DdcEvent>

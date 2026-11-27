@@ -324,225 +324,283 @@ const CASES: DiagnosticCase[] = [
   },
 ];
 
+const NON_IMAGE_DIAG_MODES = new Set<DiagnosticCase['renderMode']>([
+  'multi_slot_drawcall',
+  'mid_breaks_instancing',
+  'no_lod_quad_overdraw',
+  'blind_opt_wrong_bound',
+  'shader_permutation_explosion',
+  'dx12_pso_first_hitch',
+  'warp_branch_divergence',
+  'ddc_cache_miss_storm',
+]);
+
+const CaseSchematicPreview: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: boolean }> = ({ mode, fixed }) => {
+  const wrapStyle: React.CSSProperties = {
+    width: '100%',
+    minHeight: 142,
+    background: '#11141c',
+    color: '#e2e8f0',
+    padding: '10px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    gap: 6,
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10.5,
+    userSelect: 'text',
+    boxSizing: 'border-box',
+  };
+
+  if (mode === 'multi_slot_drawcall') {
+    const bars = fixed
+      ? [
+          { label: 'Draw', ms: 6.8, col: '#10b981' },
+          { label: 'GPU', ms: 9.2, col: '#10b981' },
+        ]
+      : [
+          { label: 'Draw', ms: 23.4, col: '#ef4444' },
+          { label: 'GPU', ms: 9.8, col: '#3b82f6' },
+        ];
+    return (
+      <div style={wrapStyle}>
+        <div style={{ color: '#94a3b8', fontWeight: 700 }}>
+          {fixed ? '1 Slot + HISM: 42 Draw Calls' : '5 Slots × 500 Props: 4,200 Calls!'}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {bars.map((b) => (
+            <div key={b.label} style={{ display: 'grid', gridTemplateColumns: '36px 1fr', alignItems: 'center', gap: 6 }}>
+              <span>{b.label}</span>
+              <div style={{ position: 'relative', height: 18, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(100, (b.ms / 26) * 100)}%`, height: '100%', background: b.col, paddingLeft: 6, lineHeight: '18px', color: '#fff', fontWeight: 700 }}>
+                  {b.ms}ms
+                </div>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${(16.67 / 26) * 100}%`, borderLeft: '1.5px dashed rgba(239,68,68,0.85)' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ color: fixed ? '#6ee7b7' : '#fca5a5', fontWeight: 700 }}>
+          {fixed ? '60+ FPS · GPU 满载高效' : '42 FPS · GPU 闲等派工单'}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'mid_breaks_instancing') {
+    const cols = ['#22c55e', '#4ade80', '#eab308', '#f97316', '#16a34a', '#84cc16'];
+    return (
+      <div style={wrapStyle}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(6, 1fr)',
+            gap: 5,
+            padding: 6,
+            borderRadius: 6,
+            border: fixed ? '2px solid #2dd4bf' : '1px dashed rgba(239,68,68,0.45)',
+          }}
+        >
+          {Array.from({ length: 18 }, (_, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 2,
+                border: fixed ? 'none' : '1.2px solid #ef4444',
+                borderRadius: 3,
+              }}
+            >
+              <span style={{ width: 14, height: 14, borderRadius: '50%', background: cols[i % cols.length], display: 'block' }} />
+            </div>
+          ))}
+        </div>
+        <div style={{ color: fixed ? '#5eead4' : '#fca5a5', fontWeight: 700 }}>
+          {fixed ? '1 Draw Call · PerInstanceRandom/CPD' : '500 MIDs → 500 Separate Calls!'}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'no_lod_quad_overdraw') {
+    return (
+      <div style={wrapStyle}>
+        <div style={{ color: fixed ? '#6ee7b7' : '#ffffff', fontWeight: 700 }}>
+          {fixed ? 'LOD2+合槽: 2×2 利用率 92%' : '无LOD微三角: 75% 辅助像素废算!'}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4 }}>
+          {Array.from({ length: 12 }, (_, qi) => {
+            const qx = qi % 6;
+            return (
+              <div key={qi} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, padding: 1.5, border: '1.2px solid #e2e8f0', borderRadius: 2 }}>
+                {[0, 1, 2, 3].map((s) => {
+                  const sx = s % 2;
+                  const sy = Math.floor(s / 2);
+                  const active = fixed ? !(qx === 5 && sx === 1) : sx === 0 && sy === 0;
+                  return <span key={s} style={{ height: 10, background: active ? '#22c55e' : '#ef4444', display: 'block' }} />;
+                })}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ color: fixed ? '#5eead4' : '#fca5a5', fontWeight: 700 }}>
+          {fixed ? 'Quad Overdraw 翠绿 · VSM 缓存稳定' : 'Quad Overdraw 烧白 · WPO 碎阴影'}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'blind_opt_wrong_bound') {
+    const rows = fixed
+      ? [
+          { k: 'Frame', v: 13.8, c: '#10b981' },
+          { k: 'Draw', v: 11.4, c: '#10b981' },
+          { k: 'GPU', v: 13.8, c: '#10b981' },
+        ]
+      : [
+          { k: 'Frame', v: 22.8, c: '#ef4444' },
+          { k: 'Draw', v: 22.8, c: '#ef4444' },
+          { k: 'GPU', v: 9.4, c: '#38bdf8' },
+        ];
+    return (
+      <div style={wrapStyle}>
+        <div style={{ color: '#5eead4', fontWeight: 700 }}>stat unit (Target ≤ 16.67ms)</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {rows.map((r) => (
+            <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '42px 1fr', alignItems: 'center', gap: 6 }}>
+              <span>{r.k}</span>
+              <div style={{ height: 15, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(100, (r.v / 26) * 100)}%`, height: '100%', background: r.c, paddingLeft: 5, lineHeight: '15px', color: '#fff', fontWeight: 700, fontSize: 10 }}>
+                  {r.v} ms
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ color: fixed ? '#6ee7b7' : '#fcd34d', fontWeight: 700 }}>
+          {fixed ? '对症治 Draw → 稳跑 72 FPS!' : '只砍 GPU 到 9.4ms，Frame 纹丝不动!'}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'shader_permutation_explosion') {
+    const count = fixed ? 168 : 10752;
+    return (
+      <div style={wrapStyle}>
+        <div style={{ color: '#94a3b8', fontWeight: 700 }}>
+          {fixed ? 'Cleaned Usage + 1 Switch' : '4 Usages × 6 Switches (2^6)'}
+        </div>
+        <div style={{ height: 22, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
+          <div style={{ width: fixed ? '12%' : '96%', height: '100%', background: fixed ? '#10b981' : '#ef4444' }} />
+          <span style={{ position: 'absolute', left: 8, top: 3, color: '#fff', fontWeight: 700 }}>
+            {count.toLocaleString()} Shaders
+          </span>
+        </div>
+        <div style={{ color: fixed ? '#6ee7b7' : '#fca5a5', fontWeight: 700 }}>
+          {fixed ? 'SCW 1.2s · ShaderMap 2.4MB' : 'Compiling Shaders... 74s+!'}
+        </div>
+        <div style={{ color: '#94a3b8', fontSize: 10 }}>
+          {fixed ? 'Only ISM Usage kept ✓' : 'Skel + Niagara + Spline bloated!'}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'dx12_pso_first_hitch') {
+    return (
+      <div style={wrapStyle}>
+        <div style={{ color: '#94a3b8', fontWeight: 700 }}>
+          {fixed ? 'r.PSOPrecaching=1 (Async)' : 'DX12 Sync PSO Create Hitch!'}
+        </div>
+        <svg viewBox="0 0 210 64" style={{ width: '100%', height: 64, display: 'block' }}>
+          <line x1="0" y1="44" x2="210" y2="44" stroke="rgba(239,68,68,0.75)" strokeWidth="1" strokeDasharray="3 3" />
+          {Array.from({ length: 24 }, (_, i) => {
+            const isSpike = !fixed && i === 12;
+            const bh = isSpike ? 58 : 13 + (i % 3) * 2.5;
+            return <rect key={i} x={4 + i * 8.5} y={62 - bh} width="6" height={bh} rx="1" fill={isSpike ? '#ef4444' : '#10b981'} />;
+          })}
+        </svg>
+        <div style={{ color: fixed ? '#6ee7b7' : '#fca5a5', fontWeight: 700 }}>
+          {fixed ? 'Peak 16.2ms · Zero Stutter ✓' : 'Peak 148ms · Frame Freeze!'}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'warp_branch_divergence') {
+    return (
+      <div style={wrapStyle}>
+        <div style={{ color: '#94a3b8', fontWeight: 700 }}>
+          {fixed ? 'Lerp / Coherent Warp (1×)' : 'Divergent If Warp (A + B = 2×!)'}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3 }}>
+          {Array.from({ length: 32 }, (_, idx) => {
+            const r = Math.floor(idx / 8);
+            const c = idx % 8;
+            const bg = fixed ? '#10b981' : (c + r) % 2 === 0 ? '#38bdf8' : '#ef4444';
+            return <span key={idx} style={{ height: 13, borderRadius: 2, background: bg, display: 'block' }} />;
+          })}
+        </div>
+        <div style={{ color: fixed ? '#6ee7b7' : '#fca5a5', fontWeight: 700 }}>
+          {fixed ? '32 Threads Lockstep · Fast ✓' : 'Half Masked Waiting · 2× Cycles!'}
+        </div>
+      </div>
+    );
+  }
+
+  const tiers = [
+    { lbl: 'L1 Local', ok: false, col: '#10b981' },
+    { lbl: 'L2 Zen', ok: fixed, col: '#38bdf8' },
+    { lbl: 'L3 SCW', ok: !fixed, col: '#ef4444' },
+  ];
+  return (
+    <div style={wrapStyle}>
+      <div style={{ color: '#94a3b8', fontWeight: 700 }}>
+        {fixed ? 'Zen Shared DDC Hit: 99.2%' : 'Local Only / .ush Miss: 0%!'}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+        {tiers.map((t) => (
+          <div
+            key={t.lbl}
+            style={{
+              padding: '6px 6px',
+              borderRadius: 5,
+              background: t.ok ? t.col : 'rgba(255,255,255,0.08)',
+              color: t.ok ? '#fff' : '#64748b',
+              fontWeight: 700,
+              textAlign: 'center',
+            }}
+          >
+            <div>{t.lbl}</div>
+            <div>{t.ok ? (fixed ? 'HIT!' : 'MISS!') : '—'}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ color: fixed ? '#6ee7b7' : '#fca5a5', fontWeight: 700 }}>
+        {fixed ? 'Team Pull Ready in 18s ✓' : 'Everyone Recompiling 42 min!'}
+      </div>
+    </div>
+  );
+};
+
 const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: boolean }> = ({
   mode,
   fixed,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isSchematic = NON_IMAGE_DIAG_MODES.has(mode);
 
   useEffect(() => {
+    if (isSchematic) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const w = canvas.width;
     const h = canvas.height;
-
-    // Dedicated crisp 2D schematic previews for performance & instancing cases
-    if (
-      mode === 'multi_slot_drawcall' ||
-      mode === 'mid_breaks_instancing' ||
-      mode === 'no_lod_quad_overdraw' ||
-      mode === 'blind_opt_wrong_bound' ||
-      mode === 'shader_permutation_explosion' ||
-      mode === 'dx12_pso_first_hitch' ||
-      mode === 'warp_branch_divergence' ||
-      mode === 'ddc_cache_miss_storm'
-    ) {
-      ctx.fillStyle = '#11141c';
-      ctx.fillRect(0, 0, w, h);
-
-      if (mode === 'multi_slot_drawcall') {
-        const bars = fixed
-          ? [
-              { label: 'Draw', ms: 6.8, col: '#10b981' },
-              { label: 'GPU', ms: 9.2, col: '#10b981' },
-            ]
-          : [
-              { label: 'Draw', ms: 23.4, col: '#ef4444' },
-              { label: 'GPU', ms: 9.8, col: '#3b82f6' },
-            ];
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(fixed ? '1 Slot + HISM: 42 Draw Calls' : '5 Slots × 500 Props: 4,200 Calls!', 10, 20);
-        // 16.67ms line
-        const lineX = 52 + (16.67 / 26) * 150;
-        ctx.strokeStyle = 'rgba(239,68,68,0.85)';
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.moveTo(lineX, 30);
-        ctx.lineTo(lineX, 110);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        bars.forEach((b, i) => {
-          const y = 40 + i * 32;
-          ctx.fillStyle = '#e2e8f0';
-          ctx.fillText(b.label, 12, y + 14);
-          ctx.fillStyle = 'rgba(255,255,255,0.08)';
-          ctx.fillRect(52, y, 150, 20);
-          ctx.fillStyle = b.col;
-          ctx.fillRect(52, y, Math.min(150, (b.ms / 26) * 150), 20);
-          ctx.fillStyle = '#fff';
-          ctx.fillText(`${b.ms}ms`, 58, y + 14);
-        });
-        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
-        ctx.fillText(fixed ? '60+ FPS · GPU 满载高效' : '42 FPS · GPU 闲等派工单', 12, 122);
-      } else if (mode === 'mid_breaks_instancing') {
-        const cols = ['#22c55e', '#4ade80', '#eab308', '#f97316', '#16a34a', '#84cc16'];
-        for (let r = 0; r < 3; r++) {
-          for (let c = 0; c < 6; c++) {
-            const cx = 24 + c * 33;
-            const cy = 34 + r * 30;
-            ctx.fillStyle = cols[(r * 6 + c) % cols.length];
-            ctx.beginPath();
-            ctx.arc(cx, cy, 9, 0, Math.PI * 2);
-            ctx.fill();
-            if (!fixed) {
-              ctx.strokeStyle = '#ef4444';
-              ctx.lineWidth = 1.5;
-              ctx.strokeRect(cx - 12, cy - 11, 24, 22);
-            }
-          }
-        }
-        if (fixed) {
-          ctx.strokeStyle = '#2dd4bf';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(8, 18, w - 16, 94);
-        }
-        ctx.fillStyle = fixed ? '#5eead4' : '#fca5a5';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(
-          fixed ? '1 Draw Call · PerInstanceRandom/CPD' : '500 MIDs -> 500 Separate Calls!',
-          10,
-          125
-        );
-      } else if (mode === 'no_lod_quad_overdraw') {
-        // 4x2 enlarged 2x2 Quads showing red helper waste vs clean green
-        const qSize = 28;
-        const startX = 18;
-        const startY = 30;
-        for (let qy = 0; qy < 2; qy++) {
-          for (let qx = 0; qx < 6; qx++) {
-            const x0 = startX + qx * (qSize + 3);
-            const y0 = startY + qy * (qSize + 3);
-            for (let sy = 0; sy < 2; sy++) {
-              for (let sx = 0; sx < 2; sx++) {
-                const active = fixed ? !(qx === 5 && sx === 1) : sx === 0 && sy === 0;
-                ctx.fillStyle = active ? '#22c55e' : '#ef4444';
-                ctx.fillRect(x0 + sx * 14 + 1, y0 + sy * 14 + 1, 12, 12);
-              }
-            }
-            ctx.strokeStyle = '#e2e8f0';
-            ctx.lineWidth = 1.2;
-            ctx.strokeRect(x0, y0, qSize, qSize);
-          }
-        }
-        ctx.fillStyle = fixed ? '#6ee7b7' : '#ffffff';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(fixed ? 'LOD2+合槽: 2x2 利用率 92%' : '无LOD微三角: 75% 辅助像素废算!', 12, 20);
-        ctx.fillStyle = fixed ? '#5eead4' : '#fca5a5';
-        ctx.fillText(fixed ? 'Quad Overdraw 翠绿 · VSM 缓存稳定' : 'Quad Overdraw 烧白 · WPO 碎阴影', 12, 118);
-      } else if (mode === 'blind_opt_wrong_bound') {
-        const rows = fixed
-          ? [
-              { k: 'Frame', v: 13.8, c: '#10b981' },
-              { k: 'Draw', v: 11.4, c: '#10b981' },
-              { k: 'GPU', v: 13.8, c: '#10b981' },
-            ]
-          : [
-              { k: 'Frame', v: 22.8, c: '#ef4444' },
-              { k: 'Draw', v: 22.8, c: '#ef4444' },
-              { k: 'GPU', v: 9.4, c: '#38bdf8' },
-            ];
-        ctx.fillStyle = '#5eead4';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText('stat unit  (Target <= 16.67ms)', 12, 20);
-        rows.forEach((r, i) => {
-          const y = 32 + i * 28;
-          ctx.fillStyle = '#e2e8f0';
-          ctx.fillText(r.k, 12, y + 13);
-          ctx.fillStyle = 'rgba(255,255,255,0.08)';
-          ctx.fillRect(54, y, 150, 18);
-          ctx.fillStyle = r.c;
-          ctx.fillRect(54, y, Math.min(150, (r.v / 26) * 150), 18);
-          ctx.fillStyle = '#fff';
-          ctx.fillText(`${r.v} ms`, 60, y + 13);
-        });
-        ctx.fillStyle = fixed ? '#6ee7b7' : '#fcd34d';
-        ctx.fillText(fixed ? '对症治 Draw -> 稳跑 72 FPS!' : '只砍 GPU 到 9.4ms，Frame 纹丝不动!', 12, 124);
-      } else if (mode === 'shader_permutation_explosion') {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(fixed ? 'Cleaned Usage + 1 Switch' : '4 Usages x 6 Switches (2^6)', 10, 20);
-        const count = fixed ? 168 : 10752;
-        const barW = fixed ? 14 : 186;
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
-        ctx.fillRect(14, 38, 192, 24);
-        ctx.fillStyle = fixed ? '#10b981' : '#ef4444';
-        ctx.fillRect(14, 38, barW, 24);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(`${count.toLocaleString()} Shaders`, 20, 54);
-
-        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
-        ctx.fillText(fixed ? 'SCW 1.2s · ShaderMap 2.4MB' : 'Compiling Shaders... 74s+!', 14, 86);
-        ctx.fillStyle = '#94a3b8';
-        ctx.fillText(fixed ? 'Only ISM Usage kept ✓' : 'Skel + Niagara + Spline bloated!', 14, 108);
-      } else if (mode === 'dx12_pso_first_hitch') {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(fixed ? 'r.PSOPrecaching=1 (Async)' : 'DX12 Sync PSO Create Hitch!', 10, 18);
-        // 16.7ms budget line
-        ctx.strokeStyle = 'rgba(239,68,68,0.7)';
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.moveTo(10, 92);
-        ctx.lineTo(w - 10, 92);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        for (let i = 0; i < 24; i++) {
-          const isSpike = !fixed && i === 12;
-          const bh = isSpike ? 78 : 16 + (i % 3) * 3;
-          ctx.fillStyle = isSpike ? '#ef4444' : '#10b981';
-          ctx.fillRect(12 + i * 8, 108 - bh, 6, bh);
-        }
-        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
-        ctx.fillText(fixed ? 'Peak 16.2ms · Zero Stutter ✓' : 'Peak 148ms · Frame Freeze!', 12, 124);
-      } else if (mode === 'warp_branch_divergence') {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(fixed ? 'Lerp / Coherent Warp (1x)' : 'Divergent If Warp (A + B = 2x!)', 10, 18);
-        for (let r = 0; r < 4; r++) {
-          for (let c = 0; c < 8; c++) {
-            const x = 18 + c * 23;
-            const y = 28 + r * 18;
-            ctx.fillStyle = fixed ? '#10b981' : (c + r) % 2 === 0 ? '#38bdf8' : '#ef4444';
-            ctx.fillRect(x, y, 19, 14);
-          }
-        }
-        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
-        ctx.fillText(fixed ? '32 Threads Lockstep · Fast ✓' : 'Half Masked Waiting · 2x Cycles!', 12, 118);
-      } else if (mode === 'ddc_cache_miss_storm') {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(fixed ? 'Zen Shared DDC Hit: 99.2%' : 'Local Only / .ush Miss: 0%!', 10, 20);
-        const tiers = [
-          { lbl: 'L1 Local', ok: false, col: '#10b981' },
-          { lbl: 'L2 Zen', ok: fixed, col: '#38bdf8' },
-          { lbl: 'L3 SCW', ok: !fixed, col: '#ef4444' },
-        ];
-        tiers.forEach((t, idx) => {
-          const x = 12 + idx * 67;
-          ctx.fillStyle = t.ok ? t.col : 'rgba(255,255,255,0.08)';
-          ctx.fillRect(x, 38, 60, 40);
-          ctx.fillStyle = t.ok ? '#fff' : '#64748b';
-          ctx.fillText(t.lbl, x + 6, 56);
-          ctx.fillText(t.ok ? (fixed ? 'HIT!' : 'MISS!') : '—', x + 6, 70);
-        });
-        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
-        ctx.fillText(fixed ? 'Team Pull Ready in 18s ✓' : 'Everyone Recompiling 42 min!', 12, 114);
-      }
-      return;
-    }
 
     const img = ctx.createImageData(w, h);
     const data = img.data;
@@ -810,21 +868,25 @@ const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: b
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [mode, fixed]);
+  }, [mode, fixed, isSchematic]);
 
   return (
     <div className="diag-canvas-wrap">
-      <canvas
-        ref={canvasRef}
-        width={220}
-        height={132}
-        style={{
-          width: '100%',
-          height: 142,
-          objectFit: 'cover',
-          display: 'block',
-        }}
-      />
+      {isSchematic ? (
+        <CaseSchematicPreview mode={mode} fixed={fixed} />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          width={220}
+          height={132}
+          style={{
+            width: '100%',
+            height: 142,
+            objectFit: 'cover',
+            display: 'block',
+          }}
+        />
+      )}
       <span className={`diag-status-badge ${fixed ? 'fixed' : 'fault'}`}>
         {fixed ? 'FIXED · 正确配置' : 'FAULT · 翻车现象'}
       </span>

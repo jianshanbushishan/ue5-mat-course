@@ -1163,55 +1163,6 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
       drawBladeMesh(W * 0.75 + 52, groundY, 122, 14, 7, t, 2.1, false);
       drawBladeMesh(W * 0.75, groundY, 168, 22, 7, t, 0, true);
 
-      // Top Chamber Headers
-      const drawHeader = (x: number, title: string, sub: string, badgeBg: string) => {
-        ctx.fillStyle = isDark ? 'rgba(15, 16, 18, 0.84)' : 'rgba(255, 255, 255, 0.9)';
-        ctx.beginPath();
-        ctx.roundRect(x, 12, 316, 46, 8);
-        ctx.fill();
-        ctx.strokeStyle = badgeBg;
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-        ctx.fillStyle = isDark ? '#f8fafc' : '#171614';
-        ctx.font = '800 13px "Noto Sans SC", sans-serif';
-        ctx.fillText(title, x + 12, 31);
-        ctx.fillStyle = isDark ? '#cbd5e1' : '#475569';
-        ctx.font = '600 11px "Noto Sans SC", sans-serif';
-        ctx.fillText(sub, x + 12, 48);
-      };
-
-      drawHeader(
-        12,
-        '📦 4 顶点硬纸板草 (2 个三角形)',
-        pinRoot ? '中间无横节钉子，只能像硬木板一样直挺挺斜歪' : '⚠️ 未乘 (1-V) 遮罩：整张硬纸板脱根在地上滑冰！',
-        pinRoot ? '#eab308' : '#ef4444'
-      );
-
-      drawHeader(
-        W / 2 + 12,
-        '🌿 16 顶点多段细分柔韧草 (14 个三角形)',
-        pinRoot ? '✅ 草根乘 0 钉牢泥土，8 排顶点逐节弯出柔顺风浪弧线' : '⚠️ 未乘 (1-V) 遮罩：再多顶点也会连根拔起乱滑！',
-        pinRoot ? '#22c55e' : '#ef4444'
-      );
-
-      // UV V-coordinate & Mask weight legend on Right Hero Blade
-      if (showWireframe) {
-        ctx.fillStyle = isDark ? 'rgba(15, 18, 22, 0.82)' : 'rgba(255, 255, 255, 0.92)';
-        ctx.beginPath();
-        ctx.roundRect(W - 146, 72, 134, 52, 7);
-        ctx.fill();
-        if (!isDark) {
-          ctx.strokeStyle = 'rgba(23, 22, 20, 0.14)';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-        ctx.fillStyle = isDark ? '#fde047' : '#b45309';
-        ctx.font = '700 11px "JetBrains Mono", monospace';
-        ctx.fillText('草尖 V=0 → 1-V=1.0', W - 138, 91);
-        ctx.fillStyle = isDark ? '#94a3b8' : '#475569';
-        ctx.fillText(pinRoot ? '草根 V=1 → 1-V=0.0' : '草根未乘0 → 权重1.0!', W - 138, 112);
-      }
-
       rafId = requestAnimationFrame(renderFrame);
     };
 
@@ -1285,18 +1236,79 @@ const Stage9_2_VertexVsPixel: React.FC<LessonStageProps> = ({
         </div>
       </div>
 
-      <canvas
-        ref={canvasRef}
-        width={680}
-        height={308}
+      <div
         style={{
-          width: '100%',
-          height: 'auto',
-          display: 'block',
+          position: 'relative',
           borderRadius: 11,
           border: '1.5px solid var(--border-strong)',
+          overflow: 'hidden',
+          userSelect: 'text',
         }}
-      />
+      >
+        {/* Native selectable HTML headers above grass chambers */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 8,
+            padding: '8px 10px',
+            background: 'var(--bg-card)',
+            borderBottom: '1px solid var(--border-soft)',
+          }}
+        >
+          <div style={{ borderLeft: `3px solid ${pinRoot ? '#eab308' : '#ef4444'}`, paddingLeft: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-primary)' }}>
+              📦 4 顶点硬纸板草 (2 个三角形)
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {pinRoot ? '中间无横节钉子，只能像硬木板一样直挺挺斜歪' : '⚠️ 未乘 (1-V) 遮罩：整张硬纸板脱根在地上滑冰！'}
+            </div>
+          </div>
+          <div style={{ borderLeft: `3px solid ${pinRoot ? '#22c55e' : '#ef4444'}`, paddingLeft: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-primary)' }}>
+              🌿 16 顶点多段细分柔韧草 (14 个三角形)
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {pinRoot ? '✅ 草根乘 0 钉牢泥土，8 排顶点逐节弯出柔顺风浪弧线' : '⚠️ 未乘 (1-V) 遮罩：再多顶点也会连根拔起乱滑！'}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ position: 'relative' }}>
+          <canvas
+            ref={canvasRef}
+            width={680}
+            height={308}
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+            }}
+          />
+          {showWireframe && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                padding: '6px 10px',
+                borderRadius: 7,
+                background: 'var(--bg-glass)',
+                border: '1px solid var(--border-strong)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10.8,
+                lineHeight: 1.55,
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              <div style={{ fontWeight: 700, color: 'var(--accent-amber-deep)' }}>草尖 V=0 → 1-V=1.0</div>
+              <div style={{ color: 'var(--text-secondary)' }}>
+                {pinRoot ? '草根 V=1 → 1-V=0.0' : '草根未乘0 → 权重1.0!'}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="stage-controls-panel">
         <div className="control-grid">
@@ -1398,7 +1410,6 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
   const [switchCount, setSwitchCount] = useState<number>(3);
 
   const propsCanvasRef = useRef<HTMLCanvasElement>(null);
-  const treeCanvasRef = useRef<HTMLCanvasElement>(null);
   const compileTimerRef = useRef<number | null>(null);
   const prevResetRef = useRef(resetSignal);
   const prevStepRef = useRef(stepIndex);
@@ -1726,283 +1737,6 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
     );
   }, [tabMode, propsData, selectedPropIdx, workflowMode, isDark]);
 
-  // Render Dynamic 2^N Permutation Tree in Tab 2
-  useEffect(() => {
-    if (tabMode !== 'switches') return;
-    const canvas = treeCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.fillStyle = isDark ? '#151619' : '#f7f5f0';
-    ctx.fillRect(0, 0, W, H);
-
-    const permutations = Math.pow(2, switchCount);
-    const usedCombinations = new Set([0, 0, switchCount > 0 && !shareStaticSettings ? 1 : 0]).size;
-    const visualDepth = Math.min(switchCount, 5); // Draw exact binary nodes up to depth 5 (32 nodes), then fan burst for 6..10!
-    const leftX = 68;
-    const rightX = switchCount > 5 ? W - 210 : W - 155;
-    const topPad = 46;
-    const botPad = 24;
-    const usableH = H - topPad - botPad;
-
-    // Header summary inside canvas
-    ctx.fillStyle = isDark ? 'rgba(28, 30, 36, 0.92)' : 'rgba(255, 255, 255, 0.95)';
-    ctx.beginPath();
-    ctx.roundRect(12, 8, W - 24, 28, 7);
-    ctx.fill();
-    if (!isDark) {
-      ctx.strokeStyle = 'rgba(23, 22, 20, 0.12)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-    ctx.fillStyle =
-      switchCount <= 3
-        ? isDark
-          ? '#86efac'
-          : '#15803d'
-        : switchCount <= 6
-          ? isDark
-            ? '#fde047'
-            : '#b45309'
-          : isDark
-            ? '#fca5a5'
-            : '#b91c1c';
-    ctx.font = '700 12px "JetBrains Mono", "Noto Sans SC", sans-serif';
-    ctx.fillText(
-      `组合上限 2^${switchCount} = ${permutations.toLocaleString()} 种  |  3 个示例实例实际使用：${usedCombinations} 种组合 ${
-        shareStaticSettings ? '(已合并共享 ✅)' : '(分叉独立)'
-      }`,
-      22,
-      26
-    );
-
-    if (switchCount === 0) {
-      // Single clean line from Root to 1 Shader
-      const midY = topPad + usableH / 2;
-      ctx.strokeStyle = isDark ? '#4ade80' : '#16a34a';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(leftX, midY);
-      ctx.lineTo(W - 150, midY);
-      ctx.stroke();
-
-      ctx.fillStyle = '#22c55e';
-      ctx.beginPath();
-      ctx.arc(leftX, midY, 9, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(W - 150, midY, 9, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = isDark ? '#f8fafc' : '#1e293b';
-      ctx.font = '700 12.5px "Noto Sans SC", sans-serif';
-      ctx.fillText('M_Master 母材质', leftX - 42, midY + 26);
-      ctx.fillText('2⁰ = 1 种开关组合 (3 个实例共享)', W - 260, midY + 26);
-      return;
-    }
-
-    // Draw binary tree levels 0 .. visualDepth
-    // Active path A (all False -> top branch k=0 at every level) is always used by MI_Barrel + MI_Relic.
-    // Active path B (first switch True -> k=1 at lv=1 then all False, i.e. leaf index 1<<(visualDepth-1)) is used by MI_Shield when !shareStaticSettings.
-    const pathBLeaf = 1 << (visualDepth - 1);
-    const isEdgeOnPathA = (lv: number, k: number, isTrueBranch: boolean) => k === 0 && !isTrueBranch && lv >= 0;
-    const isEdgeOnPathB = (lv: number, k: number, isTrueBranch: boolean) => {
-      if (shareStaticSettings) return false;
-      if (lv === 0) return k === 0 && isTrueBranch;
-      return k === (1 << (lv - 1)) && !isTrueBranch;
-    };
-
-    for (let lv = 0; lv < visualDepth; lv++) {
-      const count = 1 << lv;
-      const x0 = lerp(leftX, rightX, lv / visualDepth);
-      const x1 = lerp(leftX, rightX, (lv + 1) / visualDepth);
-
-      for (let k = 0; k < count; k++) {
-        const y0 = topPad + ((k + 0.5) / count) * usableH;
-        const yFalse = topPad + ((2 * k + 0.5) / (count * 2)) * usableH;
-        const yTrue = topPad + ((2 * k + 1.5) / (count * 2)) * usableH;
-
-        // False branch (top child)
-        const activeAF = isEdgeOnPathA(lv, k, false);
-        const activeBF = isEdgeOnPathB(lv, k, false);
-        ctx.strokeStyle = activeAF
-          ? '#22c55e'
-          : activeBF
-            ? '#38bdf8'
-            : switchCount <= 3
-              ? isDark
-                ? 'rgba(74, 222, 128, 0.34)'
-                : 'rgba(22, 163, 74, 0.34)'
-              : switchCount <= 6
-                ? isDark
-                  ? 'rgba(250, 204, 21, 0.36)'
-                  : 'rgba(217, 119, 6, 0.36)'
-                : isDark
-                  ? 'rgba(248, 113, 113, 0.38)'
-                  : 'rgba(220, 38, 38, 0.38)';
-        ctx.lineWidth = activeAF || activeBF ? 3.2 : Math.max(1.0, 2.2 - lv * 0.3);
-        ctx.beginPath();
-        ctx.moveTo(x0, y0);
-        ctx.bezierCurveTo((x0 + x1) * 0.5, y0, (x0 + x1) * 0.5, yFalse, x1, yFalse);
-        ctx.stroke();
-
-        // True branch (bottom child)
-        const activeBT = isEdgeOnPathB(lv, k, true);
-        ctx.strokeStyle = activeBT
-          ? '#38bdf8'
-          : switchCount <= 3
-            ? isDark
-              ? 'rgba(96, 165, 250, 0.32)'
-              : 'rgba(37, 99, 235, 0.32)'
-            : switchCount <= 6
-              ? isDark
-                ? 'rgba(251, 146, 60, 0.34)'
-                : 'rgba(234, 88, 12, 0.34)'
-              : isDark
-                ? 'rgba(232, 121, 249, 0.34)'
-                : 'rgba(168, 85, 247, 0.34)';
-        ctx.lineWidth = activeBT ? 3.2 : Math.max(1.0, 2.2 - lv * 0.3);
-        ctx.beginPath();
-        ctx.moveTo(x0, y0);
-        ctx.bezierCurveTo((x0 + x1) * 0.5, y0, (x0 + x1) * 0.5, yTrue, x1, yTrue);
-        ctx.stroke();
-
-        ctx.fillStyle = isDark ? '#f8fafc' : '#1e293b';
-        ctx.beginPath();
-        ctx.arc(x0, y0, Math.max(2.5, 5.5 - lv * 0.7), 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Draw nodes at visualDepth
-    const leafVisCount = 1 << visualDepth;
-    for (let k = 0; k < leafVisCount; k++) {
-      const y = topPad + ((k + 0.5) / leafVisCount) * usableH;
-      const isA = k === 0;
-      const isB = !shareStaticSettings && k === pathBLeaf;
-      ctx.fillStyle = isA
-        ? '#22c55e'
-        : isB
-          ? '#38bdf8'
-          : switchCount <= 3
-            ? isDark
-              ? 'rgba(74, 222, 128, 0.45)'
-              : 'rgba(22, 163, 74, 0.45)'
-            : switchCount <= 6
-              ? isDark
-                ? 'rgba(250, 204, 21, 0.55)'
-                : 'rgba(217, 119, 6, 0.55)'
-              : isDark
-                ? 'rgba(248, 113, 113, 0.65)'
-                : 'rgba(220, 38, 38, 0.65)';
-      ctx.beginPath();
-      ctx.arc(rightX, y, isA || isB ? 5.2 : visualDepth >= 5 ? 2.4 : 3.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Instance path badges on the right for clear shareStaticSettings visual feedback
-    const yLeafA = topPad + (0.5 / leafVisCount) * usableH;
-    const yLeafB = topPad + ((pathBLeaf + 0.5) / leafVisCount) * usableH;
-    const drawBranchPill = (bx: number, by: number, text: string, bg: string, border: string) => {
-      ctx.font = '700 10.5px "Noto Sans SC", sans-serif';
-      const w = ctx.measureText(text).width + 14;
-      const clampedY = clamp(by, topPad + 12, H - 22);
-      ctx.fillStyle = bg;
-      ctx.beginPath();
-      ctx.roundRect(bx, clampedY - 11, w, 22, 6);
-      ctx.fill();
-      ctx.strokeStyle = border;
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(text, bx + 7, clampedY + 3.5);
-    };
-
-    if (switchCount <= 5) {
-      if (shareStaticSettings) {
-        drawBranchPill(
-          rightX + 10,
-          yLeafA,
-          '✅ 3 个实例合并共享 1 路',
-          'rgba(21, 128, 61, 0.92)',
-          '#86efac'
-        );
-        drawBranchPill(
-          rightX + 10,
-          yLeafB,
-          '○ 重复分支已归零省编',
-          isDark ? 'rgba(51, 65, 85, 0.72)' : 'rgba(100, 116, 139, 0.72)',
-          'rgba(148, 163, 184, 0.6)'
-        );
-      } else {
-        drawBranchPill(
-          rightX + 10,
-          yLeafA,
-          '🌿 组合 A：酒桶 + 宝珠',
-          'rgba(21, 128, 61, 0.92)',
-          '#86efac'
-        );
-        drawBranchPill(
-          rightX + 10,
-          yLeafB,
-          '🛡️ 组合 B：圆盾独立分叉',
-          'rgba(3, 105, 161, 0.92)',
-          '#7dd3fc'
-        );
-      }
-    }
-
-    // If switchCount > 5 (64 .. 1,024), draw high-density fan burst to right edge!
-    if (switchCount > 5) {
-      const farRightX = W - 18;
-      const fanLines = Math.min(permutations, 192);
-      for (let f = 0; f < fanLines; f++) {
-        const srcIdx = Math.floor((f / fanLines) * leafVisCount);
-        const y0 = topPad + ((srcIdx + 0.5) / leafVisCount) * usableH;
-        const y1 = topPad + ((f + 0.5) / fanLines) * usableH;
-        ctx.strokeStyle =
-          switchCount >= 8
-            ? isDark
-              ? 'rgba(244, 63, 94, 0.52)'
-              : 'rgba(225, 29, 72, 0.45)'
-            : isDark
-              ? 'rgba(251, 146, 60, 0.5)'
-              : 'rgba(234, 88, 12, 0.45)';
-        ctx.lineWidth = 0.9;
-        ctx.beginPath();
-        ctx.moveTo(rightX, y0);
-        ctx.lineTo(farRightX, y1);
-        ctx.stroke();
-      }
-
-      const boxW = 188;
-      const boxX = W - boxW - 12;
-      const boxY = H / 2 - 26;
-      ctx.fillStyle = 'rgba(153, 27, 27, 0.94)';
-      ctx.beginPath();
-      ctx.roundRect(boxX, boxY, boxW, 52, 8);
-      ctx.fill();
-      ctx.strokeStyle = '#fca5a5';
-      ctx.lineWidth = 1.4;
-      ctx.stroke();
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.font = '800 13px "JetBrains Mono", "Noto Sans SC", sans-serif';
-      ctx.fillText(`${permutations.toLocaleString()} 种可能组合!`, boxX + boxW / 2, boxY + 21);
-      ctx.font = '600 10.5px "Noto Sans SC", sans-serif';
-      ctx.fillStyle = '#fde68a';
-      ctx.fillText(
-        shareStaticSettings ? '当前 3 实例已合并为 1 种组合' : '当前 3 实例已分叉出 2 种组合',
-        boxX + boxW / 2,
-        boxY + 40
-      );
-      ctx.textAlign = 'start';
-    }
-  }, [tabMode, switchCount, shareStaticSettings, isDark]);
-
   const handlePropCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = propsCanvasRef.current;
     if (!canvas) return;
@@ -2220,18 +1954,229 @@ const Stage9_3_MasterInstanceWorkbench: React.FC<LessonStageProps> = ({
         </>
       ) : (
         <>
-          <canvas
-            ref={treeCanvasRef}
-            width={680}
-            height={264}
-            style={{
-              width: '100%',
-              height: 'auto',
-              display: 'block',
-              borderRadius: 11,
-              border: '1.5px solid var(--border-strong)',
-            }}
-          />
+          {(() => {
+            const permutations = Math.pow(2, switchCount);
+            const usedCombinations = new Set([0, 0, switchCount > 0 && !shareStaticSettings ? 1 : 0]).size;
+            const visualDepth = Math.min(switchCount, 5);
+            const leafVisCount = 1 << visualDepth;
+            const pathBLeaf = visualDepth > 0 ? 1 << (visualDepth - 1) : 0;
+            const leftX = 48;
+            const rightX = switchCount > 5 ? 450 : 490;
+            const topPad = 14;
+            const usableH = 192;
+            const edges: { d: string; stroke: string; width: number }[] = [];
+            const nodes: { cx: number; cy: number; r: number; fill: string }[] = [];
+
+            if (switchCount > 0) {
+              for (let lv = 0; lv < visualDepth; lv++) {
+                const count = 1 << lv;
+                const x0 = lerp(leftX, rightX, lv / visualDepth);
+                const x1 = lerp(leftX, rightX, (lv + 1) / visualDepth);
+                for (let k = 0; k < count; k++) {
+                  const y0 = topPad + ((k + 0.5) / count) * usableH;
+                  const yFalse = topPad + ((2 * k + 0.5) / (count * 2)) * usableH;
+                  const yTrue = topPad + ((2 * k + 1.5) / (count * 2)) * usableH;
+                  const activeAF = k === 0;
+                  const activeBF = !shareStaticSettings && lv > 0 && k === (1 << (lv - 1));
+                  const activeBT = !shareStaticSettings && lv === 0 && k === 0;
+
+                  edges.push({
+                    d: `M ${x0} ${y0} C ${(x0 + x1) * 0.5} ${y0}, ${(x0 + x1) * 0.5} ${yFalse}, ${x1} ${yFalse}`,
+                    stroke: activeAF
+                      ? '#22c55e'
+                      : activeBF
+                      ? '#38bdf8'
+                      : switchCount <= 3
+                      ? 'rgba(34,197,94,0.36)'
+                      : switchCount <= 6
+                      ? 'rgba(245,158,11,0.38)'
+                      : 'rgba(239,68,68,0.42)',
+                    width: activeAF || activeBF ? 3 : Math.max(1, 2.1 - lv * 0.28),
+                  });
+                  edges.push({
+                    d: `M ${x0} ${y0} C ${(x0 + x1) * 0.5} ${y0}, ${(x0 + x1) * 0.5} ${yTrue}, ${x1} ${yTrue}`,
+                    stroke: activeBT
+                      ? '#38bdf8'
+                      : switchCount <= 3
+                      ? 'rgba(59,130,246,0.32)'
+                      : switchCount <= 6
+                      ? 'rgba(249,115,22,0.36)'
+                      : 'rgba(168,85,247,0.36)',
+                    width: activeBT ? 3 : Math.max(1, 2.1 - lv * 0.28),
+                  });
+                  nodes.push({ cx: x0, cy: y0, r: Math.max(2.5, 5 - lv * 0.6), fill: 'var(--text-primary)' });
+                }
+              }
+              for (let k = 0; k < leafVisCount; k++) {
+                const y = topPad + ((k + 0.5) / leafVisCount) * usableH;
+                const isA = k === 0;
+                const isB = !shareStaticSettings && k === pathBLeaf;
+                nodes.push({
+                  cx: rightX,
+                  cy: y,
+                  r: isA || isB ? 5 : visualDepth >= 5 ? 2.4 : 3.5,
+                  fill: isA ? '#22c55e' : isB ? '#38bdf8' : switchCount <= 3 ? '#4ade80' : switchCount <= 6 ? '#f59e0b' : '#ef4444',
+                });
+              }
+            }
+
+            return (
+              <div
+                style={{
+                  borderRadius: 11,
+                  border: '1.5px solid var(--border-strong)',
+                  background: 'var(--bg-canvas)',
+                  padding: 10,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  userSelect: 'text',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '7px 10px',
+                    borderRadius: 7,
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-strong)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    color:
+                      switchCount <= 3
+                        ? 'var(--accent-sage-deep)'
+                        : switchCount <= 6
+                        ? 'var(--accent-amber-deep)'
+                        : 'var(--accent-coral-deep)',
+                  }}
+                >
+                  组合上限 2^{switchCount} = {permutations.toLocaleString()} 种 ｜ 3 个示例实例实际使用：{usedCombinations} 种组合{' '}
+                  {shareStaticSettings ? '(已合并共享 ✅)' : '(分叉独立)'}
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <svg viewBox="0 0 660 218" style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Static Switch 2^N 组合树">
+                    {switchCount === 0 ? (
+                      <g>
+                        <line x1="64" y1="108" x2="540" y2="108" stroke="#22c55e" strokeWidth="3" />
+                        <circle cx="64" cy="108" r="8" fill="#22c55e" />
+                        <circle cx="540" cy="108" r="8" fill="#22c55e" />
+                      </g>
+                    ) : (
+                      <g>
+                        {edges.map((e, i) => (
+                          <path key={i} d={e.d} fill="none" stroke={e.stroke} strokeWidth={e.width} />
+                        ))}
+                        {switchCount > 5 &&
+                          Array.from({ length: Math.min(permutations, 128) }, (_, f) => {
+                            const srcIdx = Math.floor((f / Math.min(permutations, 128)) * leafVisCount);
+                            const y0 = topPad + ((srcIdx + 0.5) / leafVisCount) * usableH;
+                            const y1 = topPad + ((f + 0.5) / Math.min(permutations, 128)) * usableH;
+                            return (
+                              <line
+                                key={`fan-${f}`}
+                                x1={rightX}
+                                y1={y0}
+                                x2="646"
+                                y2={y1}
+                                stroke={switchCount >= 8 ? 'rgba(244,63,94,0.45)' : 'rgba(249,115,22,0.45)'}
+                                strokeWidth="0.9"
+                              />
+                            );
+                          })}
+                        {nodes.map((n, i) => (
+                          <circle key={`n-${i}`} cx={n.cx} cy={n.cy} r={n.r} fill={n.fill} />
+                        ))}
+                      </g>
+                    )}
+                  </svg>
+
+                  {/* Native selectable HTML labels overlaid cleanly */}
+                  {switchCount === 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        padding: '0 12px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <span>M_Master 母材质</span>
+                      <span>2⁰ = 1 种开关组合 (3 个实例共享)</span>
+                    </div>
+                  )}
+
+                  {switchCount > 0 && switchCount <= 5 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        bottom: 8,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-around',
+                        gap: 6,
+                      }}
+                    >
+                      <span
+                        style={{
+                          padding: '4px 9px',
+                          borderRadius: 6,
+                          background: 'rgba(21,128,61,0.92)',
+                          border: '1px solid #86efac',
+                          color: '#fff',
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {shareStaticSettings ? '✅ 3 个实例合并共享 1 路' : '🌿 组合 A：酒桶 + 宝珠'}
+                      </span>
+                      <span
+                        style={{
+                          padding: '4px 9px',
+                          borderRadius: 6,
+                          background: shareStaticSettings ? 'rgba(71,85,105,0.85)' : 'rgba(3,105,161,0.92)',
+                          border: `1px solid ${shareStaticSettings ? '#94a3b8' : '#7dd3fc'}`,
+                          color: '#fff',
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {shareStaticSettings ? '○ 重复分支已归零省编' : '🛡️ 组合 B：圆盾独立分叉'}
+                      </span>
+                    </div>
+                  )}
+
+                  {switchCount > 5 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        right: 10,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        padding: '9px 14px',
+                        borderRadius: 8,
+                        background: 'rgba(153, 27, 27, 0.94)',
+                        border: '1.5px solid #fca5a5',
+                        color: '#ffffff',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 800 }}>
+                        {permutations.toLocaleString()} 种可能组合!
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#fde68a', marginTop: 3 }}>
+                        {shareStaticSettings ? '当前 3 实例已合并为 1 种组合' : '当前 3 实例已分叉出 2 种组合'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="stage-controls-panel">
             <StageSlider
@@ -2603,69 +2548,14 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
-
-    // Top-left UE 5.8 Viewport & Sampler Meter Badge
-    ctx.fillStyle = 'rgba(16, 16, 18, 0.86)';
-    ctx.beginPath();
-    ctx.roundRect(12, 10, 520, 28, 7);
-    ctx.fill();
-    ctx.fillStyle = isCompileError ? '#fca5a5' : '#86efac';
-    ctx.font = '700 12px "JetBrains Mono", "Noto Sans SC", sans-serif';
-    const modeTitle =
-      viewMode === 'lit'
-        ? '地形彩色成片 (Lit)'
-        : viewMode === 'complexity'
-        ? 'Shader Complexity (Alt+8)'
-        : 'UE 5.8 Substrate 层板分类视图';
-    ctx.fillText(
-      `${modeTitle}  |  已占采样器槽位: ${usedSamplers} / 16 ${
-        samplerSource === 'shared_wrap' ? '(Shared: Wrap 共享 ✅)' : '(引擎3+独立)'
-      }`,
-      22,
-      28
-    );
-
-    // Classic UE [SM5] Exceeded 16 Samplers Compile Failure Banner!
-    if (isCompileError && viewMode === 'lit') {
-      ctx.fillStyle = 'rgba(127, 29, 29, 0.94)';
-      ctx.beginPath();
-      ctx.roundRect(22, 232, 636, 68, 10);
-      ctx.fill();
-      ctx.strokeStyle = '#f87171';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.fillStyle = '#fef2f2';
-      ctx.font = '800 13.5px "JetBrains Mono", monospace';
-      ctx.fillText(
-        `❌ [SM5] Error: Exceeded 16 samplers! (引擎3 + 贴图${totalTextures} = ${usedSamplers} / 16 槽位超限)`,
-        38,
-        256
-      );
-      ctx.fillStyle = '#fde68a';
-      ctx.font = '600 12px "Noto Sans SC", sans-serif';
-      ctx.fillText(
-        '材质编译罢工退化为默认灰棋盘格！👉 请在下方把 Sampler Source 切为 Shared: Wrap 一秒恢复青山绿水！',
-        38,
-        282
-      );
-    } else if (viewMode === 'substrate' || viewMode === 'complexity') {
-      ctx.fillStyle = 'rgba(18, 20, 24, 0.88)';
-      ctx.beginPath();
-      ctx.roundRect(22, 266, 636, 36, 8);
-      ctx.fill();
-      ctx.fillStyle = multiSlabSlowPath ? '#f9a8d4' : '#5eead4';
-      ctx.font = '700 12px "Noto Sans SC", sans-serif';
-      const errPrefix = isCompileError ? '⚠️ [采样器超16槽] ' : '';
-      ctx.fillText(
-        multiSlabSlowPath
-          ? `${errPrefix}多层板慢道：每层独立进 Slab 再强行混合，层板合并复杂度飙升变红/品红！`
-          : `${errPrefix}单层板快道：先混合 ${totalTextures} 张贴图属性，再统一送入 1 个 Substrate Slab！`,
-        34,
-        289
-      );
-    }
   }, [layerMask, samplerSource, viewMode, multiSlabSlowPath, isCompileError, activeLayerCount, totalTextures, usedSamplers]);
+
+  const modeTitle94 =
+    viewMode === 'lit'
+      ? '地形彩色成片 (Lit)'
+      : viewMode === 'complexity'
+      ? 'Shader Complexity (Alt+8)'
+      : 'UE 5.8 Substrate 层板分类视图';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2688,19 +2578,77 @@ const Stage9_4_LandscapeSamplerRescue: React.FC<LessonStageProps> = ({
         />
       )}
 
-      <canvas
-        ref={canvasRef}
-        width={680}
-        height={314}
+      <div
         style={{
-          width: '100%',
-          height: 'auto',
-          display: 'block',
+          position: 'relative',
           borderRadius: 11,
           border: '1.5px solid var(--border-strong)',
+          overflow: 'hidden',
           background: '#141518',
+          userSelect: 'text',
         }}
-      />
+      >
+        <div
+          style={{
+            padding: '7px 12px',
+            background: 'rgba(16, 16, 18, 0.94)',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11.5,
+            fontWeight: 700,
+            color: isCompileError ? '#fca5a5' : '#86efac',
+          }}
+        >
+          {modeTitle94} ｜ 已占采样器槽位: {usedSamplers} / 16{' '}
+          {samplerSource === 'shared_wrap' ? '(Shared: Wrap 共享 ✅)' : '(引擎3+独立)'}
+        </div>
+
+        <canvas
+          ref={canvasRef}
+          width={680}
+          height={272}
+          style={{
+            width: '100%',
+            height: 'auto',
+            display: 'block',
+          }}
+        />
+
+        {isCompileError && viewMode === 'lit' && (
+          <div
+            style={{
+              padding: '9px 12px',
+              background: 'rgba(127, 29, 29, 0.96)',
+              borderTop: '2px solid #f87171',
+            }}
+          >
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 800, color: '#fef2f2' }}>
+              ❌ [SM5] Error: Exceeded 16 samplers! (引擎3 + 贴图{totalTextures} = {usedSamplers} / 16 槽位超限)
+            </div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: '#fde68a', marginTop: 3 }}>
+              材质编译罢工退化为默认灰棋盘格！👉 请在下方把 Sampler Source 切为 Shared: Wrap 一秒恢复青山绿水！
+            </div>
+          </div>
+        )}
+
+        {(viewMode === 'substrate' || viewMode === 'complexity') && (
+          <div
+            style={{
+              padding: '7px 12px',
+              background: 'rgba(18, 20, 24, 0.94)',
+              borderTop: '1px solid rgba(255,255,255,0.1)',
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: multiSlabSlowPath ? '#f9a8d4' : '#5eead4',
+            }}
+          >
+            {isCompileError ? '⚠️ [采样器超16槽] ' : ''}
+            {multiSlabSlowPath
+              ? '多层板慢道：每层独立进 Slab 再强行混合，层板合并复杂度飙升变红/品红！'
+              : `单层板快道：先混合 ${totalTextures} 张贴图属性，再统一送入 1 个 Substrate Slab！`}
+          </div>
+        )}
+      </div>
 
       <div className="stage-controls-panel">
         {/* Layer Toggle Pills */}
