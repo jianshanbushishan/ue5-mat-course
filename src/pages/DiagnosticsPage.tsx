@@ -34,7 +34,11 @@ interface DiagnosticCase {
     | 'multi_slot_drawcall'
     | 'mid_breaks_instancing'
     | 'no_lod_quad_overdraw'
-    | 'blind_opt_wrong_bound';
+    | 'blind_opt_wrong_bound'
+    | 'shader_permutation_explosion'
+    | 'dx12_pso_first_hitch'
+    | 'warp_branch_divergence'
+    | 'ddc_cache_miss_storm';
 }
 
 const CASES: DiagnosticCase[] = [
@@ -262,6 +266,62 @@ const CASES: DiagnosticCase[] = [
     lessonLabel: '9.8 UE 5.8 性能调优实战闭环',
     renderMode: 'blind_opt_wrong_bound',
   },
+  {
+    id: 'diag-17',
+    number: 'CASE 17',
+    difficulty: '进阶',
+    title: '改一个母材质节点，右下角竟弹出 Compiling Shaders (10,752)！',
+    symptom: '明明只是一个普通石砖母材质，稍微改一根节点连线点击 Apply，编辑器左下角就排队编译上万个 Shader，电脑风扇狂转十多分钟。',
+    wrongConfig: '母材质 `Usage` 栏被误勾了骨骼蒙皮、粒子、样条等未用标志，同时堆叠了 6 个以上 `Static Switch` 静态开关。',
+    rootCause: '1 个材质的编译数等于 `VertexFactory(Usage) × Render Passes × Quality × 2^StaticSwitch` 的乘法乘积，每多勾一个无用 Usage 或多加一个静态开关，都会让 `ShaderMap` 呈指数级裂变。',
+    fixPrescription: '打开材质 `Details → Usage`，取消未使用的 `Skeletal Mesh / Niagara / Spline` 勾选并视情况关闭 `Automatically Set Usage in Editor`；合并冗余静态开关（≤2 个）或按大类拆分独立母材质。',
+    mnemonic: 'Usage 勤打扫，静态开关严控数，绝不造万能巨型母材质！',
+    lessonId: 'shader-compile-pipeline-permutations',
+    lessonLabel: '11.1 Shader 编译全链路与变体爆炸',
+    renderMode: 'shader_permutation_explosion',
+  },
+  {
+    id: 'diag-18',
+    number: 'CASE 18',
+    difficulty: '实战',
+    title: '打包时早已编完 Shader，游戏里首次放大招画面却瞬间定格 150ms！',
+    symptom: 'DX12 实机平时稳跑 60+ FPS，但玩家第一次释放火焰大招、第一次推门进新场景或刚升级完显卡驱动时，画面像卡碟一样定格零点几秒；第二次再放就彻底丝滑。',
+    wrongConfig: '未开启 UE 5.8 异步 `PSO Precaching`，也没有配置随包 `Bundled PSO Cache (.spc)` 预热，放任首次遭遇时在渲染线程同步创建 PSO。',
+    rootCause: '出包编完的只是跨硬件字节码（DXIL/SPIR-V）；DX12/Vulkan 首次把字节码与 5 项固定管线状态（Blend/Depth/RT 等）焊成 **PSO** 时，显卡驱动才现场将其译成硬件 ISA 机器码，直接憋死主渲染帧！',
+    fixPrescription: '在项目配置开启 `r.PSOPrecaching=1`（配合 `Share Material Shader Code`），并用 `r.PSOPrecache.Validation=2` + **Unreal Insights** 查清残留的 `CreateGraphicsPipelineState` 尖峰；必要时对关键过场辅以 Bundled `.spc` 预热。',
+    mnemonic: 'Shader 编字节码、PSO 编硬件 ISA；异步 Precaching + 干净驱动实机验收！',
+    lessonId: 'pso-pipeline-state-stutter',
+    lessonLabel: '11.4 PSO 与着色器卡顿终结战',
+    renderMode: 'dx12_pso_first_hitch',
+  },
+  {
+    id: 'diag-19',
+    number: 'CASE 19',
+    difficulty: '实战',
+    title: '材质里塞了一堆动态 If 分支想省算力，像素耗时反而翻倍！',
+    symptom: '想让材质按噪波遮罩把像素分成 A/B 两套公式，刻意用了动态 `If` 节点以为能省一半计算量，结果 `BasePass` GPU 耗时不降反升。',
+    wrongConfig: '在高频碎裂噪波或短算术公式上使用动态分支，导致同一个 32/64 线程 GPU Warp 方阵内像素走向分裂。',
+    rootCause: 'GPU 以 32（Warp）/ 64（Wavefront）像素为一组锁步齐步执行；只要组内同时存在走 A 和走 B 的像素，就会触发 **Branch Divergence（分支发散）**——硬件必须先算完 A（B 组干等），再算完 B（A 组干等），双路耗时叠加！',
+    fixPrescription: '短算术混合一律改用无分支 `Lerp`；逐资产固定开关改用克制的 `Static Switch`；只有分支内含巨昂贵循环/多次采样且大块连续屏幕区域同向时，才用 `[branch]` 动态分支。',
+    mnemonic: '短算术用 Lerp、静态靠开关、碎遮罩动态 If 必发散！',
+    lessonId: 'shader-hardware-opt-warp-vgpr',
+    lessonLabel: '11.6 Warp 锁步、VGPR 占用率与底层优化',
+    renderMode: 'warp_branch_divergence',
+  },
+  {
+    id: 'diag-20',
+    number: 'CASE 20',
+    difficulty: '进阶',
+    title: '新同事拉库或改了一行基础头文件，全组人电脑集体狂转重编两小时！',
+    symptom: '每次新人拉取最新工程，或者有人改动了引擎共享 `.ush` 头文件 / 全局渲染配置后，全团队几十台电脑同时陷入上万个 Shader 的漫长本地重编。',
+    wrongConfig: '团队仅靠单机 Local DDC 单兵作战未架设共享 **Zen Storage Server / Cloud DDC**，或未经 CI 预热就直接提交基础 `.ush` 改动。',
+    rootCause: 'DDC Key 是由资产内容、材质图、依赖 `.ush` 源码和引擎版本共同哈希算出的数字指纹；`Common.ush` 等基础头文件一变，全工程所有材质指纹集体失效，无共享 DDC 时只能每人从头本地重编。',
+    fixPrescription: '架设 UE 5.8 **Zen Storage Server / Unreal Cloud DDC**，由夜间 CI 构建机提前构建写入共享缓存；改动全局 `.ush` 或渲染宏前先通知团队并跑预热；日常在右下角 `Derived Data` 盯紧 95%+ 命中率。',
+    mnemonic: '源资产进库、派生进 Zen DDC；动全局头文件先跑 CI 预热！',
+    lessonId: 'ddc-derived-data-cache',
+    lessonLabel: '11.3 DDC 派生数据缓存机制',
+    renderMode: 'ddc_cache_miss_storm',
+  },
 ];
 
 const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: boolean }> = ({
@@ -283,7 +343,11 @@ const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: b
       mode === 'multi_slot_drawcall' ||
       mode === 'mid_breaks_instancing' ||
       mode === 'no_lod_quad_overdraw' ||
-      mode === 'blind_opt_wrong_bound'
+      mode === 'blind_opt_wrong_bound' ||
+      mode === 'shader_permutation_explosion' ||
+      mode === 'dx12_pso_first_hitch' ||
+      mode === 'warp_branch_divergence' ||
+      mode === 'ddc_cache_miss_storm'
     ) {
       ctx.fillStyle = '#11141c';
       ctx.fillRect(0, 0, w, h);
@@ -406,6 +470,76 @@ const CasePreviewCanvas: React.FC<{ mode: DiagnosticCase['renderMode']; fixed: b
         });
         ctx.fillStyle = fixed ? '#6ee7b7' : '#fcd34d';
         ctx.fillText(fixed ? '对症治 Draw -> 稳跑 72 FPS!' : '只砍 GPU 到 9.4ms，Frame 纹丝不动!', 12, 124);
+      } else if (mode === 'shader_permutation_explosion') {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(fixed ? 'Cleaned Usage + 1 Switch' : '4 Usages x 6 Switches (2^6)', 10, 20);
+        const count = fixed ? 168 : 10752;
+        const barW = fixed ? 14 : 186;
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(14, 38, 192, 24);
+        ctx.fillStyle = fixed ? '#10b981' : '#ef4444';
+        ctx.fillRect(14, 38, barW, 24);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`${count.toLocaleString()} Shaders`, 20, 54);
+
+        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
+        ctx.fillText(fixed ? 'SCW 1.2s · ShaderMap 2.4MB' : 'Compiling Shaders... 74s+!', 14, 86);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(fixed ? 'Only ISM Usage kept ✓' : 'Skel + Niagara + Spline bloated!', 14, 108);
+      } else if (mode === 'dx12_pso_first_hitch') {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(fixed ? 'r.PSOPrecaching=1 (Async)' : 'DX12 Sync PSO Create Hitch!', 10, 18);
+        // 16.7ms budget line
+        ctx.strokeStyle = 'rgba(239,68,68,0.7)';
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(10, 92);
+        ctx.lineTo(w - 10, 92);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (let i = 0; i < 24; i++) {
+          const isSpike = !fixed && i === 12;
+          const bh = isSpike ? 78 : 16 + (i % 3) * 3;
+          ctx.fillStyle = isSpike ? '#ef4444' : '#10b981';
+          ctx.fillRect(12 + i * 8, 108 - bh, 6, bh);
+        }
+        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
+        ctx.fillText(fixed ? 'Peak 16.2ms · Zero Stutter ✓' : 'Peak 148ms · Frame Freeze!', 12, 124);
+      } else if (mode === 'warp_branch_divergence') {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(fixed ? 'Lerp / Coherent Warp (1x)' : 'Divergent If Warp (A + B = 2x!)', 10, 18);
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 8; c++) {
+            const x = 18 + c * 23;
+            const y = 28 + r * 18;
+            ctx.fillStyle = fixed ? '#10b981' : (c + r) % 2 === 0 ? '#38bdf8' : '#ef4444';
+            ctx.fillRect(x, y, 19, 14);
+          }
+        }
+        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
+        ctx.fillText(fixed ? '32 Threads Lockstep · Fast ✓' : 'Half Masked Waiting · 2x Cycles!', 12, 118);
+      } else if (mode === 'ddc_cache_miss_storm') {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(fixed ? 'Zen Shared DDC Hit: 99.2%' : 'Local Only / .ush Miss: 0%!', 10, 20);
+        const tiers = [
+          { lbl: 'L1 Local', ok: false, col: '#10b981' },
+          { lbl: 'L2 Zen', ok: fixed, col: '#38bdf8' },
+          { lbl: 'L3 SCW', ok: !fixed, col: '#ef4444' },
+        ];
+        tiers.forEach((t, idx) => {
+          const x = 12 + idx * 67;
+          ctx.fillStyle = t.ok ? t.col : 'rgba(255,255,255,0.08)';
+          ctx.fillRect(x, 38, 60, 40);
+          ctx.fillStyle = t.ok ? '#fff' : '#64748b';
+          ctx.fillText(t.lbl, x + 6, 56);
+          ctx.fillText(t.ok ? (fixed ? 'HIT!' : 'MISS!') : '—', x + 6, 70);
+        });
+        ctx.fillStyle = fixed ? '#6ee7b7' : '#fca5a5';
+        ctx.fillText(fixed ? 'Team Pull Ready in 18s ✓' : 'Everyone Recompiling 42 min!', 12, 114);
       }
       return;
     }

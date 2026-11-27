@@ -5,6 +5,7 @@ import { modules05_06 } from './modules05_06';
 import { modules07_08 } from './modules07_08';
 import { module09 } from './module09';
 import { module10 } from './module10';
+import { module11 } from './module11PsoDebug';
 
 import { capstone } from './capstone';
 
@@ -15,6 +16,7 @@ export const ALL_MODULES: ModuleDefinition[] = [
   ...modules07_08,
   module09,
   module10,
+  module11,
   capstone,
 ];
 

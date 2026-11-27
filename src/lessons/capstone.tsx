@@ -163,10 +163,114 @@ function PerfAcceptanceStage({ onKpiUpdate, resetSignal }: LessonStageProps) {
   );
 }
 
+function ShaderAuditAcceptanceStage({ onKpiUpdate, resetSignal }: LessonStageProps) {
+  const [usageCleaned, setUsageCleaned] = useState(false);
+  const [psoPrecacheOn, setPsoPrecacheOn] = useState(false);
+  const [mathFixed, setMathFixed] = useState(false);
+  const [debugFlagsRestored, setDebugFlagsRestored] = useState(false);
+
+  useEffect(() => {
+    setUsageCleaned(false);
+    setPsoPrecacheOn(false);
+    setMathFixed(false);
+    setDebugFlagsRestored(false);
+  }, [resetSignal]);
+
+  const shaderCount = usageCleaned ? 168 : 1120;
+  const psoPeakMs = psoPrecacheOn ? 15.9 : 138.4;
+  const basePassInstr = !debugFlagsRestored ? 264 : mathFixed ? 112 : 148;
+  const ddcHitPct = usageCleaned ? 98.6 : 94.2;
+
+  useEffect(() => {
+    onKpiUpdate([
+      {
+        label: 'M_Panel 变体编译数',
+        value: `${shaderCount} 个`,
+        tone: shaderCount <= 250 ? 'good' : 'bad',
+      },
+      {
+        label: '首见 PSO 帧耗时峰值',
+        value: `${psoPeakMs} ms`,
+        tone: psoPeakMs <= 16.67 ? 'good' : 'bad',
+      },
+      {
+        label: 'BasePass 估算指令',
+        value: `${basePassInstr} 条`,
+        tone: debugFlagsRestored && mathFixed ? 'good' : !debugFlagsRestored ? 'bad' : 'warn',
+      },
+      {
+        label: 'DDC 缓存命中率',
+        value: `${ddcHitPct}%`,
+        tone: 'good',
+      },
+    ]);
+  }, [shaderCount, psoPeakMs, basePassInstr, ddcHitPct, debugFlagsRestored, mathFixed, onKpiUpdate]);
+
+  return (
+    <div className="practice-stage">
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 10,
+          padding: 12,
+          borderRadius: 10,
+          background: 'var(--bg-card)',
+          border: '1.5px solid var(--border-strong)',
+        }}
+      >
+        <div>
+          <strong style={{ fontSize: 12.5 }}>🔬 模拟 UE 5.8 编译 / PSO / RenderDoc 验收读数</strong>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, marginTop: 6 }}>
+            <div>Platform Stats · Shaders: <b style={{ color: usageCleaned ? 'var(--accent-sage-deep)' : 'var(--accent-coral-deep)' }}>{shaderCount}</b></div>
+            <div>Platform Stats · BasePass: <b>{basePassInstr} instr</b></div>
+            <div>Insights · PSO Peak     : <b style={{ color: psoPrecacheOn ? 'var(--accent-sage-deep)' : 'var(--accent-coral-deep)' }}>{psoPeakMs} ms</b></div>
+            <div>RenderDoc · NaN Check   : <b style={{ color: mathFixed ? 'var(--accent-sage-deep)' : 'var(--accent-coral-deep)' }}>{mathFixed ? '0 NaN (Clean)' : 'NaN 风险 / pow 未简'}</b></div>
+          </div>
+        </div>
+        <div>
+          <strong style={{ fontSize: 12.5 }}>✅ 工程上线四关核对项</strong>
+          <div style={{ fontSize: 12, lineHeight: 1.75, marginTop: 6, color: 'var(--text-secondary)' }}>
+            <div>{usageCleaned ? '✅' : '⬜'} 已审计并清理 M_Panel 冗余 Usage Flags</div>
+            <div>{mathFixed ? '✅' : '⬜'} RenderDoc 验收无 NaN，且 pow/标量已瘦身</div>
+            <div>{psoPrecacheOn ? '✅' : '⬜'} 开启 r.PSOPrecaching=1 并用 Insights 验过无尖峰</div>
+            <div>{debugFlagsRestored ? '✅' : '⬜'} 排错结束已还原 Optimize=1 并关闭调试符号导出</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <StageToggle
+          label="① 清理冗余 Material Usage Flags（取消未用骨骼/粒子勾选）"
+          checked={usageCleaned}
+          onChange={setUsageCleaned}
+        />
+        <StageToggle
+          label="② RenderDoc 抓帧验证无 NaN，并用 x*x 替代 pow(x,2) 完成数学瘦身"
+          checked={mathFixed}
+          onChange={setMathFixed}
+        />
+        <StageToggle
+          label="③ 开启 r.PSOPrecaching=1 与 Validation=2，清空驱动缓存实测无尖峰"
+          checked={psoPrecacheOn}
+          onChange={setPsoPrecacheOn}
+        />
+        <StageToggle
+          label="④ 还原本地 ConsoleVariables.ini（恢复 r.Shaders.Optimize=1，关闭 Dump）"
+          checked={debugFlagsRestored}
+          onChange={setDebugFlagsRestored}
+        />
+      </div>
+
+      <p>提示：请务必在真实 UE 5.8 工程中完成四项实操并留存 `Platform Stats`、RenderDoc 抓帧与 Unreal Insights 截图，切勿将本地调试开关提交到团队代码库。</p>
+    </div>
+  );
+}
+
 export const capstone: ModuleDefinition = {
-  id: '11', number: '11', title: '综合练习与关卡验收', subtitle: '检验板制作验收 + 大规模阵列性能调优实战',
+  id: '12', number: '12', title: '综合练习与关卡验收', subtitle: '检验板制作验收 + 阵列性能调优 + Shader/PSO/RenderDoc 工程验收',
   lessons: [{
-    id: 'panel-project-acceptance', moduleId: '11', number: '11.1', title: '从空工程到关卡验收 —— 漆面与金属检验板',
+    id: 'panel-project-acceptance', moduleId: '12', number: '12.1', title: '从空工程到关卡验收 —— 漆面与金属检验板',
     subtitle: '用同一套可下载贴图完成导入、材质、实例、关卡打光和平台统计，并保存可重开的关卡。',
     duration: '30–45 分钟', difficulty: '实战', StageComponent: PanelPractice,
     steps: [
@@ -206,8 +310,8 @@ export const capstone: ModuleDefinition = {
   },
   {
     id: 'panel-perf-tuning-acceptance',
-    moduleId: '11',
-    number: '11.2',
+    moduleId: '12',
+    number: '12.2',
     title: '关卡性能实战验收 —— 200 块检验板的实例化合批、LOD 减负与 ProfileGPU 验收',
     subtitle: '把 9.5~9.8 的全链路性能功法落到真实 UE 5.8 工程：造出卡顿基线、完成 HISM/CPD/LOD 改造并产出量化验收单',
     duration: '30–40 分钟',
@@ -220,7 +324,7 @@ export const capstone: ModuleDefinition = {
         shortLabel: '录卡顿基线',
         title: '搭出 200 块独立检验板阵列，固定机位记录改造前基线',
         paragraphs: [
-          '复用 11.1 的关卡 `L_PanelCheck`（另存一份 `L_PanelPerfTest`），先故意制造一个典型“反面教材”场景：用蓝图或编辑器复制出 `200` 个独立静态网格 Actor 摆成阵列，并给每个检验板在 `Construction Script` 中单独创建 `Dynamic Material Instance (MID)` 随机修改 `RoughnessScale`。',
+          '复用 12.1 的关卡 `L_PanelCheck`（另存一份 `L_PanelPerfTest`），先故意制造一个典型“反面教材”场景：用蓝图或编辑器复制出 `200` 个独立静态网格 Actor 摆成阵列，并给每个检验板在 `Construction Script` 中单独创建 `Dynamic Material Instance (MID)` 随机修改 `RoughnessScale`。',
           '在能俯瞰整片阵列的位置按 `Ctrl + 1` 保存固定书签机位，输入 `t.MaxFPS 0` 解除帧率锁限，依次输入 `stat unit`、`stat scenerendering` 并按 `Ctrl + Shift + ,` 跑一次 `ProfileGPU`。截图记下改造前的 `Frame / Draw / GPU (ms)` 与 `Mesh draw calls` 作为基线。',
         ],
         tryItPrompt: '在上方模拟器保持「① 独立 Actor + MID (改造前)」，观察 Draw Call 与 Draw 线程如何冲高，然后在你的 UE 5.8 关卡中复现并记录改造前读数。',
@@ -277,7 +381,7 @@ export const capstone: ModuleDefinition = {
     ],
     schematic: {
       title: 'M_Panel 性能升级版接线（PerInstance + CustomData + QualitySwitch）',
-      caption: '在 11.1 基础检验板材质上零破批接入实例化随机色差、自定义浮点覆写与画质分级，供 HISM 阵列 1 次 Draw Call 共享。',
+      caption: '在 12.1 基础检验板材质上零破批接入实例化随机色差、自定义浮点覆写与画质分级，供 HISM 阵列 1 次 Draw Call 共享。',
       nodes: [
         { id: 'pr', title: 'PerInstanceRandom', subtitle: '0~1 逐实例随机', category: 'input', x: 14, y: 16, width: 176, outputs: [{ id: 'r', label: 'Random' }] },
         { id: 'cd', title: 'PerInstanceCustomData', subtitle: 'Index = 0 (Rough倍率)', category: 'param', x: 14, y: 120, width: 176, outputs: [{ id: 'v', label: 'Float[0]' }] },
@@ -292,6 +396,97 @@ export const capstone: ModuleDefinition = {
         { fromNode: 'orm', fromPin: 'g', toNode: 'mul', toPin: 'b', color: '#eab308' },
         { fromNode: 'qs', fromPin: 'c', toNode: 'root', toPin: 'bc', color: '#22c55e' },
         { fromNode: 'mul', fromPin: 'o', toNode: 'root', toPin: 'rg', color: '#eab308' },
+      ],
+    },
+  },
+  {
+    id: 'panel-shader-pso-debug-acceptance',
+    moduleId: '12',
+    number: '12.3',
+    title: 'Shader 编译审计、PSO Precaching 验证与 RenderDoc 抓帧实操验收',
+    subtitle: '把第 11 章的 HLSL 源码对照、Usage 瘦身、DDC 检查、PSO 预热验收与 RenderDoc 单步调试完整落到真实 UE 5.8 工程',
+    duration: '30–40 分钟',
+    difficulty: '实战',
+    StageComponent: ShaderAuditAcceptanceStage,
+    steps: [
+      {
+        stepNumber: 1,
+        tag: 'phenomenon',
+        shortLabel: '查 HLSL 与变体',
+        title: '掀开 M_Panel 盖子对照 HLSL 源码，记录 Usage Flags 与编译变体基线',
+        paragraphs: [
+          '打开 12.1 / 12.2 制作的母材质 `M_Panel`，点击顶部菜单 **`Window → Shader Code → HLSL Code`**，按 `Ctrl + F` 搜索 `CalcPixelMaterialInputs`，对照找出你的 `Panel_ORM` 采样与 `RoughnessScale` 乘法对应的真实 HLSL 语句。',
+          '再打开左侧 Details 面板搜索 `Usage`，故意勾选 `Used with Skeletal Mesh` 与 `Used with Niagara Sprites` 点一次 Apply（观察右下角编译任务数暴涨），用控制台 `stat shadercompiling` 与 `Platform Stats` 记下改造前变体基线。',
+        ],
+        tryItPrompt: '对照上方模拟器未勾选前的基线读数，在你的 UE 5.8 工程中完成 `HLSL Code` 对照与 `Usage` 变体膨胀记录。',
+      },
+      {
+        stepNumber: 2,
+        tag: 'background',
+        shortLabel: 'Usage 瘦身与 DDC',
+        title: '清理冗余 Usage Flags，验证 DDC 缓存命中率与 MI 零重编特性',
+        paragraphs: [
+          '在 `M_Panel` 的 `Usage` 栏取消用不到的 `Skeletal Mesh`、`Niagara`、`Spline` 勾选（仅保留 12.2 实际用到的 `Instanced Static Meshes`），必要时关闭 `Automatically Set Usage in Editor` 防止手滑误勾，再次 Apply 并记录变体数暴跌幅度。',
+          '点击 UE 5.8 编辑器右下角 **`Derived Data`** 状态菜单，记录当前的 `Total Cache Hit Rate`（Local / Zen 命中情况）；随后打开 `MI_Panel` 反复滑动 `RoughnessScale`，验证 DDC Key 不变、编译计数保持 `0`。',
+        ],
+        tryItPrompt: '勾选模拟器中的「① 清理冗余 Material Usage Flags」，核对变体数量收敛幅度，并在编辑器右下角检查 Derived Data 命中率。',
+      },
+      {
+        stepNumber: 3,
+        tag: 'experiment',
+        shortLabel: 'RenderDoc 抓帧',
+        title: '用 RenderDoc 抓帧查看 GBuffer 原值，完成 NaN 防护与数学瘦身验收',
+        paragraphs: [
+          '在 `Edit → Plugins` 中确认启用官方 **RenderDoc** 插件并重启编辑器。在副本材质 `M_Panel_DebugTest` 中故意接入一个 `Power(Roughness, 2.0)`（或零向量 `Normalize` 触发黑块 NaN），在关卡视口按下 **`Alt + F12`**（或点右上角 RenderDoc 图标）抓取一帧。',
+          '在 RenderDoc 中打开抓帧档案：找到 `BasePass` 中绘制 `Panel` 的 Draw Call，查看 `GBufferA (WorldNormal)` 与 `SceneColor` 像素吸色值并点开 `Pixel History`。定位问题后，回到材质用 `Multiply(x, x)` 替换 `Power(x, 2)`、用 `SafeNormalize` / `Saturate` 封死除零，再在 `Platform Stats` 核对指令数下降。',
+        ],
+        tryItPrompt: '勾选模拟器中的「② RenderDoc 抓帧验证无 NaN 与数学瘦身」，在本地 RenderDoc 中完成一次真实 GBuffer 吸色与 Pixel History 查看。',
+      },
+      {
+        stepNumber: 4,
+        tag: 'ue5',
+        shortLabel: 'PSO 预热验收',
+        title: '核对 r.PSOPrecaching 与 Shared Shader Code，用 Unreal Insights 抓实机验证',
+        paragraphs: [
+          '打开 `Project Settings → Rendering`，确认已勾选 **`Share Material Shader Code`** 与 **`Shared Material Native Libraries`**，并确认 **`r.PSOPrecaching=1`** 开启（可在测试时额外加 `r.PSOPrecache.Validation=2` 配合控制台 `stat pso` 观察预编译队列）。',
+          '以 Standalone / 打包版本启动 `L_PanelPerfTest`（附加命令行 `-trace=default,gpu,rhicommands`；若需严格复现首次进图，测试前清空显卡驱动着色器缓存），在 **Unreal Insights** 中检查 RHI 线程是否存在明显的 `CreateGraphicsPipelineState` 卡顿长条。',
+        ],
+        tryItPrompt: '勾选模拟器中的「③ 开启 r.PSOPrecaching=1」，观察首见 PSO 帧耗时峰值从 138ms 回落至 16ms 红线内。',
+      },
+      {
+        stepNumber: 5,
+        tag: 'pitfall',
+        shortLabel: '还原开关并归档',
+        title: '检查还原本地调试开关，输出最终工程验收单，圆满收官全套课程！',
+        paragraphs: [
+          '如果步骤 3 为了在 RenderDoc 看源码级 HLSL 而修改过本地 `ConsoleVariables.ini`（开启过 `r.Shaders.Optimize=0`、`r.Shaders.Symbols=1`、`r.DumpShaderDebugInfo=1`），**验收最后一步务必全部注释还原**，防止拖垮运行期指令数与塞满硬盘！',
+          '执行 `Save All`，将四项量化数据（Usage 瘦身前后变体数、DDC 命中率、PSO 预热验证截图、RenderDoc 与 Platform Stats 指令对比）归档。🎉 至此，你已圆满打通 **《UE 5.8 材质与 Shader 工程全栈教程》全部 12 大模块**，从零基础光学常识一路成长为能独当一面的 UE 5.8 材质与渲染工程实战者！',
+        ],
+        tryItPrompt: '勾选「④ 还原本地 ConsoleVariables.ini」，确认上方四项工程上线核对全部亮绿 ✅！',
+      },
+    ],
+    takeaways: [
+      '养成通过 `HLSL Code`、`Platform Stats` 与 `Usage Flags` 定期审计母材质变体数的工程习惯',
+      '通过编辑器右下角 `Derived Data` 监控 DDC 命中率，避免无意修改基础 `.ush` 引发全组重编',
+      '熟练用 RenderDoc（`Alt + F12`）查 `GBuffer` 原值与 `Pixel History`，并在发版前用 `r.PSOPrecaching=1` + Unreal Insights 消灭 PSO 尖峰',
+      '本地开启过 `r.Shaders.Optimize=0` / `Symbols=1` / `DumpShaderDebugInfo=1` 后，排错结束必须立刻还原',
+    ],
+    schematic: {
+      title: 'UE 5.8 Shader 工程上线四关验收闭环（编译 → DDC → RenderDoc → PSO）',
+      caption: '在真实 `M_Panel` 工程上串联第 11 章四大工具链，完成从变体瘦身到零卡顿发版的闭环验收。',
+      nodes: [
+        { id: 'u', title: '1. HLSL & Usage 审计', subtitle: '清冗余 Usage · 控 StaticSwitch', category: 'param', x: 16, y: 74, width: 184, outputs: [{ id: 'o', label: '精简 ShaderMap', color: '#38bdf8' }] },
+        { id: 'd', title: '2. DDC 命中核验', subtitle: 'Derived Data 95%+ · MI 零重编', category: 'texture', x: 234, y: 74, width: 186, inputs: [{ id: 'i', label: '变体产物', color: '#38bdf8' }], outputs: [{ id: 'o', label: '字节码复用', color: '#10b981' }] },
+        { id: 'r', title: '3. RenderDoc 抓帧单步', subtitle: 'Alt+F12 · 查 NaN & 数学瘦身', category: 'math', x: 454, y: 24, width: 192, inputs: [{ id: 'i', label: '单帧 Capture', color: '#10b981' }], outputs: [{ id: 'o', label: '无毒高能 Shader', color: '#a855f7' }] },
+        { id: 'p', title: '4. PSO Precaching 实测', subtitle: 'r.PSOPrecaching=1 + Insights', category: 'pipeline', x: 454, y: 146, width: 192, inputs: [{ id: 'i', label: '清驱动缓存验机', color: '#10b981' }], outputs: [{ id: 'o', label: '零 150ms 尖峰', color: '#f59e0b' }] },
+        { id: 'ok', title: '还原调试开关 · 准予发版', subtitle: 'Optimize=1 · Save All 归档', category: 'output', x: 686, y: 80, width: 186, inputs: [{ id: 'a', label: '画质/指令达标', color: '#a855f7' }, { id: 'b', label: '帧率丝滑达标', color: '#f59e0b' }] },
+      ],
+      edges: [
+        { fromNode: 'u', fromPin: 'o', toNode: 'd', toPin: 'i', color: '#38bdf8' },
+        { fromNode: 'd', fromPin: 'o', toNode: 'r', toPin: 'i', color: '#10b981' },
+        { fromNode: 'd', fromPin: 'o', toNode: 'p', toPin: 'i', color: '#10b981' },
+        { fromNode: 'r', fromPin: 'o', toNode: 'ok', toPin: 'a', color: '#a855f7' },
+        { fromNode: 'p', fromPin: 'o', toNode: 'ok', toPin: 'b', color: '#f59e0b' },
       ],
     },
   }],

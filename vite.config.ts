@@ -11,6 +11,7 @@ export default defineConfig({
           if (id.includes('modules01_02') || id.includes('modules03_04')) return 'lessons-part1';
           if (id.includes('modules05_06') || id.includes('modules07_08')) return 'lessons-part2';
           if (id.includes('module09Perf')) return 'lessons-perf';
+          if (id.includes('module11')) return 'lessons-shader-pipeline';
           if (id.includes('module09') || id.includes('module10')) return 'lessons-part3';
         },
       },

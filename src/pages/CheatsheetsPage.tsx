@@ -253,6 +253,45 @@ const INSTANCING_LOD_MATRIX = [
   },
 ];
 
+const SHADER_PIPELINE_MATRIX = [
+  {
+    stage: '材质编译 & 变体审计',
+    cmd: 'Window → HLSL Code / stat shadercompiling',
+    focus: 'Usage Flags × Pass × 2^StaticSwitch 变体数',
+    tip: '取消未用 Skeletal/Niagara/Spline Usage，禁用意外自动勾选，用 UBA 农场提速。',
+  },
+  {
+    stage: '中间表示 (IR) 生态对照',
+    cmd: 'DX12→DXIL · Vulkan→SPIR-V · Metal→AIR',
+    focus: '前端常量折叠/DCE → 标准字节码 → 驱动译 ISA',
+    tip: '引擎打包只编到字节码 IR，真正硬件 ISA（SASS/RDNA）由玩家显卡驱动生成。',
+  },
+  {
+    stage: 'DDC 派生缓存架构',
+    cmd: '右下角 Derived Data / Zen Storage / Cloud DDC',
+    focus: 'Total Cache Hit Rate ≥ 95% · DDC Key 哈希',
+    tip: '源资产进 Git/P4，派生数据进 DDC；改动 Common.ush 前先由夜间 CI 预热。',
+  },
+  {
+    stage: 'PSO 异步预热与治卡',
+    cmd: 'r.PSOPrecaching=1 / r.PSOPrecache.Validation=2 / stat pso',
+    focus: 'Insights 查 RHI 线程 CreateGraphicsPipelineState',
+    tip: '清本机显卡驱动缓存后跑实机验收；过场动画可叠加 Bundled .spc 双保险。',
+  },
+  {
+    stage: 'Shader 源码级调试与抓帧',
+    cmd: 'RenderDoc (Alt+F12) / r.Shaders.Symbols=1 / Optimize=0',
+    focus: 'GBuffer 原值 · Pixel History · NaN 毒像素单步',
+    tip: '用 SafeNormalize 与 max(x,1e-4) 防 NaN；排错完毕务必还原 Optimize=1！',
+  },
+  {
+    stage: 'Warp 分支与 VGPR 硬件优化',
+    cmd: 'AMD RGP / NVIDIA Nsight Graphics',
+    focus: '32/64 线程锁步发散 · VGPR 占用率 (Occupancy)',
+    tip: '短算术用 Lerp、静态用 Static Switch；x*x 替 pow(x,2)、善用 Half 精度减寄存器。',
+  },
+];
+
 const CHECKLIST_ITEMS = [
   '按文件编码设置颜色图的 sRGB；ORM、法线、高度按线性数据读取。',
   '需要常规流送的纹理使用二次幂尺寸；非二次幂图另查 Mip Gen Settings，计划做 BC 压缩时顶层宽高按 4 对齐。',
@@ -268,6 +307,10 @@ const CHECKLIST_ITEMS = [
   '海量同类物件已用 HISM / ISM / Nanite 组织，批量差异化改参采用 PerInstanceRandom / CustomData / CPD，未循环批量建 MID。',
   '非 Nanite 网格已配置按 Screen Size 切换的多级 LOD，远景 LOD 已简化材质槽并关闭 WPO（且设好 WPO Disable Distance），Quad Overdraw 无异常白块。',
   '已在固定机位、解除锁帧下实测记录 stat unit（Game / Draw / GPU）、Mesh draw calls 与 ProfileGPU，确认无木桶短板超标。',
+  '已清理母材质中未使用的 Material Usage Flags（如误勾的 Skeletal / Niagara / Spline），控制 ShaderMap 变体数量。',
+  '团队已验证 Zen / Shared DDC 命中率正常（≥95%），未将 Saved / Intermediate / Local DDC 误提交进版本库。',
+  '发版工程已启用 Share Material Shader Code 与 r.PSOPrecaching=1，并在清空驱动缓存后经 Unreal Insights 验收无明显 PSO 卡顿尖峰。',
+  '已用 RenderDoc / SafeNormalize 排查潜在 NaN 毒像素与高频动态 If 分支发散，且本地排错后已还原 r.Shaders.Optimize=1 并关闭调试符号导出。',
 ];
 
 const SECTION_ANCHORS = [
@@ -277,7 +320,8 @@ const SECTION_ANCHORS = [
   { id: 'sheet-pbr', label: '04 PBR 物理参考值' },
   { id: 'sheet-recipes', label: '05 效果实现配方' },
   { id: 'sheet-perf', label: '06 性能、实例化与 LOD 决策' },
-  { id: 'sheet-checklist', label: '07 上线 14 项自检单' },
+  { id: 'sheet-shader-pipe', label: '07 编译、IR、DDC、PSO 与调试' },
+  { id: 'sheet-checklist', label: '08 上线 18 项自检单' },
 ];
 
 export const CheatsheetsPage: React.FC = () => {
@@ -529,13 +573,43 @@ export const CheatsheetsPage: React.FC = () => {
           </div>
         </section>
 
-        {/* Section 07: Interactive Pre-Flight Checklist */}
+        {/* Section 07: Shader Compilation, IR, DDC, PSO & Hardware Debug/Opt Matrix */}
+        <section id="sheet-shader-pipe" className="sheet-section">
+          <h2 className="sheet-section-title">
+            <span className="sheet-section-num">07</span>
+            Shader 编译、中间表示（IR）、DDC、PSO 与底层调试优化速查矩阵
+          </h2>
+          <div className="sheet-table-wrap">
+            <table className="sheet-table">
+              <thead>
+                <tr>
+                  <th>工程环节</th>
+                  <th>核心命令 / 格式 / 工具</th>
+                  <th>重点关注指标</th>
+                  <th>生产级实战口诀</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SHADER_PIPELINE_MATRIX.map((row, idx) => (
+                  <tr key={idx}>
+                    <td style={{ fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>{row.stage}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--brand-primary)', fontWeight: 600 }}>{row.cmd}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>{row.focus}</td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{row.tip}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Section 08: Interactive Pre-Flight Checklist */}
         <section id="sheet-checklist" className="sheet-section">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
             <div>
               <h2 className="sheet-section-title" style={{ marginBottom: 4 }}>
-                <span className="sheet-section-num">07</span>
-                生产级母材质与关卡性能提交前 14 项自检清单
+                <span className="sheet-section-num">08</span>
+                生产级母材质、渲染性能与 Shader/PSO 提交前 {CHECKLIST_ITEMS.length} 项自检清单
                 <span className={`meta-pill ${doneCount === CHECKLIST_ITEMS.length ? 'sage' : 'neutral'}`}>
                   {doneCount} / {CHECKLIST_ITEMS.length} · {donePct}%
                 </span>
